@@ -58,9 +58,14 @@ const partyRoles = [
   { name: 'Release', Icon: Rocket, color: 'release' },
 ] as const;
 
-function Expedition({ count, status }: { count: number; status: string }) {
+function Expedition({ quest, open }: { quest: Quest; open: () => void }) {
   return (
-    <span className={`expedition${count ? ' underway' : ''}`}>
+    <button
+      className="expedition"
+      aria-label={`이슈 #${quest.number} 파티 · ${quest.title}`}
+      title={quest.title}
+      onClick={open}
+    >
       <ChevronUp className="expedition-route" size={17} aria-hidden="true" />
       <span className="expedition-party" aria-hidden="true">
         {partyRoles.map(({ name, Icon, color }) => (
@@ -69,8 +74,8 @@ function Expedition({ count, status }: { count: number; status: string }) {
           </span>
         ))}
       </span>
-      <small>{count > 0 ? `파티 출정 · 이슈 ${count}개` : status}</small>
-    </span>
+      <small>이슈 #{quest.number}</small>
+    </button>
   );
 }
 
@@ -487,7 +492,10 @@ function App() {
   const [token, storeToken] = useState('');
   const [snapshots, setSnapshots] = useState<Record<string, Snapshot>>({});
   const [selected, setSelected] = useState<Region>();
-  const [questNumber, setQuestNumber] = useState<number>();
+  const [selectedQuest, setSelectedQuest] = useState<{
+    region: Region;
+    number: number;
+  }>();
   const [revision, refresh] = useState(0);
   const [loading, setLoading] = useState(true);
   const [showConnect, setShowConnect] = useState(false);
@@ -537,25 +545,25 @@ function App() {
     if (value === token) return;
     storeToken(value);
     setSnapshots({});
-    setQuestNumber(undefined);
+    setSelectedQuest(undefined);
     setLoading(true);
   }
 
   function select(region: Region) {
     setSelected(region);
-    setQuestNumber(undefined);
+    setSelectedQuest(undefined);
   }
 
-  const activeCounts = Object.fromEntries(
+  const activeQuests = Object.fromEntries(
     regions.map(({ id }) => [
       id,
-      snapshots[id]?.report?.quests.filter(({ stage }) =>
+      (snapshots[id]?.report?.quests ?? []).filter(({ stage }) =>
         activeStages.has(stage),
-      ).length ?? 0,
+      ),
     ]),
   );
-  const active = Object.values(activeCounts).reduce(
-    (sum, count) => sum + count,
+  const active = Object.values(activeQuests).reduce(
+    (sum, quests) => sum + quests.length,
     0,
   );
   const rescue = regions
@@ -573,9 +581,9 @@ function App() {
     .sort()
     .at(-1);
   const quest =
-    selected &&
-    snapshots[selected.id]?.report?.quests.find(
-      ({ number }) => number === questNumber,
+    selectedQuest &&
+    snapshots[selectedQuest.region.id]?.report?.quests.find(
+      ({ number }) => number === selectedQuest.number,
     );
 
   return (
@@ -600,38 +608,51 @@ function App() {
         <section className="map-viewport" aria-label="저장소 왕국">
           <div className="kingdoms">
             {regions.map((region) => (
-              <button
-                key={region.id}
-                className={`kingdom ${region.theme}`}
-                onClick={() => select(region)}
-              >
-                <span className="kingdom-land" aria-hidden="true">
-                  <Castle size={34} strokeWidth={1.5} />
-                </span>
-                <span className="kingdom-label">
-                  <strong>{region.name}</strong>
-                  <small>{region.title}</small>
-                  {snapshots[region.id]?.report?.quests.some(({ stage }) =>
-                    alerts.has(stage),
-                  ) && (
-                    <TriangleAlert
-                      className="kingdom-alert"
-                      size={16}
-                      aria-label="구조 요청 있음"
-                    />
-                  )}
-                </span>
-                <Expedition
-                  count={activeCounts[region.id]}
-                  status={
-                    snapshots[region.id]?.report
+              <div className={`kingdom-area ${region.theme}`} key={region.id}>
+                <button className="kingdom" onClick={() => select(region)}>
+                  <span className="kingdom-land" aria-hidden="true">
+                    <Castle size={34} strokeWidth={1.5} />
+                  </span>
+                  <span className="kingdom-label">
+                    <strong>{region.name}</strong>
+                    <small>{region.title}</small>
+                    {snapshots[region.id]?.report?.quests.some(({ stage }) =>
+                      alerts.has(stage),
+                    ) && (
+                      <TriangleAlert
+                        className="kingdom-alert"
+                        size={16}
+                        aria-label="구조 요청 있음"
+                      />
+                    )}
+                  </span>
+                </button>
+                {activeQuests[region.id].length ? (
+                  <ul
+                    className="expeditions"
+                    aria-label={`${region.name} 출정 파티`}
+                  >
+                    {activeQuests[region.id].map((item) => (
+                      <li key={item.number}>
+                        <Expedition
+                          quest={item}
+                          open={() =>
+                            setSelectedQuest({ region, number: item.number })
+                          }
+                        />
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="expedition-status">
+                    {snapshots[region.id]?.report
                       ? '파티 대기'
                       : loading
                         ? '기록 확인 중'
-                        : '기록 확인 필요'
-                  }
-                />
-              </button>
+                        : '기록 확인 필요'}
+                  </p>
+                )}
+              </div>
             ))}
           </div>
           <ul className="expedition-legend" aria-label="기본 파티 구성">
@@ -694,7 +715,9 @@ function App() {
           key={selected.id}
           region={selected}
           snapshot={snapshots[selected.id]}
-          openQuest={(item) => setQuestNumber(item.number)}
+          openQuest={(item) =>
+            setSelectedQuest({ region: selected, number: item.number })
+          }
           close={() => setSelected(undefined)}
         />
       )}
@@ -705,13 +728,13 @@ function App() {
           close={() => setShowConnect(false)}
         />
       )}
-      {selected && quest && (
+      {selectedQuest && quest && (
         <QuestDetail
-          key={`${selected.id}-${quest.number}`}
+          key={`${selectedQuest.region.id}-${quest.number}`}
           quest={quest}
-          region={selected}
+          region={selectedQuest.region}
           token={token}
-          close={() => setQuestNumber(undefined)}
+          close={() => setSelectedQuest(undefined)}
         />
       )}
     </>

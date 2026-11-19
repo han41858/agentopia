@@ -132,9 +132,13 @@ svg {
   justify-content: center;
   gap: clamp(16px, 5vw, 70px);
 }
-.kingdom {
+.kingdom-area {
   --land: #948666;
   --accent: #f3d69a;
+  min-width: 0;
+}
+.kingdom {
+  width: 100%;
   display: grid;
   justify-items: center;
   align-content: start;
@@ -144,7 +148,7 @@ svg {
   padding: 5px;
   min-width: 0;
 }
-.kingdom.violet {
+.kingdom-area.violet {
   --land: #81729b;
   --accent: #e6d0ff;
 }
@@ -171,7 +175,7 @@ svg {
     transform 180ms,
     filter 180ms;
 }
-.kingdom:nth-child(even) .kingdom-land {
+.kingdom-area:nth-child(even) .kingdom-land {
   clip-path: polygon(
     18% 23%,
     49% 9%,
@@ -218,46 +222,56 @@ svg {
   right: 0;
   color: #ff9e91;
 }
+.expeditions {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(110px, 100%), 1fr));
+  gap: 6px;
+  padding: 0;
+  margin: 12px 0 0;
+  list-style: none;
+}
 .expedition {
+  width: 100%;
   display: grid;
   justify-items: center;
   gap: 5px;
-  color: #b7c5d2;
+  padding: 5px 3px;
+  border: 1px solid #405361;
+  border-radius: 7px;
+  color: var(--accent);
+  background: #15212f;
+}
+.expedition:hover {
+  border-color: var(--accent);
 }
 .expedition-route {
-  margin-top: -8px;
-  color: #778b9b;
-}
-.expedition.underway .expedition-route {
-  color: var(--accent);
   animation: route-up 1.4s ease-in-out 3;
 }
 @keyframes route-up {
   50% {
-    transform: translateY(-4px);
+    transform: translateY(-3px);
   }
 }
 .expedition-party {
   display: flex;
   gap: 3px;
 }
-.expedition:not(.underway) .expedition-party {
-  opacity: 0.7;
-}
 .role-symbol {
   display: grid;
   place-items: center;
-  width: 23px;
-  height: 23px;
+  width: 21px;
+  height: 21px;
   border: 1px solid #405361;
   border-radius: 5px;
-  background: #15212f;
 }
-.expedition small {
-  font-size: 10px;
+.expedition small,
+.expedition-status {
+  font-size: 11px;
 }
-.expedition.underway small {
-  color: var(--accent);
+.expedition-status {
+  margin-top: 12px;
+  text-align: center;
+  color: #b7c5d2;
 }
 .expedition-legend {
   display: flex;
@@ -628,7 +642,7 @@ svg {
   .kingdoms {
     grid-template-columns: repeat(auto-fit, minmax(min(130px, 100%), 1fr));
   }
-  .kingdom {
+  .kingdom-area {
     width: min(100%, 190px);
     justify-self: center;
   }

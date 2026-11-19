@@ -2,7 +2,7 @@
 
 Agentopia는 여러 GitHub 저장소의 AI 개발 활동을 판타지 RPG 월드로 보여주는 읽기 전용 웹앱입니다. 화면을 채우는 월드맵에서 **Commit Trail**과 **Videx**를 각각 왕국으로 표시합니다. 왕국을 선택하면 Issue별 개발 파티, 메인·하위 퀘스트, PR 리뷰, Actions, CI 및 배포 상태를 확인할 수 있습니다. `server/model.ts`의 `regions`에 등록한 저장소마다 왕국 하나가 지도에 표시됩니다.
 
-왕국마다 GitHub Actions, Codex, Claude, Release 기호로 기본 파티를 표시합니다. 진행 중인 이슈가 있는 왕국에는 출정 표시와 이슈 수가 나타납니다.
+진행 중인 이슈마다 해당 왕국에 출정 파티 하나가 나타납니다. 각 파티는 GitHub Actions, Codex, Claude, Release 기호와 이슈 번호를 표시합니다. 파티를 선택하면 해당 이슈의 상세를 확인할 수 있습니다.
 
 ## 로컬 실행
 
