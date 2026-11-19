@@ -1348,7 +1348,6 @@ function App() {
                     </span>
                     <span className="kingdom-label">
                       <strong>{region.name}</strong>
-                      {region.title && <small>{region.title}</small>}
                     </span>
                   </button>
                   {report &&

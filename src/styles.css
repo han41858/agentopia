@@ -285,10 +285,6 @@ svg {
 .kingdom-label strong {
   font: 800 clamp(14px, 2.4vw, 23px) var(--display);
 }
-.kingdom-label small {
-  color: #c5d0db;
-  font-size: 11px;
-}
 .expeditions,
 .guild-parties {
   display: grid;
