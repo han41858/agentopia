@@ -87,7 +87,9 @@ const defaultRegion: Region = {
   ...repositoryRegion('han41858/agentopia'),
   name: 'Agentopia',
 };
-const repositoryListKey = 'agentopia.public-repositories';
+const legacyRepositoryListKey = 'agentopia.public-repositories';
+const settingsKey = 'agentopia.github-settings';
+type GitHubSettings = { token: string; repositories: Repository[] };
 
 function kingdomHue(slug: string) {
   let hash = 2166136261;
@@ -97,20 +99,37 @@ function kingdomHue(slug: string) {
   return ((hash >>> 0) % 36_000) / 100;
 }
 
-function readRepositories(): Repository[] {
+function readSettings(): GitHubSettings {
   try {
-    const stored: unknown = JSON.parse(
-      localStorage.getItem(repositoryListKey) ?? '[]',
-    );
-    if (!Array.isArray(stored)) return [];
-    const slugs = new Set<string>();
-    for (const item of stored) {
-      const slug = typeof item === 'string' ? repositorySlug(item) : undefined;
-      if (slug && slug !== defaultRegion.slug) slugs.add(slug);
+    const saved = localStorage.getItem(settingsKey);
+    const stored: unknown = JSON.parse(saved ?? 'null');
+    const settings = stored && typeof stored === 'object' ? stored : {};
+    const token =
+      'token' in settings && typeof settings.token === 'string'
+        ? settings.token
+        : '';
+    const list: unknown =
+      saved === null
+        ? JSON.parse(localStorage.getItem(legacyRepositoryListKey) ?? '[]')
+        : 'repositories' in settings
+          ? settings.repositories
+          : [];
+    const repositories = new Map<string, Repository>();
+    if (Array.isArray(list)) {
+      for (const item of list as unknown[]) {
+        const repo = typeof item === 'object' && item !== null ? item : {};
+        const candidate =
+          saved === null ? item : 'slug' in repo ? repo.slug : undefined;
+        const slug =
+          typeof candidate === 'string' ? repositorySlug(candidate) : undefined;
+        const restricted = 'private' in repo && repo.private === true;
+        if (slug && slug !== defaultRegion.slug && (!restricted || token))
+          repositories.set(slug, { slug, private: restricted });
+      }
     }
-    return Array.from(slugs, (slug) => ({ slug, private: false }));
+    return { token, repositories: [...repositories.values()] };
   } catch {
-    return [];
+    return { token: '', repositories: [] };
   }
 }
 const glyph = {
@@ -837,7 +856,8 @@ function TokenDialog({
     <Dialog title="GitHub 연결" close={close}>
       <p>
         비공개 지역을 탐험하거나 내 API 사용 한도로 조회하려면 읽기 전용 GitHub
-        토큰을 연결하세요. 토큰은 현재 탭이 열린 동안에만 사용됩니다.
+        토큰을 연결하세요. 이 브라우저에 저장되며 티켓에서 연결을 해제할 수
+        있습니다.
       </p>
       {token && (
         <div className="token-result" role="status">
@@ -1159,8 +1179,8 @@ function QuestLog({
 }
 
 function App() {
-  const [token, storeToken] = useState('');
-  const [repositories, setRepositories] = useState(readRepositories);
+  const [settings, setSettings] = useState(readSettings);
+  const { token, repositories } = settings;
   const worldRegions = useMemo(
     () => [
       defaultRegion,
@@ -1183,14 +1203,32 @@ function App() {
 
   useEffect(() => {
     try {
-      const publicSlugs = repositories
-        .filter((repo) => !repo.private)
-        .map(({ slug }) => slug);
-      localStorage.setItem(repositoryListKey, JSON.stringify(publicSlugs));
+      localStorage.setItem(settingsKey, JSON.stringify(settings));
+      localStorage.removeItem(legacyRepositoryListKey);
     } catch {
-      // The current tab can still use the list when storage is unavailable.
+      // The current tab can still use the settings when storage is unavailable.
     }
-  }, [repositories]);
+  }, [settings]);
+
+  useEffect(() => {
+    function restoreSettings(event: StorageEvent) {
+      if (
+        event.storageArea !== localStorage ||
+        (event.key !== null && event.key !== settingsKey)
+      )
+        return;
+      const next = readSettings();
+      setSettings(next);
+      setSnapshots({});
+      setSelected(undefined);
+      setSelectedQuest(undefined);
+      setLoading(true);
+      if (next.token !== token) setShowAdd(false);
+    }
+
+    window.addEventListener('storage', restoreSettings);
+    return () => window.removeEventListener('storage', restoreSettings);
+  }, [token]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -1255,8 +1293,10 @@ function App() {
 
   function setToken(value: string) {
     if (value === token) return;
-    storeToken(value);
-    setRepositories((items) => items.filter((repo) => !repo.private));
+    setSettings((current) => ({
+      token: value,
+      repositories: current.repositories.filter((repo) => !repo.private),
+    }));
     setSelected(undefined);
     setSnapshots({});
     setSelectedQuest(undefined);
@@ -1269,9 +1309,12 @@ function App() {
   }
 
   function removeRegion(region: Region) {
-    setRepositories((items) =>
-      items.filter(({ slug }) => slug !== region.slug),
-    );
+    setSettings((current) => ({
+      ...current,
+      repositories: current.repositories.filter(
+        ({ slug }) => slug !== region.slug,
+      ),
+    }));
     setSnapshots((current) => {
       const remaining = { ...current };
       delete remaining[region.id];
@@ -1457,7 +1500,12 @@ function App() {
         <RepositoryDialog
           token={token}
           regions={worldRegions}
-          added={(repos) => setRepositories((items) => [...items, ...repos])}
+          added={(repos) =>
+            setSettings((current) => ({
+              ...current,
+              repositories: [...current.repositories, ...repos],
+            }))
+          }
           select={select}
           close={() => setShowAdd(false)}
         />
