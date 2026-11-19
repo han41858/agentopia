@@ -11,6 +11,7 @@ import {
   ExternalLink,
   Flag,
   GitPullRequest,
+  GitPullRequestDraft,
   Hourglass,
   KeyRound,
   Plus,
@@ -217,8 +218,9 @@ function PullMarker({ pull, open }: { pull: PullQuest; open: () => void }) {
   const role = partyRoles.find(
     ({ color }) => color === (pull.reviewer ?? pull.author),
   );
-  const Icon = role?.Icon ?? GitPullRequest;
-  const openOnly = pull.stage === 'idle' && !pull.draft;
+  const Icon =
+    role?.Icon ?? (pull.draft ? GitPullRequestDraft : GitPullRequest);
+  const idle = pull.stage === 'idle';
   const label = [`PR #${pull.number}`, pull.title, pullActivity(pull)]
     .filter(Boolean)
     .join(' · ');
@@ -226,21 +228,20 @@ function PullMarker({ pull, open }: { pull: PullQuest; open: () => void }) {
   return (
     <button
       className={`expedition pull-marker${alerts.has(pull.stage) ? ' blocked' : ''}`}
-      title={
-        alerts.has(pull.stage) || openOnly ? label : `${label} · ${status}`
-      }
+      title={alerts.has(pull.stage) || idle ? label : `${label} · ${status}`}
       aria-label={`${label} · ${status}`}
       onClick={open}
     >
       <span
         className={`role-symbol current-role${role ? ` ${role.color}` : ''}`}
+        data-draft={pull.draft}
       >
         <Icon size={15} aria-hidden="true" />
       </span>
       <small className="expedition-number">PR #{pull.number}</small>
       {alerts.has(pull.stage) ? (
         <Badge stage={pull.stage} />
-      ) : openOnly ? null : (
+      ) : idle ? null : (
         <small className="expedition-status-label">{status}</small>
       )}
     </button>
@@ -668,12 +669,14 @@ function PullDetail({
 }
 
 function PullStatus({ pull }: { pull: PullQuest }) {
-  if (pull.stage === 'idle' && !pull.draft)
+  if (pull.stage === 'idle') {
+    const Icon = pull.draft ? GitPullRequestDraft : GitPullRequest;
     return (
       <span className="badge idle" role="img" aria-label={pullStatus(pull)}>
-        <GitPullRequest size={14} aria-hidden="true" />
+        <Icon size={14} aria-hidden="true" />
       </span>
     );
+  }
   return pull.stage === 'attention' || pull.stage === 'failed' ? (
     <Badge stage={pull.stage} />
   ) : (
