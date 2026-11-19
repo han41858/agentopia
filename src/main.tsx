@@ -1360,7 +1360,8 @@ function App() {
                   <button className="kingdom" onClick={() => select(region)}>
                     <Castle
                       className="kingdom-crest"
-                      size={20}
+                      size={34}
+                      strokeWidth={1.5}
                       aria-hidden="true"
                     />
                     <span className="kingdom-label">

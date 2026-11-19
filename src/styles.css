@@ -211,34 +211,115 @@ svg {
 .kingdom-area {
   --land: #948666;
   --accent: #f3d69a;
+  --territory-shape: polygon(
+    47% 0,
+    65% min(2%, 9px),
+    80% min(5%, 24px),
+    90% min(9%, 39px),
+    94% min(16%, 66px),
+    98% min(31%, 110px),
+    100% 54%,
+    98% 73%,
+    94% calc(100% - min(16%, 66px)),
+    86% calc(100% - min(8%, 36px)),
+    73% calc(100% - min(3%, 15px)),
+    54% 100%,
+    37% calc(100% - 2px),
+    22% calc(100% - min(4%, 20px)),
+    10% calc(100% - min(9%, 39px)),
+    5% calc(100% - min(16%, 70px)),
+    2% 72%,
+    0 48%,
+    2% min(30%, 110px),
+    6% min(16%, 68px),
+    13% min(8%, 34px),
+    29% min(3%, 17px)
+  );
+  position: relative;
+  isolation: isolate;
   min-width: 0;
-  padding: clamp(8px, 1.25vw, 15px);
-  border: 1px solid var(--land);
-  border-radius: 18px 12px 19px 11px;
-  background: color-mix(in srgb, var(--land) 12%, #142430);
+  padding: 38px max(16px, 9%) 42px;
+}
+.kingdom-area:not(:has(> .expeditions)) {
+  width: 100%;
+  max-width: 185px;
+  padding-inline: 16px;
+  justify-self: center;
+}
+@media (min-width: 900px) {
+  .kingdoms:has(> .kingdom-area:nth-child(2)) {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .kingdoms:has(> .kingdom-area:nth-child(2))
+    > .kingdom-area:has(
+      > .expeditions > li:nth-child(13),
+      .guild-parties > li:nth-child(13)
+    ) {
+    grid-column: span 2;
+  }
+}
+.kingdom-area:nth-child(even) {
+  --territory-shape: polygon(
+    42% 1px,
+    61% 0,
+    76% min(4%, 20px),
+    88% min(8%, 36px),
+    94% min(15%, 65px),
+    98% min(29%, 109px),
+    100% 46%,
+    98% 70%,
+    93% calc(100% - min(15%, 62px)),
+    85% calc(100% - min(8%, 35px)),
+    71% calc(100% - min(3%, 14px)),
+    55% 100%,
+    36% calc(100% - 3px),
+    22% calc(100% - min(4%, 19px)),
+    11% calc(100% - min(9%, 38px)),
+    5% calc(100% - min(16%, 68px)),
+    2% 72%,
+    0 59%,
+    2% min(32%, 115px),
+    6% min(15%, 65px),
+    14% min(8%, 35px),
+    26% min(3%, 17px)
+  );
+}
+.kingdom-area::before,
+.kingdom-area::after {
+  content: '';
+  position: absolute;
+  pointer-events: none;
+  clip-path: var(--territory-shape);
+}
+.kingdom-area::before {
+  inset: 0;
+  z-index: -2;
+  background: var(--land);
+}
+.kingdom-area::after {
+  inset: 2px;
+  z-index: -1;
+  background: color-mix(in srgb, var(--land) 19%, #142430);
 }
 .kingdom-area.violet {
   --land: #81729b;
   --accent: #e6d0ff;
 }
 .kingdom {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
+  display: grid;
+  justify-items: center;
+  gap: 4px;
   max-width: 100%;
-  min-height: 32px;
-  padding: 3px 5px;
+  margin-inline: auto;
+  padding: 3px 8px;
   border: 0;
   border-radius: 5px;
   background: none;
   color: var(--accent);
-  text-align: left;
+  text-align: center;
 }
-.kingdom:hover {
-  background: #15212f;
-}
-.kingdom-crest {
-  color: var(--land);
+.kingdom:hover .kingdom-crest {
+  color: #fff4da;
 }
 .kingdom-label {
   min-width: 0;
@@ -255,10 +336,6 @@ svg {
   padding: 0;
   margin: 7px 0 0;
   list-style: none;
-}
-.kingdom-area > .expeditions {
-  padding-top: 5px;
-  border-top: 1px solid color-mix(in srgb, var(--land) 45%, transparent);
 }
 .guild-branch {
   grid-column: 1 / -1;
