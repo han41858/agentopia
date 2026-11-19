@@ -802,6 +802,68 @@ function RepositoryDialog({
   );
 }
 
+function QuestLog({
+  regions,
+  snapshots,
+  loading,
+  openQuest,
+}: {
+  regions: Region[];
+  snapshots: Record<string, Snapshot>;
+  loading: boolean;
+  openQuest: (region: Region, quest: Quest) => void;
+}) {
+  const entries = regions
+    .flatMap((region) =>
+      (snapshots[region.id]?.report?.quests ?? []).map((quest) => ({
+        region,
+        quest,
+      })),
+    )
+    .sort(
+      (a, b) =>
+        Number(a.quest.state === 'closed') -
+          Number(b.quest.state === 'closed') ||
+        b.quest.number - a.quest.number ||
+        a.region.slug.localeCompare(b.region.slug),
+    );
+  const hasReport = regions.some(({ id }) => snapshots[id]?.report);
+
+  return (
+    <section className="panel quest-log" aria-labelledby="quest-log-title">
+      <h2 id="quest-log-title">
+        <ScrollText size={15} aria-hidden="true" /> 퀘스트
+      </h2>
+      {entries.length ? (
+        <ul className="quest-log-list">
+          {entries.map(({ region, quest }) => (
+            <li key={`${region.slug}#${quest.number}`}>
+              <button
+                className="quest-log-row"
+                onClick={() => openQuest(region, quest)}
+              >
+                <small>
+                  {region.name} · #{quest.number}
+                </small>
+                <strong>{quest.title}</strong>
+                <IssueBadge quest={quest} />
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p>
+          {hasReport
+            ? '조회된 이슈 없음'
+            : loading
+              ? '이슈 불러오는 중'
+              : '이슈 조회 필요'}
+        </p>
+      )}
+    </section>
+  );
+}
+
 function App() {
   const [token, storeToken] = useState('');
   const [repositories, setRepositories] = useState(readRepositories);
@@ -1040,6 +1102,14 @@ function App() {
         </section>
 
         <footer className="world-footer">
+          <QuestLog
+            regions={worldRegions}
+            snapshots={snapshots}
+            loading={loading}
+            openQuest={(region, item) =>
+              setSelectedQuest({ region, number: item.number })
+            }
+          />
           <ul className="expedition-legend" aria-label="기본 파티 구성">
             {partyRoles.map(({ name, Icon, color }) => (
               <li className={color} key={name}>
