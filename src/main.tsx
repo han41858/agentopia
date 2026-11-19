@@ -955,8 +955,13 @@ function App() {
             </div>
           </div>
           <div className="world-controls">
-            <button className="connect" onClick={() => setShowAdd(true)}>
-              <Plus size={17} aria-hidden="true" /> 저장소
+            <button
+              className="connect add-repository-button"
+              aria-label="저장소 추가"
+              title="저장소 추가"
+              onClick={() => setShowAdd(true)}
+            >
+              <Plus size={19} aria-hidden="true" />
             </button>
             <button
               className="connect ticket-button"

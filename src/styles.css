@@ -130,6 +130,7 @@ svg {
 .connect:hover {
   border-color: var(--gold);
 }
+.add-repository-button,
 .ticket-button {
   width: 38px;
   height: 38px;
