@@ -18,7 +18,6 @@ import {
   RefreshCw,
   Rocket,
   ScrollText,
-  Shield,
   Sparkles,
   Swords,
   Ticket,
@@ -82,6 +81,7 @@ const activeStages = new Set<Stage>([
   'deploying',
   'merging',
 ]);
+const ciActivity = 'CI 검사 중';
 const alerts = new Set<Stage>(['failed', 'attention']);
 const defaultRegion: Region = {
   ...repositoryRegion('han41858/agentopia'),
@@ -110,7 +110,7 @@ const glyph = {
   queued: Hourglass,
   developing: Swords,
   reviewing: ScrollText,
-  ci: Shield,
+  ci: Workflow,
   deploying: Rocket,
   merging: GitPullRequest,
   complete: Check,
@@ -137,7 +137,7 @@ function expeditionActivity(quest: Quest): {
     case 'reviewing':
       return { role: quest.reviewer, action: '코드 리뷰 중' };
     case 'ci':
-      return { role: 'actions', action: 'CI 검사 중' };
+      return { role: 'actions', action: ciActivity };
     case 'merging':
       return { role: 'actions', action: 'PR 병합 중' };
     case 'deploying':
@@ -157,6 +157,7 @@ function closedIssueLabel(quest: Quest) {
 function Expedition({ quest, open }: { quest: Quest; open: () => void }) {
   const closed = quest.state === 'closed';
   const blocked = !closed && alerts.has(quest.stage);
+  const ci = !closed && quest.stage === 'ci';
   const underway = !closed && activeStages.has(quest.stage);
   const StatusIcon = closed ? Check : glyph[quest.stage];
   const activity = expeditionActivity(quest);
@@ -173,7 +174,7 @@ function Expedition({ quest, open }: { quest: Quest; open: () => void }) {
       className={`expedition${blocked ? ' blocked' : ''}${underway ? ' underway' : ''}${closed ? ' closed-issue' : ''}`}
       aria-label={`이슈 #${quest.number} 파티 · ${quest.title} · ${status}`}
       title={
-        blocked || (closed && action === '완료')
+        blocked || ci || (closed && action === '완료')
           ? quest.title
           : `${quest.title} · ${status}`
       }
@@ -190,7 +191,7 @@ function Expedition({ quest, open }: { quest: Quest; open: () => void }) {
         ))}
       </span>
       <small className="expedition-number">
-        <StatusIcon size={blocked ? 13 : 11} aria-hidden="true" /> #
+        {!ci && <StatusIcon size={blocked ? 13 : 11} aria-hidden="true" />} #
         {quest.number}
       </small>
       {closed && action !== '완료' && (
@@ -201,7 +202,7 @@ function Expedition({ quest, open }: { quest: Quest; open: () => void }) {
 }
 
 function pullStatus(pull: PullQuest) {
-  if (pull.stage === 'ci') return 'CI 검사 중';
+  if (pull.stage === 'ci') return ciActivity;
   if (pull.stage !== 'idle') return stages[pull.stage];
   return pull.draft ? '초안' : 'PR 열림';
 }
@@ -216,11 +217,13 @@ function pullActivity(pull: PullQuest) {
 
 function PullMarker({ pull, open }: { pull: PullQuest; open: () => void }) {
   const role = partyRoles.find(
-    ({ color }) => color === (pull.reviewer ?? pull.author),
+    ({ color }) =>
+      color ===
+      (pull.stage === 'ci' ? 'actions' : (pull.reviewer ?? pull.author)),
   );
   const Icon =
     role?.Icon ?? (pull.draft ? GitPullRequestDraft : GitPullRequest);
-  const idle = pull.stage === 'idle';
+  const iconOnly = pull.stage === 'idle' || pull.stage === 'ci';
   const label = [`PR #${pull.number}`, pull.title, pullActivity(pull)]
     .filter(Boolean)
     .join(' · ');
@@ -228,7 +231,9 @@ function PullMarker({ pull, open }: { pull: PullQuest; open: () => void }) {
   return (
     <button
       className={`expedition pull-marker${alerts.has(pull.stage) ? ' blocked' : ''}`}
-      title={alerts.has(pull.stage) || idle ? label : `${label} · ${status}`}
+      title={
+        alerts.has(pull.stage) || iconOnly ? label : `${label} · ${status}`
+      }
       aria-label={`${label} · ${status}`}
       onClick={open}
     >
@@ -241,7 +246,7 @@ function PullMarker({ pull, open }: { pull: PullQuest; open: () => void }) {
       <small className="expedition-number">PR #{pull.number}</small>
       {alerts.has(pull.stage) ? (
         <Badge stage={pull.stage} />
-      ) : idle ? null : (
+      ) : iconOnly ? null : (
         <small className="expedition-status-label">{status}</small>
       )}
     </button>
@@ -371,9 +376,15 @@ async function request<T>(
 
 function Badge({ stage }: { stage: Stage }) {
   const Icon = glyph[stage];
-  if (alerts.has(stage) || stage === 'complete') {
+  if (alerts.has(stage) || stage === 'complete' || stage === 'ci') {
     return (
-      <span className={`badge ${stage}`} role="img" aria-label={stages[stage]}>
+      <span
+        className={`badge ${stage}`}
+        role="img"
+        aria-label={
+          stage === 'ci' ? `GitHub Actions · ${ciActivity}` : stages[stage]
+        }
+      >
         <Icon size={14} aria-hidden="true" />
       </span>
     );
@@ -677,7 +688,7 @@ function PullStatus({ pull }: { pull: PullQuest }) {
       </span>
     );
   }
-  return pull.stage === 'attention' || pull.stage === 'failed' ? (
+  return alerts.has(pull.stage) || pull.stage === 'ci' ? (
     <Badge stage={pull.stage} />
   ) : (
     <span className={`badge ${pull.stage}`}>{pullStatus(pull)}</span>
