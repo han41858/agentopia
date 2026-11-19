@@ -1,6 +1,15 @@
-# AGENTS.md
+# Agentopia 개발 지침
 
-모든 프로젝트의 기본 지침입니다. 명시적인 사용자 요청과 프로젝트의 기존 지침을 우선합니다.
+Agentopia는 GitHub에서 관측한 AI 개발 활동을 시각화하는 읽기 전용 React·TypeScript·Vite 앱입니다. 명시적인 사용자 요청과 저장소 지침을 우선합니다.
+
+## Agentopia 개발 환경
+
+- Node.js 24에서 `npm ci`로 설치하고 `npm run dev`로 Vite와 로컬 GitHub API 경로를 실행합니다.
+- 변경 검증에는 `npm test`, `npm run build`, `npm run format:check`를 사용합니다.
+- GitHub 데이터 조회는 `server/github.ts`, 상태 판정은 `server/model.ts`, 시각화는 `src/`에 둡니다. Vite와 Vercel은 같은 읽기 전용 핸들러를 사용합니다.
+- AI 상태는 신뢰할 수 있는 GitHub 봇 기록, 실행 결과, 작업 브랜치와 커밋으로만 판정합니다. 연동을 변경하면 두 저장소의 실제 자동화 구조를 확인하고 재시도, 누락 및 실패를 검증합니다.
+- 비공개 저장소의 데이터와 토큰은 현재 탭과 개별 요청에 한정합니다. 배포 환경의 공유 토큰, 브라우저 영구 저장, 인증 응답 캐싱을 사용하지 않습니다.
+- 현재 작업의 Vercel 배포 및 PR 머지는 명시적으로 요청된 경우에만 실행합니다.
 
 ## 작업 원칙
 

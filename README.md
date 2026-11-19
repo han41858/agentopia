@@ -1,29 +1,39 @@
-# ai-native
+# Agentopia
 
-AI 도구를 활용한 개발을 위한 공통 지침과 GitHub 설정 템플릿입니다.
-특정 AI 도구나 언어·프레임워크에 종속되지 않습니다.
+Agentopia는 여러 GitHub 저장소의 AI 개발 활동을 판타지 RPG 월드로 보여주는 읽기 전용 웹앱입니다. 월드맵에서 **Commit Trail**과 **Videx**를 탐색하고 Issue별 개발 파티, 메인·하위 퀘스트, PR 리뷰, Actions, CI 및 배포 상태를 확인할 수 있습니다.
 
-## 구성
+## 로컬 실행
 
-- [AGENTS.md](AGENTS.md): AI 개발 도구가 따를 공통 작업 지침
-- [main.json](.github/rulesets/main.json) / [dev.json](.github/rulesets/dev.json): 브랜치 룰셋
-- [PR 템플릿](.github/PULL_REQUEST_TEMPLATE.md): 변경 내용과 검증 결과를 정리하는 기본 양식
-- [Prettier 설정](templates/prettier/prettier.config.mjs): 프로젝트에서 선택해 사용하는 포맷 설정
+Node.js 24와 npm이 필요합니다.
 
-## 사용 방법
+```bash
+npm ci
+npm run dev
+```
 
-1. **Use this template**으로 새 저장소를 생성합니다.
-2. README를 프로젝트 소개와 사용법으로 교체합니다.
-3. AGENTS.md에 프로젝트별 지침을 보완합니다.
-4. 브랜치 룰셋을 가져와 적용하고, PR 템플릿을 필요에 맞게 조정합니다.
+Vite가 표시한 주소를 열면 됩니다. 개발 서버와 Vercel 배포가 같은 `/api/github` 핸들러를 사용합니다.
 
-## Prettier 설정 사용
+```bash
+npm test
+npm run build
+npm run format:check
+```
 
-기존 포매터가 없고 Prettier를 선택한 프로젝트에서 사용합니다.
+## GitHub 연결
 
-1. `templates/prettier/prettier.config.mjs`를 프로젝트 루트로 복사합니다.
-2. 프로젝트의 패키지 매니저로 Prettier를 개발 의존성에 추가합니다.
-3. 포맷 적용·검사 스크립트를 추가하고, 변경한 파일에 실행합니다.
+공개 저장소는 토큰 없이 조회할 수 있습니다. GitHub의 비인증 API 한도를 초과하거나 비공개 저장소를 보려면 **GitHub 연결**에서 대상 저장소에만 접근할 수 있는 fine-grained PAT를 입력합니다. 저장소의 **Issues, Pull requests, Actions, Deployments**에 읽기 권한을 부여합니다. GitHub에서 자동으로 부여하는 Metadata 읽기 권한도 사용합니다.
 
-설정 파일만으로 자동 실행되지는 않습니다. 템플릿 경로에서는 자동 탐색되지 않으며,
-기존 포매터가 있다면 해당 설정과 실행 방식을 유지합니다.
+토큰을 입력한 탭은 자신의 권한으로 GitHub를 조회합니다. 토큰은 브라우저 메모리에만 두고, 서버리스 함수는 해당 요청의 GitHub API 호출에만 사용합니다. 신뢰할 수 있는 Agentopia 배포에서만 토큰을 연결하세요. 연결 해제 또는 페이지 새로고침 시 토큰이 지워집니다.
+
+탭이 표시되면 5분 간격으로 갱신하며 수동 새로 고침도 지원합니다. 익명 요청은 GitHub API 한도를 고려해 서버에서 최대 5분간 재사용합니다. 최근 갱신된 Issue·PR, 최근 Actions 실행과 상태 댓글의 제한된 범위를 표시합니다. 요청 오류와 일부 데이터 누락은 화면에 표시합니다. 클라우드의 제한된 네트워크에서 실데이터를 조회하려면 `api.github.com` 접속이 필요합니다.
+
+## 상태 판정
+
+- 두 저장소의 AI 개발 워크플로 실행 제목과 같은 저장소의 `ai/issue-<번호>-<개발자>` PR 브랜치를 Issue에 연결합니다. 최근의 `github-actions[bot]` 상태 기록을 사용하고 새 실행 또는 재시도보다 오래된 기록은 배제합니다.
+- Commit Trail은 기록된 개발자에 맞춰 교차 리뷰 역할을 전환합니다. Videx는 현재 자동화의 Codex 개발과 Claude 리뷰를 표시합니다.
+- CI는 PR 헤드 커밋과 브랜치 또는 PR 번호가 일치하는 실행을 표시합니다. 배포는 기록된 배포 SHA와 연결된 PR 머지 SHA가 일치할 때 퀘스트에 연결합니다. 연결을 확인할 수 있는 근거가 없는 배포·릴리스 이벤트는 지역에만 표시합니다.
+- GitHub 하위 Issue 관계로 메인·하위 퀘스트를 표시하며 실제 상태 기록과 원본을 확인할 수 있습니다. 활동을 확인할 수 없는 Issue는 대기로 표시합니다.
+
+## 배포
+
+Vercel에서 GitHub의 Agentopia 저장소를 가져오고 Node.js 24 기반 Vite 프로젝트로 배포합니다. `vercel.json`이 빌드 명령과 출력 경로를 설정합니다. 별도 서버나 데이터베이스는 필요하지 않습니다.
