@@ -82,6 +82,7 @@ svg {
 }
 .world-heading {
   display: flex;
+  flex-shrink: 0;
   align-items: center;
   gap: 10px;
 }
@@ -113,10 +114,42 @@ svg {
   border-radius: 7px;
   background: #15212f;
   font-size: 13px;
-  white-space: nowrap;
+  min-width: 0;
+  text-align: left;
 }
 .connect:hover {
   border-color: var(--gold);
+}
+.token-status {
+  --token-tone: #e6c488;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--token-tone);
+}
+.token-status[data-tone='verified'] {
+  --token-tone: #a5e1bc;
+}
+.token-status[data-tone='warning'] {
+  --token-tone: #ffb6ad;
+}
+.token-status::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: currentColor;
+}
+.token-result {
+  margin-top: 12px;
+  padding: 9px 11px;
+  border: 1px solid var(--rim);
+  border-radius: 7px;
+  font-size: 13px;
+}
+.token-result p {
+  margin-top: 4px;
 }
 .map-viewport {
   display: grid;

@@ -28,7 +28,35 @@ import { regions, stages } from '../server/model.ts';
 import type { Quest, Region, Report, Source, Stage } from '../server/model.ts';
 import './styles.css';
 
-type Snapshot = { report?: Report; error?: string };
+type Snapshot = { report?: Report; error?: string; httpStatus?: number };
+
+function getTokenStatus(hasData: boolean, snapshot?: Snapshot) {
+  if (snapshot?.error) {
+    const labels: Partial<Record<number, string>> = {
+      400: '토큰 형식 오류',
+      401: '토큰 인증 실패',
+      403: '토큰 권한·한도 확인',
+      404: '저장소 접근 확인 필요',
+      429: 'GitHub 요청 한도 도달',
+    };
+    return {
+      label: labels[snapshot.httpStatus ?? 0] ?? '토큰 상태 확인 불가',
+      description: snapshot.error,
+      tone: 'warning',
+    };
+  }
+  if (hasData)
+    return {
+      label: '토큰 접근 확인됨',
+      description: '이 토큰으로 GitHub 저장소의 이슈를 조회했습니다.',
+      tone: 'verified',
+    };
+  return {
+    label: '토큰 확인 중',
+    description: 'GitHub에서 토큰의 저장소 접근을 확인하고 있습니다.',
+    tone: 'checking',
+  };
+}
 const activeStages = new Set<Stage>([
   'queued',
   'developing',
@@ -215,6 +243,15 @@ function GuildQuests({
   );
 }
 
+class RequestError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message);
+  }
+}
+
 async function request<T>(
   params: URLSearchParams,
   token: string,
@@ -226,7 +263,10 @@ async function request<T>(
   });
   const body = await response.json();
   if (!response.ok)
-    throw new Error(body.error ?? 'GitHub 동기화에 실패했습니다.');
+    throw new RequestError(
+      body.error ?? 'GitHub 동기화에 실패했습니다.',
+      response.status,
+    );
   return body as T;
 }
 
@@ -325,51 +365,48 @@ function Reviews({
 }
 
 function Party({ quest }: { quest: Quest }) {
+  const activeRole =
+    quest.state === 'open' ? expeditionActivity(quest).role : undefined;
   const roles = [
     {
-      name: '길드 마스터',
+      name: '파티장',
       sprite: 'guild',
       duty: 'GitHub Actions',
-      visible: quest.runs.length > 0,
-      running: quest.stage === 'queued',
+      running: activeRole === 'actions',
     },
     {
       name: '마법공학자',
       sprite: 'codex',
       duty: quest.developer === 'codex' ? 'Codex · 개발' : 'Codex · 리뷰',
       visible: quest.developer === 'codex' || quest.reviewer === 'codex',
-      running:
-        (quest.stage === 'developing' && quest.developer === 'codex') ||
-        (quest.stage === 'reviewing' && quest.reviewer === 'codex'),
+      running: activeRole === 'codex',
     },
     {
       name: '현자',
       sprite: 'claude',
       duty: quest.developer === 'claude' ? 'Claude · 개발' : 'Claude · 리뷰',
       visible: quest.developer === 'claude' || quest.reviewer === 'claude',
-      running:
-        (quest.stage === 'developing' && quest.developer === 'claude') ||
-        (quest.stage === 'reviewing' && quest.reviewer === 'claude'),
+      running: activeRole === 'claude',
     },
     {
       name: '수호 골렘',
       sprite: 'golem',
       duty: 'CI',
       visible: quest.runs.some((item) => item.title === 'CI'),
-      running: quest.stage === 'ci',
+      running: quest.state === 'open' && quest.stage === 'ci',
     },
     {
       name: '포탈 관리자',
       sprite: 'portal',
-      duty: 'Release',
-      visible: quest.stage === 'deploying',
-      running: quest.stage === 'deploying',
+      duty:
+        activeRole === 'release' ? 'Release · 배포 중' : 'Release · 배포 담당',
+      running: activeRole === 'release',
     },
   ];
-  const known = roles.filter(({ visible }) => visible);
-  return known.length ? (
+  const members = roles.filter(({ visible }) => visible !== false);
+  return (
     <div className="party">
-      {known.map(({ name, sprite, duty, running }) => (
+      {members.map(({ name, sprite, duty, running }) => (
         <div key={name}>
           <span
             className={`sprite ${sprite} ${running ? 'working' : ''}`}
@@ -382,8 +419,6 @@ function Party({ quest }: { quest: Quest }) {
         </div>
       ))}
     </div>
-  ) : (
-    <p>확인된 파티 정보가 없습니다.</p>
   );
 }
 
@@ -585,10 +620,12 @@ function RegionDetail({
 
 function TokenDialog({
   token,
+  status,
   setToken,
   close,
 }: {
   token: string;
+  status: ReturnType<typeof getTokenStatus>;
   setToken: (token: string) => void;
   close: () => void;
 }) {
@@ -604,6 +641,14 @@ function TokenDialog({
         비공개 지역을 탐험하거나 내 API 사용 한도로 조회하려면 읽기 전용 GitHub
         토큰을 연결하세요. 토큰은 현재 탭이 열린 동안에만 사용됩니다.
       </p>
+      {token && (
+        <div className="token-result" role="status">
+          <strong className="token-status" data-tone={status.tone}>
+            {status.label}
+          </strong>
+          <p>{status.description}</p>
+        </div>
+      )}
       <form className="token-form" onSubmit={submit}>
         <label htmlFor="github-token">Fine-grained personal access token</label>
         <input
@@ -675,6 +720,8 @@ function App() {
                 [region.id]: {
                   ...current[region.id],
                   error: (error as Error).message,
+                  httpStatus:
+                    error instanceof RequestError ? error.status : undefined,
                 },
               }));
           }
@@ -717,6 +764,10 @@ function App() {
     .flatMap(({ id }) => snapshots[id]?.report?.quests ?? [])
     .filter(({ state }) => state === 'open').length;
   const hasData = worldRegions.some(({ id }) => snapshots[id]?.report);
+  const tokenStatus = getTokenStatus(
+    hasData,
+    Object.values(snapshots).find(({ error }) => error),
+  );
   const partial = worldRegions.some(
     ({ id }) =>
       !snapshots[id]?.report ||
@@ -748,7 +799,17 @@ function App() {
           </div>
           <button className="connect" onClick={() => setShowConnect(true)}>
             <Github size={17} />
-            <span>{token ? 'GitHub 토큰 관리' : 'GitHub 연결'}</span>
+            {token ? (
+              <span
+                className="token-status"
+                data-tone={tokenStatus.tone}
+                aria-live="polite"
+              >
+                {tokenStatus.label}
+              </span>
+            ) : (
+              <span>GitHub 연결</span>
+            )}
           </button>
         </header>
 
@@ -853,6 +914,7 @@ function App() {
       {showConnect && (
         <TokenDialog
           token={token}
+          status={tokenStatus}
           setToken={setToken}
           close={() => setShowConnect(false)}
         />
