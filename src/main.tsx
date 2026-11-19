@@ -1348,7 +1348,7 @@ function App() {
                     </span>
                     <span className="kingdom-label">
                       <strong>{region.name}</strong>
-                      <small>{region.title}</small>
+                      {region.title && <small>{region.title}</small>}
                     </span>
                   </button>
                   {report &&
@@ -1363,15 +1363,11 @@ function App() {
                         setSelectedQuest({ region, number: item.number })
                       }
                     />
-                  ) : (
+                  ) : !report ? (
                     <p className="expedition-status">
-                      {snapshots[region.id]?.report
-                        ? '열린 이슈·PR 없음'
-                        : loading
-                          ? '기록 확인 중'
-                          : '기록 확인 필요'}
+                      {loading ? '기록 확인 중' : '기록 확인 필요'}
                     </p>
-                  )}
+                  ) : null}
                 </div>
               );
             })}

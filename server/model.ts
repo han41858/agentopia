@@ -21,7 +21,7 @@ export type Region = {
   id: string;
   slug: string;
   name: string;
-  title: string;
+  title?: string;
   theme: 'amber' | 'violet';
   description: string;
 };
@@ -53,12 +53,11 @@ export function repositoryInput(value: string) {
 export function repositoryRegion(slug: string): Region {
   const known = regions.find((region) => region.slug === slug);
   if (known) return known;
-  const [owner, name] = slug.split('/');
+  const [, name] = slug.split('/');
   return {
     id: slug,
     slug,
     name,
-    title: owner,
     theme: 'amber',
     description: slug,
   };
