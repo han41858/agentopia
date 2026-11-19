@@ -1,13 +1,11 @@
 {
-  "name": "dev",
+  "name": "Agentopia dev",
   "target": "branch",
   "enforcement": "active",
   "conditions": {
     "ref_name": {
       "exclude": [],
-      "include": [
-        "refs/heads/dev"
-      ]
+      "include": ["refs/heads/dev"]
     }
   },
   "rules": [
