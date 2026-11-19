@@ -205,8 +205,18 @@ svg {
   align-items: start;
   gap: clamp(12px, 2vw, 24px);
 }
-.kingdoms:has(> :only-child) {
-  max-width: 760px;
+.kingdoms:has(> .kingdom-area:only-child) {
+  max-width: 230px;
+}
+.kingdoms:has(
+  > .kingdom-area:only-child :is(.expeditions, .guild-parties) > li:nth-child(4)
+) {
+  max-width: 340px;
+}
+.kingdoms:has(
+  > .kingdom-area:only-child :is(.expeditions, .guild-parties) > li:nth-child(7)
+) {
+  max-width: 560px;
 }
 .kingdom-area {
   --land: #948666;
