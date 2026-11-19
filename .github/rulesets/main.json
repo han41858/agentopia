@@ -16,6 +16,17 @@
       "type": "non_fast_forward"
     },
     {
+      "type": "required_status_checks",
+      "parameters": {
+        "required_status_checks": [
+          {
+            "context": "Vercel"
+          }
+        ],
+        "strict_required_status_checks_policy": false
+      }
+    },
+    {
       "type": "pull_request",
       "parameters": {
         "required_approving_review_count": 0,
