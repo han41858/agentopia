@@ -1,6 +1,15 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { makeQuests, readState, regions, runIssue } from './model.ts';
+import {
+  linkedPullIssues,
+  makePullQuests,
+  makeQuests,
+  readState,
+  regions,
+  repositoryInput,
+  repositoryRegion,
+  runIssue,
+} from './model.ts';
 import type { Comment, Issue, Pull, Run } from './model.ts';
 import { githubResponse } from './github.ts';
 
@@ -238,4 +247,296 @@ test('API gets only the allowed repository and keeps authenticated reports out o
   assert.ok(
     calls.slice(5).every(({ authorization }) => authorization === null),
   );
+});
+
+test('accepts GitHub repository URLs and validates dynamic repository access', async (context) => {
+  assert.equal(
+    repositoryInput('https://github.com/Example/Project.git/'),
+    'example/project',
+  );
+  assert.equal(repositoryInput('example/a.b'), 'example/a.b');
+  assert.equal(
+    repositoryInput('https://github.com.evil.test/example/project'),
+    undefined,
+  );
+  assert.equal(
+    repositoryInput('https://github.com/example/project/issues/1'),
+    undefined,
+  );
+  assert.equal(repositoryInput('example/..'), undefined);
+  const authorized: (string | null)[] = [];
+  const mock = context.mock.method(
+    globalThis,
+    'fetch',
+    async (input: string, options: RequestInit) => {
+      const url = new URL(input);
+      const token = new Headers(options.headers).get('authorization');
+      assert.equal(url.origin, 'https://api.github.com');
+      authorized.push(token);
+      if (url.pathname === '/repos/example/project') {
+        if (!token) return Response.json({}, { status: 404 });
+        return Response.json({ full_name: 'Example/Project', private: true });
+      }
+      if (url.pathname.endsWith('/issues')) {
+        return Response.json([], {
+          status: token === 'Bearer no_issues' ? 403 : 200,
+        });
+      }
+      if (url.pathname.endsWith('/reviews')) {
+        return Response.json([
+          {
+            user: { login: 'reviewer' },
+            state: 'APPROVED',
+            html_url: 'https://github.com/example/project/pull/1',
+          },
+        ]);
+      }
+      return Response.json({ full_name: 'Example/Public', private: false });
+    },
+  );
+
+  const url = new URL('http://localhost/api/github?repository=1');
+  url.searchParams.set('repo', 'https://other.example/project');
+  assert.equal((await githubResponse(url, 'GET')).status, 400);
+  assert.equal(mock.mock.callCount(), 0);
+
+  url.searchParams.set('repo', 'Example/Public');
+  assert.deepEqual(JSON.parse((await githubResponse(url, 'GET')).body), {
+    slug: 'example/public',
+    private: false,
+  });
+  url.searchParams.set('repo', 'Example/Project');
+  assert.equal((await githubResponse(url, 'GET')).status, 404);
+  assert.equal(
+    (await githubResponse(url, 'GET', 'Bearer no_issues')).status,
+    403,
+  );
+  for (let request = 0; request < 2; request++) {
+    const result = await githubResponse(url, 'GET', 'Bearer valid');
+    assert.equal(result.status, 200);
+    assert.deepEqual(JSON.parse(result.body), {
+      slug: 'example/project',
+      private: true,
+    });
+  }
+  assert.equal(
+    authorized.filter((token) => token === 'Bearer valid').length,
+    4,
+  );
+  url.searchParams.delete('repository');
+  url.searchParams.set('reviews', '1');
+  const reviews = await githubResponse(url, 'GET', 'Bearer valid');
+  assert.equal(JSON.parse(reviews.body)[0].title, 'reviewer');
+});
+
+test('does not infer a reviewer for repositories without a known review policy', () => {
+  const region = repositoryRegion('example/project');
+  const [quest] = makeQuests(
+    region,
+    [issue(1)],
+    [],
+    [],
+    [comment(1, 'reviewing', { developer: 'codex' }, 'project')],
+    new Map(),
+    [],
+  );
+  assert.equal(quest.developer, 'codex');
+  assert.equal(quest.reviewer, undefined);
+});
+
+test('standalone PRs exclude issue-linked and closed PRs and use verified actor and CI evidence', () => {
+  const direct = {
+    ...pull,
+    number: 12,
+    draft: false,
+    body: null,
+    user: { login: 'chatgpt-codex-connector[bot]' },
+    head: { ...pull.head, ref: 'feature/direct' },
+  };
+  const byBody = { ...direct, number: 13, body: 'Fixes #2' };
+  const byNative = { ...direct, number: 14 };
+  const human = {
+    ...direct,
+    number: 15,
+    draft: true,
+    body: 'Discussion about #2 and `Fixes #2`',
+    user: { login: 'claude', type: 'User' },
+    head: { ...direct.head, sha: mergeSha },
+  };
+  const links = new Map([
+    [14, { issues: [2] }],
+    [12, { issues: [], reviewer: 'claude' as const, review: 'APPROVED' }],
+  ]);
+  assert.deepEqual(linkedPullIssues(byBody, commitTrail), [2]);
+  assert.deepEqual(linkedPullIssues(human, commitTrail), []);
+  const ci = run(2, {
+    path: '.github/workflows/ci.yml',
+    head_sha: sha,
+    head_branch: 'feature/direct',
+    pull_requests: [{ number: 12 }],
+  });
+  const quests = makePullQuests(
+    commitTrail,
+    [
+      pull,
+      direct,
+      byBody,
+      byNative,
+      human,
+      { ...direct, number: 16, state: 'closed' },
+    ],
+    [ci],
+    new Set([2]),
+    links,
+  );
+  assert.deepEqual(
+    quests.map(({ number, stage, author, reviewer }) => [
+      number,
+      stage,
+      author,
+      reviewer,
+    ]),
+    [
+      [12, 'ci', 'codex', 'claude'],
+      [15, 'idle', undefined, undefined],
+    ],
+  );
+  assert.deepEqual(
+    makeQuests(
+      commitTrail,
+      [issue(2)],
+      [pull, direct, byBody, byNative],
+      [],
+      [],
+      new Map(),
+      [],
+      links,
+    )[0].pulls.map(({ number }) => number),
+    [pull.number, 13, 14],
+  );
+});
+
+test('lists public or token-visible repositories for one owner without exposing unrelated slugs', async (context) => {
+  const fetch = context.mock.method(
+    globalThis,
+    'fetch',
+    async (input: string, options: RequestInit) => {
+      const url = new URL(input);
+      assert.equal(url.origin, 'https://api.github.com');
+      if (url.pathname === '/graphql') {
+        assert.equal(
+          new Headers(options.headers).get('authorization'),
+          'Bearer account_token',
+        );
+        const body = JSON.parse(String(options.body));
+        assert.match(body.query, /isArchived: false/);
+        assert.deepEqual(body.variables, {
+          owner: 'example',
+          cursor: 'next=',
+        });
+        return Response.json({
+          data: {
+            repositoryOwner: {
+              repositories: {
+                nodes: [
+                  {
+                    nameWithOwner: 'Example/Private',
+                    isPrivate: true,
+                    visibility: 'PRIVATE',
+                  },
+                ],
+                pageInfo: { hasNextPage: true, endCursor: 'next2=' },
+              },
+            },
+          },
+        });
+      }
+      assert.equal(url.pathname, '/users/example/repos');
+      if (url.searchParams.get('page') === '2')
+        return Response.json(
+          Array.from({ length: 50 }, (_, index) => ({
+            full_name: `Example/Archive-${index}`,
+            private: false,
+            archived: true,
+          })),
+        );
+      return Response.json([
+        { full_name: 'Example/Public', private: false },
+        { full_name: 'Example/Old', private: false, archived: true },
+        { full_name: 'Elsewhere/Public', private: false },
+        { full_name: 'Example/Private', private: true },
+      ]);
+    },
+  );
+  const url = new URL('http://localhost/api/github?owner=Example');
+  assert.deepEqual(JSON.parse((await githubResponse(url, 'GET')).body), {
+    repositories: [{ slug: 'example/public', private: false }],
+  });
+  url.searchParams.set('cursor', 'next=');
+  assert.equal((await githubResponse(url, 'GET')).status, 400);
+  assert.deepEqual(
+    JSON.parse((await githubResponse(url, 'GET', 'Bearer account_token')).body),
+    {
+      repositories: [{ slug: 'example/private', private: true }],
+      next: 'next2=',
+    },
+  );
+  url.searchParams.set('cursor', '2');
+  assert.deepEqual(JSON.parse((await githubResponse(url, 'GET')).body), {
+    repositories: [],
+    next: '3',
+  });
+  assert.equal(fetch.mock.callCount(), 3);
+});
+
+test('public refresh reuses recent reports, refreshes on demand, and honors rate limits', async (context) => {
+  let now = 1_800_000_000_000;
+  let issueRequests = 0;
+  let limited = false;
+  context.mock.method(Date, 'now', () => now);
+  context.mock.method(globalThis, 'fetch', async (url: string) => {
+    const path = new URL(url).pathname;
+    if (path.endsWith('/issues')) {
+      issueRequests++;
+      if (limited)
+        return Response.json(
+          {},
+          {
+            status: 429,
+            headers: { 'retry-after': '90' },
+          },
+        );
+      return Response.json([issue(1)]);
+    }
+    if (path.endsWith('/actions/runs'))
+      return Response.json({ workflow_runs: [] });
+    return Response.json([]);
+  });
+  const url = new URL('http://localhost/api/github?region=commit-trail');
+  await githubResponse(url, 'GET');
+  url.searchParams.set('refresh', '1');
+  now += 10_000;
+  await githubResponse(url, 'GET');
+  assert.equal(issueRequests, 1);
+  now += 5_000;
+  await githubResponse(url, 'GET');
+  assert.equal(issueRequests, 2);
+  url.searchParams.delete('refresh');
+  now += 59_000;
+  await githubResponse(url, 'GET');
+  assert.equal(issueRequests, 2);
+  now += 1_000;
+  limited = true;
+  assert.equal((await githubResponse(url, 'GET')).status, 429);
+  assert.equal(issueRequests, 3);
+  limited = false;
+  now += 20_000;
+  url.searchParams.set('refresh', '1');
+  const stale = await githubResponse(url, 'GET');
+  assert.equal(stale.status, 200);
+  assert.deepEqual(JSON.parse(stale.body).warnings, ['GitHub API 사용 한도']);
+  assert.equal(issueRequests, 3);
+  now += 70_000;
+  await githubResponse(url, 'GET');
+  assert.equal(issueRequests, 4);
 });
