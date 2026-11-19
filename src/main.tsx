@@ -58,23 +58,56 @@ const partyRoles = [
   { name: 'Release', Icon: Rocket, color: 'release' },
 ] as const;
 
+function expeditionActivity(quest: Quest): {
+  role?: (typeof partyRoles)[number]['color'];
+  action: string;
+} {
+  switch (quest.stage) {
+    case 'queued':
+      return { role: 'actions', action: '워크플로 대기' };
+    case 'developing':
+      return { role: quest.developer, action: '개발 중' };
+    case 'reviewing':
+      return { role: quest.reviewer, action: '코드 리뷰 중' };
+    case 'ci':
+      return { role: 'actions', action: 'CI 검사 중' };
+    case 'merging':
+      return { role: 'actions', action: 'PR 병합 중' };
+    case 'deploying':
+      return { role: 'release', action: '배포 중' };
+    default:
+      return { action: stages[quest.stage] };
+  }
+}
+
 function Expedition({ quest, open }: { quest: Quest; open: () => void }) {
+  const { role, action } = expeditionActivity(quest);
+  const actor =
+    partyRoles.find(({ color }) => color === role)?.name ?? '담당 미확인';
+
   return (
     <button
       className="expedition"
-      aria-label={`이슈 #${quest.number} 파티 · ${quest.title}`}
+      aria-label={`이슈 #${quest.number} 파티 · ${quest.title} · ${actor} · ${action}`}
       title={quest.title}
       onClick={open}
     >
       <ChevronUp className="expedition-route" size={17} aria-hidden="true" />
       <span className="expedition-party" aria-hidden="true">
         {partyRoles.map(({ name, Icon, color }) => (
-          <span className={`role-symbol ${color}`} key={name}>
+          <span
+            className={`role-symbol ${color}${color === role ? ' current-role' : ''}`}
+            key={name}
+          >
             <Icon size={14} />
           </span>
         ))}
       </span>
       <small>이슈 #{quest.number}</small>
+      <span className="expedition-activity">
+        <strong>{actor}</strong>
+        <span>{action}</span>
+      </span>
     </button>
   );
 }
