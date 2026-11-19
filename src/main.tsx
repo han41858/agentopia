@@ -867,36 +867,37 @@ function App() {
             </span>
           </div>
           <footer className="map-footer">
-            <span>
-              <span
-                className={`signal ${hasData && !partial ? 'online' : ''}`}
-              />{' '}
-              {loading
-                ? '동기화 중'
-                : !hasData
-                  ? 'GitHub 데이터 확인 필요'
-                  : partial
-                    ? '일부 데이터 조회'
-                    : 'GitHub 데이터 동기화됨'}
-              {updated && (
-                <time dateTime={updated}>
-                  {' '}
-                  ·{' '}
-                  {new Date(updated).toLocaleTimeString('ko-KR', {
-                    hour: '2-digit',
-                    minute: '2-digit',
-                  })}
-                </time>
-              )}
-            </span>
             <button
-              className="text-button"
+              className="refresh-button"
+              aria-label="새로 고침"
+              aria-busy={loading}
+              data-warning={!loading && partial}
+              title={
+                !loading && partial
+                  ? '일부 GitHub 기록을 확인하지 못했습니다.'
+                  : undefined
+              }
               disabled={loading}
               onClick={() => refresh.current?.()}
             >
-              <RefreshCw size={14} className={loading ? 'rotate' : ''} /> 새로
-              고침
+              <RefreshCw
+                size={16}
+                className={loading ? 'rotate' : ''}
+                aria-hidden="true"
+              />
             </button>
+            {updated ? (
+              <time dateTime={updated} aria-label="마지막 갱신 시각">
+                {new Date(updated).toLocaleTimeString('ko-KR', {
+                  hour: '2-digit',
+                  minute: '2-digit',
+                  second: '2-digit',
+                  hourCycle: 'h23',
+                })}
+              </time>
+            ) : (
+              <span aria-label="갱신 기록 없음">—</span>
+            )}
           </footer>
         </div>
       </main>
