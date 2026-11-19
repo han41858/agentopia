@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { FormEvent, ReactNode } from 'react';
+import type { CSSProperties, FormEvent, ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 import {
   Castle,
@@ -11,13 +11,13 @@ import {
   ExternalLink,
   Flag,
   GitPullRequest,
+  GitPullRequestDraft,
   Hourglass,
   KeyRound,
   Plus,
   RefreshCw,
   Rocket,
   ScrollText,
-  Shield,
   Sparkles,
   Swords,
   Ticket,
@@ -81,27 +81,55 @@ const activeStages = new Set<Stage>([
   'deploying',
   'merging',
 ]);
+const ciActivity = 'CI 검사 중';
 const alerts = new Set<Stage>(['failed', 'attention']);
 const defaultRegion: Region = {
   ...repositoryRegion('han41858/agentopia'),
   name: 'Agentopia',
 };
-const repositoryListKey = 'agentopia.public-repositories';
+const legacyRepositoryListKey = 'agentopia.public-repositories';
+const settingsKey = 'agentopia.github-settings';
+type GitHubSettings = { token: string; repositories: Repository[] };
 
-function readRepositories(): Repository[] {
+function kingdomHue(slug: string) {
+  let hash = 2166136261;
+  for (const character of slug.toLowerCase()) {
+    hash = Math.imul(hash ^ character.charCodeAt(0), 16777619);
+  }
+  return ((hash >>> 0) % 36_000) / 100;
+}
+
+function readSettings(): GitHubSettings {
   try {
-    const stored: unknown = JSON.parse(
-      localStorage.getItem(repositoryListKey) ?? '[]',
-    );
-    if (!Array.isArray(stored)) return [];
-    const slugs = new Set<string>();
-    for (const item of stored) {
-      const slug = typeof item === 'string' ? repositorySlug(item) : undefined;
-      if (slug && slug !== defaultRegion.slug) slugs.add(slug);
+    const saved = localStorage.getItem(settingsKey);
+    const stored: unknown = JSON.parse(saved ?? 'null');
+    const settings = stored && typeof stored === 'object' ? stored : {};
+    const token =
+      'token' in settings && typeof settings.token === 'string'
+        ? settings.token
+        : '';
+    const list: unknown =
+      saved === null
+        ? JSON.parse(localStorage.getItem(legacyRepositoryListKey) ?? '[]')
+        : 'repositories' in settings
+          ? settings.repositories
+          : [];
+    const repositories = new Map<string, Repository>();
+    if (Array.isArray(list)) {
+      for (const item of list as unknown[]) {
+        const repo = typeof item === 'object' && item !== null ? item : {};
+        const candidate =
+          saved === null ? item : 'slug' in repo ? repo.slug : undefined;
+        const slug =
+          typeof candidate === 'string' ? repositorySlug(candidate) : undefined;
+        const restricted = 'private' in repo && repo.private === true;
+        if (slug && slug !== defaultRegion.slug && (!restricted || token))
+          repositories.set(slug, { slug, private: restricted });
+      }
     }
-    return Array.from(slugs, (slug) => ({ slug, private: false }));
+    return { token, repositories: [...repositories.values()] };
   } catch {
-    return [];
+    return { token: '', repositories: [] };
   }
 }
 const glyph = {
@@ -109,7 +137,7 @@ const glyph = {
   queued: Hourglass,
   developing: Swords,
   reviewing: ScrollText,
-  ci: Shield,
+  ci: Workflow,
   deploying: Rocket,
   merging: GitPullRequest,
   complete: Check,
@@ -136,7 +164,7 @@ function expeditionActivity(quest: Quest): {
     case 'reviewing':
       return { role: quest.reviewer, action: '코드 리뷰 중' };
     case 'ci':
-      return { role: 'actions', action: 'CI 검사 중' };
+      return { role: 'actions', action: ciActivity };
     case 'merging':
       return { role: 'actions', action: 'PR 병합 중' };
     case 'deploying':
@@ -156,6 +184,7 @@ function closedIssueLabel(quest: Quest) {
 function Expedition({ quest, open }: { quest: Quest; open: () => void }) {
   const closed = quest.state === 'closed';
   const blocked = !closed && alerts.has(quest.stage);
+  const ci = !closed && quest.stage === 'ci';
   const underway = !closed && activeStages.has(quest.stage);
   const StatusIcon = closed ? Check : glyph[quest.stage];
   const activity = expeditionActivity(quest);
@@ -171,7 +200,11 @@ function Expedition({ quest, open }: { quest: Quest; open: () => void }) {
     <button
       className={`expedition${blocked ? ' blocked' : ''}${underway ? ' underway' : ''}${closed ? ' closed-issue' : ''}`}
       aria-label={`이슈 #${quest.number} 파티 · ${quest.title} · ${status}`}
-      title={blocked ? quest.title : `${quest.title} · ${status}`}
+      title={
+        blocked || ci || (closed && action === '완료')
+          ? quest.title
+          : `${quest.title} · ${status}`
+      }
       onClick={open}
     >
       <span className="expedition-party" aria-hidden="true">
@@ -185,16 +218,18 @@ function Expedition({ quest, open }: { quest: Quest; open: () => void }) {
         ))}
       </span>
       <small className="expedition-number">
-        <StatusIcon size={blocked ? 13 : 11} aria-hidden="true" /> #
+        {!ci && <StatusIcon size={blocked ? 13 : 11} aria-hidden="true" />} #
         {quest.number}
       </small>
-      {closed && <small className="expedition-status-label">{action}</small>}
+      {closed && action !== '완료' && (
+        <small className="expedition-status-label">{action}</small>
+      )}
     </button>
   );
 }
 
 function pullStatus(pull: PullQuest) {
-  if (pull.stage === 'ci') return 'CI 검사 중';
+  if (pull.stage === 'ci') return ciActivity;
   if (pull.stage !== 'idle') return stages[pull.stage];
   return pull.draft ? '초안' : 'PR 열림';
 }
@@ -209,34 +244,37 @@ function pullActivity(pull: PullQuest) {
 
 function PullMarker({ pull, open }: { pull: PullQuest; open: () => void }) {
   const role = partyRoles.find(
-    ({ color }) => color === (pull.reviewer ?? pull.author),
+    ({ color }) =>
+      color ===
+      (pull.stage === 'ci' ? 'actions' : (pull.reviewer ?? pull.author)),
   );
-  const Icon = role?.Icon ?? GitPullRequest;
-  const label = [
-    `PR #${pull.number}`,
-    pull.title,
-    pullActivity(pull),
-    pullStatus(pull),
-  ]
+  const Icon =
+    role?.Icon ?? (pull.draft ? GitPullRequestDraft : GitPullRequest);
+  const iconOnly = pull.stage === 'idle' || pull.stage === 'ci';
+  const label = [`PR #${pull.number}`, pull.title, pullActivity(pull)]
     .filter(Boolean)
     .join(' · ');
+  const status = pullStatus(pull);
   return (
     <button
       className={`expedition pull-marker${alerts.has(pull.stage) ? ' blocked' : ''}`}
-      title={alerts.has(pull.stage) ? pull.title : label}
-      aria-label={label}
+      title={
+        alerts.has(pull.stage) || iconOnly ? label : `${label} · ${status}`
+      }
+      aria-label={`${label} · ${status}`}
       onClick={open}
     >
       <span
         className={`role-symbol current-role${role ? ` ${role.color}` : ''}`}
+        data-draft={pull.draft}
       >
         <Icon size={15} aria-hidden="true" />
       </span>
       <small className="expedition-number">PR #{pull.number}</small>
       {alerts.has(pull.stage) ? (
         <Badge stage={pull.stage} />
-      ) : (
-        <small className="expedition-status-label">{pullStatus(pull)}</small>
+      ) : iconOnly ? null : (
+        <small className="expedition-status-label">{status}</small>
       )}
     </button>
   );
@@ -365,9 +403,15 @@ async function request<T>(
 
 function Badge({ stage }: { stage: Stage }) {
   const Icon = glyph[stage];
-  if (alerts.has(stage)) {
+  if (alerts.has(stage) || stage === 'complete' || stage === 'ci') {
     return (
-      <span className={`badge ${stage}`} role="img" aria-label={stages[stage]}>
+      <span
+        className={`badge ${stage}`}
+        role="img"
+        aria-label={
+          stage === 'ci' ? `GitHub Actions · ${ciActivity}` : stages[stage]
+        }
+      >
         <Icon size={14} aria-hidden="true" />
       </span>
     );
@@ -382,12 +426,13 @@ function Badge({ stage }: { stage: Stage }) {
 
 function IssueBadge({ quest }: { quest: Quest }) {
   if (quest.state !== 'closed') return <Badge stage={quest.stage} />;
-  const label = closedIssueLabel(quest);
-  return (
-    <span className={`badge${label === '완료' ? ' complete' : ''}`}>
-      {label}
-    </span>
-  );
+  if (closedIssueLabel(quest) === '완료')
+    return (
+      <span className="badge complete" role="img" aria-label="완료">
+        <Check size={14} aria-hidden="true" />
+      </span>
+    );
+  return <span className="badge">닫힘</span>;
 }
 
 function OutLink({ item }: { item: Source }) {
@@ -662,7 +707,15 @@ function PullDetail({
 }
 
 function PullStatus({ pull }: { pull: PullQuest }) {
-  return pull.stage === 'attention' || pull.stage === 'failed' ? (
+  if (pull.stage === 'idle') {
+    const Icon = pull.draft ? GitPullRequestDraft : GitPullRequest;
+    return (
+      <span className="badge idle" role="img" aria-label={pullStatus(pull)}>
+        <Icon size={14} aria-hidden="true" />
+      </span>
+    );
+  }
+  return alerts.has(pull.stage) || pull.stage === 'ci' ? (
     <Badge stage={pull.stage} />
   ) : (
     <span className={`badge ${pull.stage}`}>{pullStatus(pull)}</span>
@@ -803,7 +856,8 @@ function TokenDialog({
     <Dialog title="GitHub 연결" close={close}>
       <p>
         비공개 지역을 탐험하거나 내 API 사용 한도로 조회하려면 읽기 전용 GitHub
-        토큰을 연결하세요. 토큰은 현재 탭이 열린 동안에만 사용됩니다.
+        토큰을 연결하세요. 이 브라우저에 저장되며 티켓에서 연결을 해제할 수
+        있습니다.
       </p>
       {token && (
         <div className="token-result" role="status">
@@ -1125,8 +1179,8 @@ function QuestLog({
 }
 
 function App() {
-  const [token, storeToken] = useState('');
-  const [repositories, setRepositories] = useState(readRepositories);
+  const [settings, setSettings] = useState(readSettings);
+  const { token, repositories } = settings;
   const worldRegions = useMemo(
     () => [
       defaultRegion,
@@ -1149,14 +1203,32 @@ function App() {
 
   useEffect(() => {
     try {
-      const publicSlugs = repositories
-        .filter((repo) => !repo.private)
-        .map(({ slug }) => slug);
-      localStorage.setItem(repositoryListKey, JSON.stringify(publicSlugs));
+      localStorage.setItem(settingsKey, JSON.stringify(settings));
+      localStorage.removeItem(legacyRepositoryListKey);
     } catch {
-      // The current tab can still use the list when storage is unavailable.
+      // The current tab can still use the settings when storage is unavailable.
     }
-  }, [repositories]);
+  }, [settings]);
+
+  useEffect(() => {
+    function restoreSettings(event: StorageEvent) {
+      if (
+        event.storageArea !== localStorage ||
+        (event.key !== null && event.key !== settingsKey)
+      )
+        return;
+      const next = readSettings();
+      setSettings(next);
+      setSnapshots({});
+      setSelected(undefined);
+      setSelectedQuest(undefined);
+      setLoading(true);
+      if (next.token !== token) setShowAdd(false);
+    }
+
+    window.addEventListener('storage', restoreSettings);
+    return () => window.removeEventListener('storage', restoreSettings);
+  }, [token]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -1221,8 +1293,10 @@ function App() {
 
   function setToken(value: string) {
     if (value === token) return;
-    storeToken(value);
-    setRepositories((items) => items.filter((repo) => !repo.private));
+    setSettings((current) => ({
+      token: value,
+      repositories: current.repositories.filter((repo) => !repo.private),
+    }));
     setSelected(undefined);
     setSnapshots({});
     setSelectedQuest(undefined);
@@ -1235,9 +1309,12 @@ function App() {
   }
 
   function removeRegion(region: Region) {
-    setRepositories((items) =>
-      items.filter(({ slug }) => slug !== region.slug),
-    );
+    setSettings((current) => ({
+      ...current,
+      repositories: current.repositories.filter(
+        ({ slug }) => slug !== region.slug,
+      ),
+    }));
     setSnapshots((current) => {
       const remaining = { ...current };
       delete remaining[region.id];
@@ -1341,14 +1418,24 @@ function App() {
             {worldRegions.map((region) => {
               const report = snapshots[region.id]?.report;
               return (
-                <div className={`kingdom-area ${region.theme}`} key={region.id}>
+                <div
+                  className="kingdom-area"
+                  key={region.id}
+                  style={
+                    {
+                      '--kingdom-hue': kingdomHue(region.slug),
+                    } as CSSProperties
+                  }
+                >
                   <button className="kingdom" onClick={() => select(region)}>
-                    <span className="kingdom-land" aria-hidden="true">
-                      <Castle size={34} strokeWidth={1.5} />
-                    </span>
+                    <Castle
+                      className="kingdom-crest"
+                      size={34}
+                      strokeWidth={1.5}
+                      aria-hidden="true"
+                    />
                     <span className="kingdom-label">
                       <strong>{region.name}</strong>
-                      <small>{region.title}</small>
                     </span>
                   </button>
                   {report &&
@@ -1363,15 +1450,11 @@ function App() {
                         setSelectedQuest({ region, number: item.number })
                       }
                     />
-                  ) : (
+                  ) : !report ? (
                     <p className="expedition-status">
-                      {snapshots[region.id]?.report
-                        ? '열린 이슈·PR 없음'
-                        : loading
-                          ? '기록 확인 중'
-                          : '기록 확인 필요'}
+                      {loading ? '기록 확인 중' : '기록 확인 필요'}
                     </p>
-                  )}
+                  ) : null}
                 </div>
               );
             })}
@@ -1417,7 +1500,12 @@ function App() {
         <RepositoryDialog
           token={token}
           regions={worldRegions}
-          added={(repos) => setRepositories((items) => [...items, ...repos])}
+          added={(repos) =>
+            setSettings((current) => ({
+              ...current,
+              repositories: [...current.repositories, ...repos],
+            }))
+          }
           select={select}
           close={() => setShowAdd(false)}
         />
