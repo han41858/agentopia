@@ -11,11 +11,13 @@ import type {
   Stage,
 } from './model.ts';
 
-const ttl = 5 * 60_000;
+const publicReportTtl = 60_000;
+const manualRefreshCooldown = 15_000;
 const publicReports = new Map<
   string,
-  { expires: number; value: Promise<Report> }
+  { requestedAt: number; pending: boolean; value: Promise<Report> }
 >();
+let publicRateLimit: { until: number; error: GitHubError } | undefined;
 
 class GitHubError extends Error {
   status: number;
@@ -40,7 +42,25 @@ function client(region: Region, token?: string) {
       redirect: 'error',
       signal: AbortSignal.timeout(9000),
     });
-    if (!response.ok) throw new GitHubError(response.status);
+    if (!response.ok) {
+      const error = new GitHubError(response.status);
+      if (!token && (response.status === 429 || response.status === 403)) {
+        const retryAfter = Number(response.headers.get('retry-after'));
+        const reset =
+          response.headers.get('x-ratelimit-remaining') === '0'
+            ? Number(response.headers.get('x-ratelimit-reset')) * 1000
+            : 0;
+        const now = Date.now();
+        const until = Math.max(
+          reset,
+          retryAfter > 0 ? now + retryAfter * 1000 : 0,
+          response.status === 429 ? now + publicReportTtl : 0,
+        );
+        if (until > now && until > (publicRateLimit?.until ?? 0))
+          publicRateLimit = { until, error };
+      }
+      throw error;
+    }
     return response.json() as Promise<T>;
   };
 }
@@ -246,24 +266,38 @@ async function getReport(region: Region, token?: string): Promise<Report> {
   };
 }
 
-export function regionReport(region: Region, token?: string) {
+export function regionReport(region: Region, token?: string, force = false) {
   if (token) return getReport(region, token);
   const cached = publicReports.get(region.id);
-  if (cached && cached.expires > Date.now()) return cached.value;
-  const value = getReport(region);
-  const entry = { expires: Date.now() + ttl, value };
+  const now = Date.now();
+  if (publicRateLimit && publicRateLimit.until > now) {
+    if (!cached) throw publicRateLimit.error;
+    return cached.value.then((report) => ({
+      ...report,
+      warnings: [...report.warnings, 'GitHub API 사용 한도'],
+    }));
+  }
+  const maxAge = force ? manualRefreshCooldown : publicReportTtl;
+  if (cached && (cached.pending || now - cached.requestedAt < maxAge))
+    return cached.value;
+
+  const entry = {
+    requestedAt: now,
+    pending: true,
+    value: getReport(region),
+  };
   publicReports.set(region.id, entry);
-  void value.then(
-    (report) => {
-      if (report.warnings.length)
-        entry.expires = Math.min(entry.expires, Date.now() + 60_000);
+  void entry.value.then(
+    () => {
+      entry.pending = false;
     },
     () => {
-      if (publicReports.get(region.id) === entry)
-        publicReports.delete(region.id);
+      if (publicReports.get(region.id) !== entry) return;
+      if (cached) publicReports.set(region.id, cached);
+      else publicReports.delete(region.id);
     },
   );
-  return value;
+  return entry.value;
 }
 
 async function pullReviews(
@@ -306,7 +340,11 @@ export async function githubResponse(
   try {
     const result =
       pull === null
-        ? await regionReport(region, authorization)
+        ? await regionReport(
+            region,
+            authorization,
+            url.searchParams.get('refresh') === '1',
+          )
         : await pullReviews(region, pull, authorization);
     return reply(200, result);
   } catch (error) {

@@ -239,3 +239,55 @@ test('API gets only the allowed repository and keeps authenticated reports out o
     calls.slice(5).every(({ authorization }) => authorization === null),
   );
 });
+
+test('public refresh reuses recent reports, refreshes on demand, and honors rate limits', async (context) => {
+  let now = 1_800_000_000_000;
+  let issueRequests = 0;
+  let limited = false;
+  context.mock.method(Date, 'now', () => now);
+  context.mock.method(globalThis, 'fetch', async (url: string) => {
+    const path = new URL(url).pathname;
+    if (path.endsWith('/issues')) {
+      issueRequests++;
+      if (limited)
+        return Response.json(
+          {},
+          {
+            status: 429,
+            headers: { 'retry-after': '90' },
+          },
+        );
+      return Response.json([issue(1)]);
+    }
+    if (path.endsWith('/actions/runs'))
+      return Response.json({ workflow_runs: [] });
+    return Response.json([]);
+  });
+  const url = new URL('http://localhost/api/github?region=commit-trail');
+  await githubResponse(url, 'GET');
+  url.searchParams.set('refresh', '1');
+  now += 10_000;
+  await githubResponse(url, 'GET');
+  assert.equal(issueRequests, 1);
+  now += 5_000;
+  await githubResponse(url, 'GET');
+  assert.equal(issueRequests, 2);
+  url.searchParams.delete('refresh');
+  now += 59_000;
+  await githubResponse(url, 'GET');
+  assert.equal(issueRequests, 2);
+  now += 1_000;
+  limited = true;
+  assert.equal((await githubResponse(url, 'GET')).status, 429);
+  assert.equal(issueRequests, 3);
+  limited = false;
+  now += 20_000;
+  url.searchParams.set('refresh', '1');
+  const stale = await githubResponse(url, 'GET');
+  assert.equal(stale.status, 200);
+  assert.deepEqual(JSON.parse(stale.body).warnings, ['GitHub API 사용 한도']);
+  assert.equal(issueRequests, 3);
+  now += 70_000;
+  await githubResponse(url, 'GET');
+  assert.equal(issueRequests, 4);
+});

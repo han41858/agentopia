@@ -5,7 +5,6 @@ import {
   Castle,
   Crown,
   Check,
-  ChevronUp,
   ChevronRight,
   Clock3,
   Code2,
@@ -93,7 +92,7 @@ function Expedition({ quest, open }: { quest: Quest; open: () => void }) {
   const closed = quest.state === 'closed';
   const blocked = !closed && alerts.has(quest.stage);
   const underway = !closed && activeStages.has(quest.stage);
-  const Direction = closed ? Check : underway ? ChevronUp : glyph[quest.stage];
+  const StatusIcon = closed ? Check : glyph[quest.stage];
   const activity = expeditionActivity(quest);
   const role = underway ? activity.role : undefined;
   const action = closed ? closedIssueLabel(quest) : activity.action;
@@ -101,14 +100,15 @@ function Expedition({ quest, open }: { quest: Quest; open: () => void }) {
     ? (partyRoles.find(({ color }) => color === role)?.name ?? '담당 미확인')
     : undefined;
 
+  const status = actor ? `${actor} · ${action}` : action;
+
   return (
     <button
       className={`expedition${blocked ? ' blocked' : ''}${underway ? ' underway' : ''}${closed ? ' closed-issue' : ''}`}
-      aria-label={`이슈 #${quest.number} 파티 · ${quest.title} · ${actor ? `${actor} · ${action}` : action}`}
-      title={quest.title}
+      aria-label={`이슈 #${quest.number} 파티 · ${quest.title} · ${status}`}
+      title={`${quest.title} · ${status}`}
       onClick={open}
     >
-      <Direction className="expedition-route" size={17} aria-hidden="true" />
       <span className="expedition-party" aria-hidden="true">
         {partyRoles.map(({ name, Icon, color }) => (
           <span
@@ -119,11 +119,12 @@ function Expedition({ quest, open }: { quest: Quest; open: () => void }) {
           </span>
         ))}
       </span>
-      <small>이슈 #{quest.number}</small>
-      <span className="expedition-activity">
-        {actor && <strong>{actor}</strong>}
-        <span>{action}</span>
-      </span>
+      <small className="expedition-number">
+        <StatusIcon size={11} aria-hidden="true" /> #{quest.number}
+      </small>
+      {(closed || blocked) && (
+        <small className="expedition-status-label">{action}</small>
+      )}
     </button>
   );
 }
@@ -176,7 +177,10 @@ function GuildQuests({
     );
     const guildLeader = children.length > 0 || Boolean(quest.subIssueCount);
     return (
-      <li key={quest.number}>
+      <li
+        key={quest.number}
+        className={guildLeader ? 'guild-branch' : undefined}
+      >
         {guildLeader ? (
           <button className="guild-leader" onClick={() => openQuest(quest)}>
             <span>
@@ -638,19 +642,24 @@ function App() {
     region: Region;
     number: number;
   }>();
-  const [revision, refresh] = useState(0);
+  const refresh = useRef<(() => void) | null>(null);
   const [loading, setLoading] = useState(true);
   const [showConnect, setShowConnect] = useState(false);
 
   useEffect(() => {
     const controller = new AbortController();
-    async function sync() {
+    let syncing = false;
+    async function sync(force = false) {
+      if (syncing || controller.signal.aborted) return;
+      syncing = true;
       setLoading(true);
       await Promise.all(
         worldRegions.map(async (region) => {
           try {
+            const params = new URLSearchParams({ region: region.id });
+            if (force) params.set('refresh', '1');
             const report = await request<Report>(
-              new URLSearchParams({ region: region.id }),
+              params,
               token,
               controller.signal,
             );
@@ -671,17 +680,25 @@ function App() {
           }
         }),
       );
+      syncing = false;
       if (!controller.signal.aborted) setLoading(false);
     }
-    void sync();
-    const timer = window.setInterval(() => {
+
+    function syncVisible() {
       if (document.visibilityState === 'visible') void sync();
-    }, 5 * 60_000);
+    }
+
+    refresh.current = () => void sync(true);
+    void sync();
+    const timer = window.setInterval(syncVisible, token ? 20_000 : 60_000);
+    document.addEventListener('visibilitychange', syncVisible);
     return () => {
+      refresh.current = null;
+      document.removeEventListener('visibilitychange', syncVisible);
       window.clearInterval(timer);
       controller.abort();
     };
-  }, [token, revision]);
+  }, [token]);
 
   function setToken(value: string) {
     if (value === token) return;
@@ -814,7 +831,7 @@ function App() {
             <button
               className="text-button"
               disabled={loading}
-              onClick={() => refresh((count) => count + 1)}
+              onClick={() => refresh.current?.()}
             >
               <RefreshCw size={14} className={loading ? 'rotate' : ''} /> 새로
               고침
