@@ -47,6 +47,9 @@ export type Quest = {
   title: string;
   url: string;
   stage: Stage;
+  state: Issue['state'];
+  stateReason?: Issue['state_reason'];
+  subIssueCount?: number;
   parent?: number;
   reason?: string;
   detail?: string;
@@ -69,7 +72,7 @@ export type Issue = {
   title: string;
   html_url: string;
   state: string;
-  state_reason?: string;
+  state_reason?: string | null;
   pull_request?: unknown;
   labels: { name: string }[];
   sub_issues_summary?: { total: number };
@@ -350,6 +353,9 @@ export function makeQuests(
       title: issue.title,
       url: issue.html_url,
       stage,
+      state: issue.state,
+      stateReason: issue.state_reason,
+      subIssueCount: issue.sub_issues_summary?.total,
       parent: parents.get(issue.number),
       reason,
       detail,

@@ -3,6 +3,7 @@ import type { FormEvent, ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 import {
   Castle,
+  Crown,
   Check,
   ChevronUp,
   ChevronRight,
@@ -81,17 +82,29 @@ function expeditionActivity(quest: Quest): {
   }
 }
 
+function closedIssueLabel(quest: Quest) {
+  const completed = quest.stateReason
+    ? quest.stateReason === 'completed'
+    : quest.stage === 'complete';
+  return completed ? '완료' : '닫힘';
+}
+
 function Expedition({ quest, open }: { quest: Quest; open: () => void }) {
-  const blocked = alerts.has(quest.stage);
-  const Direction = blocked ? glyph[quest.stage] : ChevronUp;
-  const { role, action } = expeditionActivity(quest);
-  const actor =
-    partyRoles.find(({ color }) => color === role)?.name ?? '담당 미확인';
+  const closed = quest.state === 'closed';
+  const blocked = !closed && alerts.has(quest.stage);
+  const underway = !closed && activeStages.has(quest.stage);
+  const Direction = closed ? Check : underway ? ChevronUp : glyph[quest.stage];
+  const activity = expeditionActivity(quest);
+  const role = underway ? activity.role : undefined;
+  const action = closed ? closedIssueLabel(quest) : activity.action;
+  const actor = underway
+    ? (partyRoles.find(({ color }) => color === role)?.name ?? '담당 미확인')
+    : undefined;
 
   return (
     <button
-      className={`expedition${blocked ? ' blocked' : ''}`}
-      aria-label={`이슈 #${quest.number} 파티 · ${quest.title} · ${blocked ? action : `${actor} · ${action}`}`}
+      className={`expedition${blocked ? ' blocked' : ''}${underway ? ' underway' : ''}${closed ? ' closed-issue' : ''}`}
+      aria-label={`이슈 #${quest.number} 파티 · ${quest.title} · ${actor ? `${actor} · ${action}` : action}`}
       title={quest.title}
       onClick={open}
     >
@@ -108,16 +121,93 @@ function Expedition({ quest, open }: { quest: Quest; open: () => void }) {
       </span>
       <small>이슈 #{quest.number}</small>
       <span className="expedition-activity">
-        {blocked ? (
-          <strong>{action}</strong>
-        ) : (
-          <>
-            <strong>{actor}</strong>
-            <span>{action}</span>
-          </>
-        )}
+        {actor && <strong>{actor}</strong>}
+        <span>{action}</span>
       </span>
     </button>
+  );
+}
+
+function GuildQuests({
+  quests,
+  label,
+  openQuest,
+}: {
+  quests: Quest[];
+  label: string;
+  openQuest: (quest: Quest) => void;
+}) {
+  const byNumber = new Map(quests.map((quest) => [quest.number, quest]));
+  const childrenByParent = new Map<number, Quest[]>();
+  for (const quest of quests) {
+    if (quest.parent === undefined) continue;
+    const siblings = childrenByParent.get(quest.parent) ?? [];
+    siblings.push(quest);
+    childrenByParent.set(quest.parent, siblings);
+  }
+
+  const descendants = new Set<number>();
+  function includeDescendants(quest: Quest) {
+    if (descendants.has(quest.number)) return;
+    descendants.add(quest.number);
+    childrenByParent.get(quest.number)?.forEach(includeDescendants);
+  }
+
+  const visible = new Set<number>();
+  for (const quest of quests) {
+    if (quest.state !== 'open') continue;
+    includeDescendants(quest);
+    let current: Quest | undefined = quest;
+    while (current && !visible.has(current.number)) {
+      visible.add(current.number);
+      current =
+        current.parent === undefined ? undefined : byNumber.get(current.parent);
+    }
+  }
+  for (const number of descendants) visible.add(number);
+  const roots = quests.filter(
+    ({ number, parent }) =>
+      visible.has(number) && (parent === undefined || !visible.has(parent)),
+  );
+
+  function render(quest: Quest) {
+    const children = (childrenByParent.get(quest.number) ?? []).filter(
+      ({ number }) => visible.has(number),
+    );
+    const guildLeader = children.length > 0 || Boolean(quest.subIssueCount);
+    return (
+      <li key={quest.number}>
+        {guildLeader ? (
+          <button className="guild-leader" onClick={() => openQuest(quest)}>
+            <span>
+              <Crown size={17} aria-hidden="true" /> 길드장 #{quest.number}
+            </span>
+            <span>{quest.title}</span>
+            <small>
+              {quest.state === 'closed'
+                ? closedIssueLabel(quest)
+                : stages[quest.stage]}
+            </small>
+          </button>
+        ) : (
+          <Expedition quest={quest} open={() => openQuest(quest)} />
+        )}
+        {children.length > 0 && (
+          <ul
+            className="guild-parties"
+            aria-label={`길드장 #${quest.number}의 하위 이슈`}
+          >
+            {children.map(render)}
+          </ul>
+        )}
+      </li>
+    );
+  }
+
+  return (
+    <ul className="expeditions" aria-label={label}>
+      {roots.map(render)}
+    </ul>
   );
 }
 
@@ -142,6 +232,16 @@ function Badge({ stage }: { stage: Stage }) {
     <span className={`badge ${stage}`}>
       <Icon size={14} />
       {stages[stage]}
+    </span>
+  );
+}
+
+function IssueBadge({ quest }: { quest: Quest }) {
+  if (quest.state !== 'closed') return <Badge stage={quest.stage} />;
+  const label = closedIssueLabel(quest);
+  return (
+    <span className={`badge${label === '완료' ? ' complete' : ''}`}>
+      {label}
     </span>
   );
 }
@@ -328,7 +428,7 @@ function QuestDetail({
   return (
     <Dialog title={`Quest #${quest.number}`} close={close}>
       <h3>{quest.title}</h3>
-      <Badge stage={quest.stage} />
+      <IssueBadge quest={quest} />
       {(quest.reason || quest.detail) && (
         <div className={`reason ${alerts.has(quest.stage) ? 'danger' : ''}`}>
           <p>{quest.reason}</p>
@@ -410,10 +510,10 @@ function RegionDetail({
         <button className="quest-row" onClick={() => openQuest(quest)}>
           <span>
             <small>
-              {quest.parent
-                ? '하위 퀘스트'
-                : children.length
-                  ? '메인 퀘스트'
+              {children.length || quest.subIssueCount
+                ? '길드장'
+                : quest.parent
+                  ? '하위 이슈 파티'
                   : '퀘스트'}{' '}
               #{quest.number}
             </small>
@@ -426,7 +526,7 @@ function RegionDetail({
             )}
           </span>
           <PartyPreview quest={quest} />
-          <Badge stage={quest.stage} />
+          <IssueBadge quest={quest} />
           <ChevronRight size={16} />
         </button>
         {children.length > 0 && (
@@ -596,17 +696,9 @@ function App() {
     setSelectedQuest(undefined);
   }
 
-  const mapQuests = Object.fromEntries(
-    worldRegions.map(({ id }) => [
-      id,
-      (snapshots[id]?.report?.quests ?? []).filter(
-        ({ stage }) => activeStages.has(stage) || alerts.has(stage),
-      ),
-    ]),
-  );
-  const active = Object.values(mapQuests)
-    .flat()
-    .filter(({ stage }) => activeStages.has(stage)).length;
+  const openCount = worldRegions
+    .flatMap(({ id }) => snapshots[id]?.report?.quests ?? [])
+    .filter(({ state }) => state === 'open').length;
   const hasData = worldRegions.some(({ id }) => snapshots[id]?.report);
   const partial = worldRegions.some(
     ({ id }) =>
@@ -656,26 +748,20 @@ function App() {
                     <small>{region.title}</small>
                   </span>
                 </button>
-                {mapQuests[region.id].length ? (
-                  <ul
-                    className="expeditions"
-                    aria-label={`${region.name} 이슈 파티`}
-                  >
-                    {mapQuests[region.id].map((item) => (
-                      <li key={item.number}>
-                        <Expedition
-                          quest={item}
-                          open={() =>
-                            setSelectedQuest({ region, number: item.number })
-                          }
-                        />
-                      </li>
-                    ))}
-                  </ul>
+                {snapshots[region.id]?.report?.quests.some(
+                  ({ state }) => state === 'open',
+                ) ? (
+                  <GuildQuests
+                    quests={snapshots[region.id].report!.quests}
+                    label={`${region.name} 이슈`}
+                    openQuest={(item) =>
+                      setSelectedQuest({ region, number: item.number })
+                    }
+                  />
                 ) : (
                   <p className="expedition-status">
                     {snapshots[region.id]?.report
-                      ? '파티 대기'
+                      ? '열린 이슈 없음'
                       : loading
                         ? '기록 확인 중'
                         : '기록 확인 필요'}
@@ -699,7 +785,7 @@ function App() {
               왕국 <strong>{worldRegions.length}</strong>
             </span>
             <span>
-              진행 중 <strong>{hasData ? active : '—'}</strong>
+              열린 이슈 <strong>{hasData ? openCount : '—'}</strong>
             </span>
           </div>
           <footer className="map-footer">

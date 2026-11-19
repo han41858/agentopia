@@ -218,11 +218,44 @@ svg {
 }
 .expeditions {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(110px, 100%), 1fr));
   gap: 6px;
   padding: 0;
   margin: 12px 0 0;
   list-style: none;
+}
+.guild-leader {
+  display: grid;
+  gap: 5px;
+  width: 100%;
+  padding: 9px;
+  border: 1px solid #948666;
+  border-radius: 7px;
+  background: #25313a;
+  text-align: left;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+}
+.guild-leader:hover {
+  border-color: var(--accent);
+}
+.guild-leader > span:first-child {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--accent);
+  font-weight: 700;
+}
+.guild-leader small {
+  color: #c5d0db;
+}
+.guild-parties {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(110px, 100%), 1fr));
+  gap: 6px;
+  list-style: none;
+  margin: 6px 0 0 7px;
+  padding: 2px 0 0 7px;
+  border-inline-start: 2px solid #948666;
 }
 .expedition {
   width: 100%;
@@ -240,15 +273,19 @@ svg {
 .expedition:hover {
   border-color: var(--accent);
 }
-.expedition:not(.blocked) .expedition-route {
+.expedition.underway .expedition-route {
   animation: route-up 1.4s ease-in-out 3;
 }
 .expedition.blocked {
   --accent: #ffb4aa;
   border-color: #88505a;
 }
-.expedition.blocked .expedition-activity strong {
+.expedition.blocked .expedition-activity {
   color: var(--accent);
+}
+.expedition.closed-issue {
+  --accent: #bbc8d3;
+  background: #202b35;
 }
 @keyframes route-up {
   50% {
