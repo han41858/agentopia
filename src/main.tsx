@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { FormEvent, ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 import {
@@ -11,21 +11,35 @@ import {
   ExternalLink,
   Flag,
   GitPullRequest,
-  GitFork as Github,
   Hourglass,
   KeyRound,
+  Plus,
   RefreshCw,
   Rocket,
   ScrollText,
   Shield,
   Sparkles,
   Swords,
+  Ticket,
   TriangleAlert,
   Workflow,
   X,
 } from 'lucide-react';
-import { regions, stages } from '../server/model.ts';
-import type { Quest, Region, Report, Source, Stage } from '../server/model.ts';
+import {
+  regions,
+  repositoryInput,
+  repositoryRegion,
+  repositorySlug,
+  stages,
+} from '../server/model.ts';
+import type {
+  Quest,
+  Region,
+  Report,
+  Repository,
+  Source,
+  Stage,
+} from '../server/model.ts';
 import './styles.css';
 
 type Snapshot = { report?: Report; error?: string; httpStatus?: number };
@@ -66,7 +80,25 @@ const activeStages = new Set<Stage>([
   'merging',
 ]);
 const alerts = new Set<Stage>(['failed', 'attention']);
-const worldRegions = regions.filter(({ id }) => id !== 'videx');
+const defaultRegion = regions[0];
+const repositoryListKey = 'agentopia.public-repositories';
+
+function readRepositories(): Repository[] {
+  try {
+    const stored: unknown = JSON.parse(
+      localStorage.getItem(repositoryListKey) ?? '[]',
+    );
+    if (!Array.isArray(stored)) return [];
+    const slugs = new Set<string>();
+    for (const item of stored) {
+      const slug = typeof item === 'string' ? repositorySlug(item) : undefined;
+      if (slug && slug !== defaultRegion.slug) slugs.add(slug);
+    }
+    return Array.from(slugs, (slug) => ({ slug, private: false }));
+  } catch {
+    return [];
+  }
+}
 const glyph = {
   idle: Clock3,
   queued: Hourglass,
@@ -347,7 +379,7 @@ function Reviews({
   useEffect(() => {
     const controller = new AbortController();
     request<Source[]>(
-      new URLSearchParams({ region, reviews: String(pull) }),
+      new URLSearchParams({ repo: region, reviews: String(pull) }),
       token,
       controller.signal,
     ).then(setReviews, (cause: Error) => {
@@ -503,7 +535,7 @@ function QuestDetail({
           {reviewPull === item.number && (
             <Reviews
               key={item.number}
-              region={region.id}
+              region={region.slug}
               pull={item.number}
               token={token}
             />
@@ -521,11 +553,13 @@ function RegionDetail({
   region,
   snapshot,
   openQuest,
+  remove,
   close,
 }: {
   region: Region;
   snapshot?: Snapshot;
   openQuest: (quest: Quest) => void;
+  remove?: () => void;
   close: () => void;
 }) {
   const quests = snapshot?.report?.quests ?? [];
@@ -584,9 +618,14 @@ function RegionDetail({
       <OutLink
         item={{
           title: 'GitHub 저장소',
-          url: `https://github.com/han41858/${region.id}`,
+          url: `https://github.com/${region.slug}`,
         }}
       />
+      {remove && (
+        <button className="text-button" onClick={remove}>
+          월드맵에서 제거
+        </button>
+      )}
       {snapshot?.error && <p className="fetch-error">{snapshot.error}</p>}
       {!snapshot && <p>왕국 기록을 불러오는 중…</p>}
       {snapshot?.report?.warnings.length ? (
@@ -679,8 +718,100 @@ function TokenDialog({
   );
 }
 
+function RepositoryDialog({
+  token,
+  regions,
+  added,
+  select,
+  close,
+}: {
+  token: string;
+  regions: Region[];
+  added: (repo: Repository) => void;
+  select: (region: Region) => void;
+  close: () => void;
+}) {
+  const [value, setValue] = useState('');
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState('');
+  const requestController = useRef<AbortController>(null);
+  useEffect(() => () => requestController.current?.abort(), []);
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (requestController.current) return;
+    const slug = repositoryInput(value);
+    if (!slug) {
+      setError('owner/repo 또는 GitHub 저장소 주소를 입력하세요.');
+      return;
+    }
+    const existing = regions.find((region) => region.slug === slug);
+    if (existing) {
+      select(existing);
+      close();
+      return;
+    }
+    const controller = new AbortController();
+    requestController.current = controller;
+    setError('');
+    setPending(true);
+    try {
+      const repo = await request<Repository>(
+        new URLSearchParams({ repo: slug, repository: '1' }),
+        token,
+        controller.signal,
+      );
+      if (controller.signal.aborted) return;
+      const match = regions.find((region) => region.slug === repo.slug);
+      if (match) select(match);
+      else added(repo);
+      close();
+    } catch (cause) {
+      if (!controller.signal.aborted) setError((cause as Error).message);
+    } finally {
+      requestController.current = null;
+      if (!controller.signal.aborted) setPending(false);
+    }
+  }
+
+  return (
+    <Dialog title="저장소 추가" close={close}>
+      <form className="token-form" onSubmit={(event) => void submit(event)}>
+        <label htmlFor="github-repository">GitHub 저장소</label>
+        <input
+          id="github-repository"
+          placeholder="owner/repo"
+          autoCapitalize="none"
+          autoComplete="off"
+          spellCheck={false}
+          value={value}
+          onChange={(event) => setValue(event.target.value)}
+          required
+        />
+        {error && (
+          <p className="fetch-error" role="alert">
+            {error}
+          </p>
+        )}
+        <button className="primary" type="submit" disabled={pending}>
+          <Plus size={16} aria-hidden="true" />
+          {pending ? '접근 확인 중…' : '추가'}
+        </button>
+      </form>
+    </Dialog>
+  );
+}
+
 function App() {
   const [token, storeToken] = useState('');
+  const [repositories, setRepositories] = useState(readRepositories);
+  const worldRegions = useMemo(
+    () => [
+      defaultRegion,
+      ...repositories.map(({ slug }) => repositoryRegion(slug)),
+    ],
+    [repositories],
+  );
   const [snapshots, setSnapshots] = useState<Record<string, Snapshot>>({});
   const [selected, setSelected] = useState<Region>();
   const [selectedQuest, setSelectedQuest] = useState<{
@@ -689,19 +820,34 @@ function App() {
   }>();
   const refresh = useRef<(() => void) | null>(null);
   const [loading, setLoading] = useState(true);
+  const refreshInterval = token ? 20_000 : 60_000;
   const [showConnect, setShowConnect] = useState(false);
+  const [showAdd, setShowAdd] = useState(false);
+
+  useEffect(() => {
+    try {
+      const publicSlugs = repositories
+        .filter((repo) => !repo.private)
+        .map(({ slug }) => slug);
+      localStorage.setItem(repositoryListKey, JSON.stringify(publicSlugs));
+    } catch {
+      // The current tab can still use the list when storage is unavailable.
+    }
+  }, [repositories]);
 
   useEffect(() => {
     const controller = new AbortController();
     let syncing = false;
+    let timer: number | undefined;
     async function sync(force = false) {
       if (syncing || controller.signal.aborted) return;
+      window.clearTimeout(timer);
       syncing = true;
       setLoading(true);
       await Promise.all(
         worldRegions.map(async (region) => {
           try {
-            const params = new URLSearchParams({ region: region.id });
+            const params = new URLSearchParams({ repo: region.slug });
             if (force) params.set('refresh', '1');
             const report = await request<Report>(
               params,
@@ -728,28 +874,33 @@ function App() {
         }),
       );
       syncing = false;
-      if (!controller.signal.aborted) setLoading(false);
+      if (controller.signal.aborted) return;
+      setLoading(false);
+      if (document.visibilityState === 'visible')
+        timer = window.setTimeout(syncVisible, refreshInterval);
     }
 
     function syncVisible() {
       if (document.visibilityState === 'visible') void sync();
+      else window.clearTimeout(timer);
     }
 
     refresh.current = () => void sync(true);
     void sync();
-    const timer = window.setInterval(syncVisible, token ? 20_000 : 60_000);
     document.addEventListener('visibilitychange', syncVisible);
     return () => {
       refresh.current = null;
       document.removeEventListener('visibilitychange', syncVisible);
-      window.clearInterval(timer);
+      window.clearTimeout(timer);
       controller.abort();
     };
-  }, [token]);
+  }, [token, worldRegions, refreshInterval]);
 
   function setToken(value: string) {
     if (value === token) return;
     storeToken(value);
+    setRepositories((items) => items.filter((repo) => !repo.private));
+    setSelected(undefined);
     setSnapshots({});
     setSelectedQuest(undefined);
     setLoading(true);
@@ -757,6 +908,19 @@ function App() {
 
   function select(region: Region) {
     setSelected(region);
+    setSelectedQuest(undefined);
+  }
+
+  function removeRegion(region: Region) {
+    setRepositories((items) =>
+      items.filter(({ slug }) => slug !== region.slug),
+    );
+    setSnapshots((current) => {
+      const remaining = { ...current };
+      delete remaining[region.id];
+      return remaining;
+    });
+    setSelected(undefined);
     setSelectedQuest(undefined);
   }
 
@@ -771,10 +935,6 @@ function App() {
       snapshots[id].error ||
       snapshots[id].report?.warnings.length,
   );
-  const updated = worldRegions
-    .map(({ id }) => snapshots[id]?.report?.updatedAt ?? '')
-    .sort()
-    .at(-1);
   const quest =
     selectedQuest &&
     snapshots[selectedQuest.region.id]?.report?.quests.find(
@@ -795,52 +955,45 @@ function App() {
             </div>
           </div>
           <div className="world-controls">
-            <button className="connect" onClick={() => setShowConnect(true)}>
-              <Github size={17} />
-              {token ? (
-                <span
-                  className="token-status"
-                  data-tone={tokenStatus.tone}
-                  aria-live="polite"
-                >
-                  {tokenStatus.label}
-                </span>
-              ) : (
-                <span>GitHub 연결</span>
-              )}
+            <button className="connect" onClick={() => setShowAdd(true)}>
+              <Plus size={17} aria-hidden="true" /> 저장소
             </button>
-            <div className="refresh-controls">
-              <button
-                className="refresh-button"
-                aria-label="새로 고침"
-                aria-busy={loading}
-                data-warning={!loading && partial}
-                title={
-                  !loading && partial
-                    ? '일부 GitHub 기록을 확인하지 못했습니다.'
-                    : undefined
-                }
-                disabled={loading}
-                onClick={() => refresh.current?.()}
-              >
-                <RefreshCw
-                  size={16}
-                  className={loading ? 'rotate' : ''}
+            <button
+              className="connect ticket-button"
+              data-filled={Boolean(token)}
+              data-tone={token ? tokenStatus.tone : undefined}
+              aria-label={token ? tokenStatus.label : 'GitHub 연결'}
+              title={token ? tokenStatus.label : 'GitHub 연결'}
+              onClick={() => setShowConnect(true)}
+            >
+              <Ticket size={19} aria-hidden="true" />
+            </button>
+            <button
+              className="refresh-button"
+              aria-label="새로 고침"
+              aria-busy={loading}
+              data-warning={!loading && partial}
+              title={
+                !loading && partial
+                  ? '일부 GitHub 기록을 확인하지 못했습니다.'
+                  : `자동 갱신 ${refreshInterval / 1000}초 간격`
+              }
+              disabled={loading}
+              onClick={() => refresh.current?.()}
+            >
+              {!loading && (
+                <span
+                  className="refresh-fill"
+                  style={{ animationDuration: `${refreshInterval}ms` }}
                   aria-hidden="true"
                 />
-              </button>
-              {updated ? (
-                <time dateTime={updated} aria-label="마지막 갱신 시각">
-                  {new Date(updated).toLocaleTimeString('ko-KR', {
-                    hour: '2-digit',
-                    minute: '2-digit',
-                    hourCycle: 'h23',
-                  })}
-                </time>
-              ) : (
-                <span aria-label="갱신 기록 없음">—</span>
               )}
-            </div>
+              <RefreshCw
+                size={16}
+                className={loading ? 'rotate' : ''}
+                aria-hidden="true"
+              />
+            </button>
           </div>
         </header>
 
@@ -899,7 +1052,21 @@ function App() {
           openQuest={(item) =>
             setSelectedQuest({ region: selected, number: item.number })
           }
+          remove={
+            selected.slug === defaultRegion.slug
+              ? undefined
+              : () => removeRegion(selected)
+          }
           close={() => setSelected(undefined)}
+        />
+      )}
+      {showAdd && (
+        <RepositoryDialog
+          token={token}
+          regions={worldRegions}
+          added={(repo) => setRepositories((items) => [...items, repo])}
+          select={select}
+          close={() => setShowAdd(false)}
         />
       )}
       {showConnect && (

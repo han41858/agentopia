@@ -1,6 +1,7 @@
 export const regions = [
   {
     id: 'commit-trail',
+    slug: 'han41858/commit-trail',
     name: 'Commit Trail',
     title: '태엽의 기록성',
     theme: 'amber',
@@ -8,6 +9,7 @@ export const regions = [
   },
   {
     id: 'videx',
+    slug: 'han41858/videx',
     name: 'Videx',
     title: '환영의 극장',
     theme: 'violet',
@@ -15,7 +17,44 @@ export const regions = [
   },
 ] as const;
 
-export type Region = (typeof regions)[number];
+export type Region = {
+  id: string;
+  slug: string;
+  name: string;
+  title: string;
+  theme: 'amber' | 'violet';
+  description: string;
+};
+
+export type Repository = { slug: string; private: boolean };
+
+export function repositorySlug(value: string) {
+  const match = /^([a-z\d][a-z\d-]{0,38})\/([a-z\d_.-]{1,100})$/i.exec(value);
+  if (!match || match[2] === '.' || match[2] === '..') return undefined;
+  return `${match[1]}/${match[2]}`.toLowerCase();
+}
+
+export function repositoryInput(value: string) {
+  const input = value.trim();
+  const url = /^https?:\/\/github\.com\/([^?#]+)\/?$/i.exec(input);
+  return repositorySlug(
+    url ? url[1].replace(/\/$/, '').replace(/\.git$/i, '') : input,
+  );
+}
+
+export function repositoryRegion(slug: string): Region {
+  const known = regions.find((region) => region.slug === slug);
+  if (known) return known;
+  const [owner, name] = slug.split('/');
+  return {
+    id: slug,
+    slug,
+    name,
+    title: owner,
+    theme: 'amber',
+    description: slug,
+  };
+}
 export type Stage =
   | 'idle'
   | 'queued'
@@ -118,6 +157,7 @@ type AutomationState = {
   attempt?: number;
   status: string;
   developer?: Agent;
+  reviewer?: Agent;
   reason?: string;
   detail?: string;
   head?: string;
@@ -143,8 +183,7 @@ export function runIssue(run: Run) {
 }
 
 export function pullIssue(pull: Pull, region: Region) {
-  if (pull.head.repo?.full_name.toLowerCase() !== `han41858/${region.id}`)
-    return;
+  if (pull.head.repo?.full_name.toLowerCase() !== region.slug) return;
   const branch = /^ai\/issue-(\d+)-(codex|claude)$/.exec(pull.head.ref);
   if (!branch) return;
   return Number(branch[1]);
@@ -152,12 +191,12 @@ export function pullIssue(pull: Pull, region: Region) {
 
 export function readState(comment: Comment, region: Region) {
   if (comment.user?.login !== 'github-actions[bot]') return;
-  const prefix = `<!-- ${region.id}-ai-state:`;
+  const prefix = `<!-- ${region.slug.split('/')[1]}-ai-state:`;
   const offset = comment.body?.lastIndexOf(prefix) ?? -1;
   if (offset < 0) return;
   const marker = comment.body
-    .slice(offset)
-    .match(/^<!-- [\w-]+-ai-state:([a-zA-Z0-9+/=]+) -->\s*$/);
+    .slice(offset + prefix.length)
+    .match(/^([a-zA-Z0-9+/=]+) -->\s*$/);
   if (!marker) return;
   try {
     const state = JSON.parse(
@@ -269,9 +308,13 @@ export function makeQuests(
           : pull?.head.ref.endsWith('-claude')
             ? 'claude'
             : undefined;
-    if (developer)
-      reviewer =
-        region.id === 'videx' || developer === 'codex' ? 'claude' : 'codex';
+    if (state?.reviewer === 'codex' || state?.reviewer === 'claude') {
+      reviewer = state.reviewer;
+    } else if (developer && region.slug === 'han41858/videx') {
+      reviewer = 'claude';
+    } else if (developer && region.slug === 'han41858/commit-trail') {
+      reviewer = developer === 'codex' ? 'claude' : 'codex';
+    }
     let stage: Stage = state ? automationStages[state.status] : 'idle';
     let evidence: Source | undefined =
       state && record

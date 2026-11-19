@@ -1,6 +1,13 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { makeQuests, readState, regions, runIssue } from './model.ts';
+import {
+  makeQuests,
+  readState,
+  regions,
+  repositoryInput,
+  repositoryRegion,
+  runIssue,
+} from './model.ts';
 import type { Comment, Issue, Pull, Run } from './model.ts';
 import { githubResponse } from './github.ts';
 
@@ -238,6 +245,101 @@ test('API gets only the allowed repository and keeps authenticated reports out o
   assert.ok(
     calls.slice(5).every(({ authorization }) => authorization === null),
   );
+});
+
+test('accepts GitHub repository URLs and validates dynamic repository access', async (context) => {
+  assert.equal(
+    repositoryInput('https://github.com/Example/Project.git/'),
+    'example/project',
+  );
+  assert.equal(repositoryInput('example/a.b'), 'example/a.b');
+  assert.equal(
+    repositoryInput('https://github.com.evil.test/example/project'),
+    undefined,
+  );
+  assert.equal(
+    repositoryInput('https://github.com/example/project/issues/1'),
+    undefined,
+  );
+  assert.equal(repositoryInput('example/..'), undefined);
+  const authorized: (string | null)[] = [];
+  const mock = context.mock.method(
+    globalThis,
+    'fetch',
+    async (input: string, options: RequestInit) => {
+      const url = new URL(input);
+      const token = new Headers(options.headers).get('authorization');
+      assert.equal(url.origin, 'https://api.github.com');
+      authorized.push(token);
+      if (url.pathname === '/repos/example/project') {
+        if (!token) return Response.json({}, { status: 404 });
+        return Response.json({ full_name: 'Example/Project', private: true });
+      }
+      if (url.pathname.endsWith('/issues')) {
+        return Response.json([], {
+          status: token === 'Bearer no_issues' ? 403 : 200,
+        });
+      }
+      if (url.pathname.endsWith('/reviews')) {
+        return Response.json([
+          {
+            user: { login: 'reviewer' },
+            state: 'APPROVED',
+            html_url: 'https://github.com/example/project/pull/1',
+          },
+        ]);
+      }
+      return Response.json({ full_name: 'Example/Public', private: false });
+    },
+  );
+
+  const url = new URL('http://localhost/api/github?repository=1');
+  url.searchParams.set('repo', 'https://other.example/project');
+  assert.equal((await githubResponse(url, 'GET')).status, 400);
+  assert.equal(mock.mock.callCount(), 0);
+
+  url.searchParams.set('repo', 'Example/Public');
+  assert.deepEqual(JSON.parse((await githubResponse(url, 'GET')).body), {
+    slug: 'example/public',
+    private: false,
+  });
+  url.searchParams.set('repo', 'Example/Project');
+  assert.equal((await githubResponse(url, 'GET')).status, 404);
+  assert.equal(
+    (await githubResponse(url, 'GET', 'Bearer no_issues')).status,
+    403,
+  );
+  for (let request = 0; request < 2; request++) {
+    const result = await githubResponse(url, 'GET', 'Bearer valid');
+    assert.equal(result.status, 200);
+    assert.deepEqual(JSON.parse(result.body), {
+      slug: 'example/project',
+      private: true,
+    });
+  }
+  assert.equal(
+    authorized.filter((token) => token === 'Bearer valid').length,
+    4,
+  );
+  url.searchParams.delete('repository');
+  url.searchParams.set('reviews', '1');
+  const reviews = await githubResponse(url, 'GET', 'Bearer valid');
+  assert.equal(JSON.parse(reviews.body)[0].title, 'reviewer');
+});
+
+test('does not infer a reviewer for repositories without a known review policy', () => {
+  const region = repositoryRegion('example/project');
+  const [quest] = makeQuests(
+    region,
+    [issue(1)],
+    [],
+    [],
+    [comment(1, 'reviewing', { developer: 'codex' }, 'project')],
+    new Map(),
+    [],
+  );
+  assert.equal(quest.developer, 'codex');
+  assert.equal(quest.reviewer, undefined);
 });
 
 test('public refresh reuses recent reports, refreshes on demand, and honors rate limits', async (context) => {

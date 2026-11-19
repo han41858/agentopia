@@ -1,10 +1,19 @@
-import { makeQuests, pullIssue, regions, runIssue, runStage } from './model.ts';
+import {
+  makeQuests,
+  pullIssue,
+  regions,
+  repositoryRegion,
+  repositorySlug,
+  runIssue,
+  runStage,
+} from './model.ts';
 import type {
   Comment,
   Issue,
   Pull,
   Region,
   Release,
+  Repository,
   Report,
   Run,
   Source,
@@ -29,7 +38,7 @@ class GitHubError extends Error {
 }
 
 function client(region: Region, token?: string) {
-  const root = `https://api.github.com/repos/han41858/${region.id}`;
+  const root = `https://api.github.com/repos/${region.slug}`;
   return async function get<T>(path: string): Promise<T> {
     const headers: Record<string, string> = {
       Accept: 'application/vnd.github+json',
@@ -92,7 +101,14 @@ async function getReport(region: Region, token?: string): Promise<Report> {
 
   const [issuePage, pulls, workflow, comments, deployments] = await Promise.all(
     [
-      get<Issue[]>(`/issues${recent}&state=all&sort=updated&direction=desc`),
+      get<Issue[]>(
+        `/issues${recent}&state=all&sort=updated&direction=desc`,
+      ).catch((error) => {
+        if (!(error instanceof GitHubError) || error.status !== 410)
+          throw error;
+        warnings.add('이슈 비활성화');
+        return [];
+      }),
       optional(
         'PR',
         get<Pull[]>(`/pulls${recent}&state=all&sort=updated&direction=desc`),
@@ -145,9 +161,9 @@ async function getReport(region: Region, token?: string): Promise<Report> {
       warnings.add('하위 Issue 일부');
     for (const child of children) {
       if (
-        !child.html_url.startsWith(
-          `https://github.com/han41858/${region.id}/issues/`,
-        )
+        !child.html_url
+          .toLowerCase()
+          .startsWith(`https://github.com/${region.slug}/issues/`)
       ) {
         warnings.add('다른 저장소의 하위 Issue');
         continue;
@@ -177,7 +193,7 @@ async function getReport(region: Region, token?: string): Promise<Report> {
       if (!status || !Object.hasOwn(releaseStages, status.state)) return;
       return {
         title: deployment.environment,
-        url: `https://github.com/han41858/${region.id}/deployments`,
+        url: `https://github.com/${region.slug}/deployments`,
         status: status.description
           ? `${status.state} · ${status.description}`
           : status.state,
@@ -187,7 +203,7 @@ async function getReport(region: Region, token?: string): Promise<Report> {
     },
   );
   const publishTasks =
-    region.id === 'videx'
+    region.slug === 'han41858/videx'
       ? runs
           .filter(
             (run) =>
@@ -268,7 +284,7 @@ async function getReport(region: Region, token?: string): Promise<Report> {
 
 export function regionReport(region: Region, token?: string, force = false) {
   if (token) return getReport(region, token);
-  const cached = publicReports.get(region.id);
+  const cached = publicReports.get(region.slug);
   const now = Date.now();
   if (publicRateLimit && publicRateLimit.until > now) {
     if (!cached) throw publicRateLimit.error;
@@ -286,18 +302,45 @@ export function regionReport(region: Region, token?: string, force = false) {
     pending: true,
     value: getReport(region),
   };
-  publicReports.set(region.id, entry);
+  if (!cached && publicReports.size >= 32) {
+    const oldest = publicReports.keys().next().value;
+    if (oldest !== undefined) publicReports.delete(oldest);
+  }
+  publicReports.set(region.slug, entry);
   void entry.value.then(
     () => {
       entry.pending = false;
     },
     () => {
-      if (publicReports.get(region.id) !== entry) return;
-      if (cached) publicReports.set(region.id, cached);
-      else publicReports.delete(region.id);
+      if (publicReports.get(region.slug) !== entry) return;
+      if (cached) publicReports.set(region.slug, cached);
+      else publicReports.delete(region.slug);
     },
   );
   return entry.value;
+}
+
+async function repositoryInfo(
+  region: Region,
+  token?: string,
+): Promise<Repository> {
+  const get = client(region, token);
+  const metadata = await get<{
+    full_name: string;
+    private: boolean;
+    visibility?: string;
+    has_issues?: boolean;
+  }>('');
+  const slug = repositorySlug(metadata.full_name);
+  if (!slug || typeof metadata.private !== 'boolean')
+    throw new GitHubError(502);
+  const restricted =
+    metadata.private ||
+    (metadata.visibility !== undefined && metadata.visibility !== 'public');
+  if (restricted && !token) throw new GitHubError(404);
+  if (restricted && metadata.has_issues !== false)
+    await get('/issues?per_page=1');
+  return { slug, private: restricted };
 }
 
 async function pullReviews(
@@ -329,15 +372,20 @@ export async function githubResponse(
   if (authorization && !/^Bearer [a-zA-Z0-9_]{1,512}$/.test(authorization)) {
     return reply(400, { error: 'GitHub 토큰 형식을 확인해 주세요.' });
   }
-  const region = regions.find(
-    ({ id }) => id === url.searchParams.get('region'),
-  );
+  const repo = url.searchParams.get('repo');
+  const slug = repo === null ? undefined : repositorySlug(repo);
+  const region =
+    repo === null
+      ? regions.find(({ id }) => id === url.searchParams.get('region'))
+      : slug && repositoryRegion(slug);
   if (!region) return reply(400, { error: '지원하는 저장소를 선택해 주세요.' });
   const pull = url.searchParams.get('reviews');
   if (pull !== null && !/^[1-9]\d{0,11}$/.test(pull))
     return reply(400, { error: 'PR 번호를 확인해 주세요.' });
 
   try {
+    if (url.searchParams.get('repository') === '1')
+      return reply(200, await repositoryInfo(region, authorization));
     const result =
       pull === null
         ? await regionReport(
