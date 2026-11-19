@@ -83,7 +83,7 @@ export const stages: Record<Stage, string> = {
   merging: '변경 병합 중',
   deploying: '포탈 개방',
   complete: '퀘스트 클리어',
-  failed: '파티 전멸',
+  failed: '실패',
   attention: '개입 필요',
 };
 

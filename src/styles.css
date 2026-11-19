@@ -303,13 +303,13 @@ svg {
 }
 .guild-leader {
   padding: 6px 8px;
-  border: 1px solid #948666;
+  border: 0;
   border-radius: 7px;
-  background: #25313a;
+  background: transparent;
   font-size: 12px;
 }
 .guild-leader:hover {
-  border-color: var(--accent);
+  background: #25313a;
 }
 .guild-leader > span:first-child {
   display: flex;

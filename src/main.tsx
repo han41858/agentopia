@@ -156,7 +156,6 @@ function closedIssueLabel(quest: Quest) {
 function Expedition({ quest, open }: { quest: Quest; open: () => void }) {
   const closed = quest.state === 'closed';
   const blocked = !closed && alerts.has(quest.stage);
-  const needsIntervention = !closed && quest.stage === 'attention';
   const underway = !closed && activeStages.has(quest.stage);
   const StatusIcon = closed ? Check : glyph[quest.stage];
   const activity = expeditionActivity(quest);
@@ -172,7 +171,7 @@ function Expedition({ quest, open }: { quest: Quest; open: () => void }) {
     <button
       className={`expedition${blocked ? ' blocked' : ''}${underway ? ' underway' : ''}${closed ? ' closed-issue' : ''}`}
       aria-label={`이슈 #${quest.number} 파티 · ${quest.title} · ${status}`}
-      title={needsIntervention ? quest.title : `${quest.title} · ${status}`}
+      title={blocked ? quest.title : `${quest.title} · ${status}`}
       onClick={open}
     >
       <span className="expedition-party" aria-hidden="true">
@@ -186,12 +185,10 @@ function Expedition({ quest, open }: { quest: Quest; open: () => void }) {
         ))}
       </span>
       <small className="expedition-number">
-        <StatusIcon size={needsIntervention ? 13 : 11} aria-hidden="true" /> #
+        <StatusIcon size={blocked ? 13 : 11} aria-hidden="true" /> #
         {quest.number}
       </small>
-      {(closed || (blocked && !needsIntervention)) && (
-        <small className="expedition-status-label">{action}</small>
-      )}
+      {closed && <small className="expedition-status-label">{action}</small>}
     </button>
   );
 }
@@ -226,7 +223,7 @@ function PullMarker({ pull, open }: { pull: PullQuest; open: () => void }) {
   return (
     <button
       className={`expedition pull-marker${alerts.has(pull.stage) ? ' blocked' : ''}`}
-      title={label}
+      title={alerts.has(pull.stage) ? pull.title : label}
       aria-label={label}
       onClick={open}
     >
@@ -236,8 +233,8 @@ function PullMarker({ pull, open }: { pull: PullQuest; open: () => void }) {
         <Icon size={15} aria-hidden="true" />
       </span>
       <small className="expedition-number">PR #{pull.number}</small>
-      {pull.stage === 'attention' ? (
-        <Badge stage="attention" />
+      {alerts.has(pull.stage) ? (
+        <Badge stage={pull.stage} />
       ) : (
         <small className="expedition-status-label">{pullStatus(pull)}</small>
       )}
@@ -310,9 +307,6 @@ function GuildQuests({
           >
             <span>
               <Crown size={17} aria-hidden="true" /> #{quest.number}
-              {quest.state !== 'closed' && quest.stage === 'attention' && (
-                <Badge stage={quest.stage} />
-              )}
             </span>
           </button>
         ) : (
@@ -371,9 +365,9 @@ async function request<T>(
 
 function Badge({ stage }: { stage: Stage }) {
   const Icon = glyph[stage];
-  if (stage === 'attention') {
+  if (alerts.has(stage)) {
     return (
-      <span className="badge attention" role="img" aria-label={stages[stage]}>
+      <span className={`badge ${stage}`} role="img" aria-label={stages[stage]}>
         <Icon size={14} aria-hidden="true" />
       </span>
     );
