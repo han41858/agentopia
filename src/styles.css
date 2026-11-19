@@ -198,101 +198,67 @@ svg {
   padding: 18px clamp(12px, 4vw, 44px);
 }
 .kingdoms {
-  width: min(100%, 1080px);
+  width: min(100%, 1160px);
   margin-inline: auto;
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(134px, 100%), 250px));
-  justify-content: center;
-  gap: clamp(16px, 5vw, 70px);
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
+  align-items: start;
+  gap: clamp(12px, 2vw, 24px);
+}
+.kingdoms:has(> :only-child) {
+  max-width: 760px;
 }
 .kingdom-area {
   --land: #948666;
   --accent: #f3d69a;
   min-width: 0;
-}
-.kingdom {
-  width: 100%;
-  display: grid;
-  justify-items: center;
-  align-content: start;
-  gap: 14px;
-  border: 0;
-  background: none;
-  padding: 5px;
-  min-width: 0;
+  padding: clamp(8px, 1.25vw, 15px);
+  border: 1px solid var(--land);
+  border-radius: 18px 12px 19px 11px;
+  background: color-mix(in srgb, var(--land) 12%, #142430);
 }
 .kingdom-area.violet {
   --land: #81729b;
   --accent: #e6d0ff;
 }
-.kingdom-land {
-  width: 100%;
-  aspect-ratio: 1.48;
-  display: grid;
-  place-items: center;
+.kingdom {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  max-width: 100%;
+  min-height: 32px;
+  padding: 3px 5px;
+  border: 0;
+  border-radius: 5px;
+  background: none;
   color: var(--accent);
-  background: var(--land);
-  clip-path: polygon(
-    13% 21%,
-    43% 6%,
-    78% 14%,
-    94% 39%,
-    90% 68%,
-    63% 90%,
-    30% 83%,
-    7% 59%
-  );
-  position: relative;
-  isolation: isolate;
-  transition:
-    transform 180ms,
-    filter 180ms;
+  text-align: left;
 }
-.kingdom-area:nth-child(even) .kingdom-land {
-  clip-path: polygon(
-    18% 23%,
-    49% 9%,
-    81% 21%,
-    95% 50%,
-    75% 78%,
-    42% 89%,
-    11% 74%,
-    5% 47%
-  );
+.kingdom:hover {
+  background: #15212f;
 }
-.kingdom-land::before {
-  content: '';
-  position: absolute;
-  inset: 6px;
-  clip-path: inherit;
-  background: color-mix(in srgb, var(--land), #142430 65%);
-  z-index: -1;
-}
-.kingdom:hover .kingdom-land,
-.kingdom:focus-visible .kingdom-land {
-  transform: translateY(-4px);
-  filter: brightness(1.2);
+.kingdom-crest {
+  color: var(--land);
 }
 .kingdom-label {
-  display: grid;
-  gap: 3px;
-  position: relative;
-  max-width: 100%;
-  padding-inline: 17px;
-  color: var(--accent);
+  min-width: 0;
   overflow-wrap: anywhere;
 }
 .kingdom-label strong {
-  font: 800 clamp(14px, 2.4vw, 23px) var(--display);
+  font: 800 clamp(14px, 2.4vw, 20px) var(--display);
 }
 .expeditions,
 .guild-parties {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(59px, 100%), 1fr));
-  gap: 6px;
+  grid-template-columns: repeat(auto-fill, minmax(min(53px, 100%), 1fr));
+  gap: 3px;
   padding: 0;
-  margin: 12px 0 0;
+  margin: 7px 0 0;
   list-style: none;
+}
+.kingdom-area > .expeditions {
+  padding-top: 5px;
+  border-top: 1px solid color-mix(in srgb, var(--land) 45%, transparent);
 }
 .guild-branch {
   grid-column: 1 / -1;
@@ -824,13 +790,6 @@ svg {
 }
 
 @media (max-width: 640px) {
-  .kingdoms {
-    grid-template-columns: repeat(auto-fit, minmax(min(130px, 100%), 1fr));
-  }
-  .kingdom-area {
-    width: min(100%, 190px);
-    justify-self: center;
-  }
   .quest-row {
     flex-wrap: wrap;
   }

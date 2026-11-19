@@ -1358,9 +1358,11 @@ function App() {
               return (
                 <div className={`kingdom-area ${region.theme}`} key={region.id}>
                   <button className="kingdom" onClick={() => select(region)}>
-                    <span className="kingdom-land" aria-hidden="true">
-                      <Castle size={34} strokeWidth={1.5} />
-                    </span>
+                    <Castle
+                      className="kingdom-crest"
+                      size={20}
+                      aria-hidden="true"
+                    />
                     <span className="kingdom-label">
                       <strong>{region.name}</strong>
                     </span>
