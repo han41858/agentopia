@@ -760,9 +760,6 @@ function App() {
     setSelectedQuest(undefined);
   }
 
-  const openCount = worldRegions
-    .flatMap(({ id }) => snapshots[id]?.report?.quests ?? [])
-    .filter(({ state }) => state === 'open').length;
   const hasData = worldRegions.some(({ id }) => snapshots[id]?.report);
   const tokenStatus = getTokenStatus(
     hasData,
@@ -797,20 +794,54 @@ function App() {
               <h1 id="world-title">월드맵</h1>
             </div>
           </div>
-          <button className="connect" onClick={() => setShowConnect(true)}>
-            <Github size={17} />
-            {token ? (
-              <span
-                className="token-status"
-                data-tone={tokenStatus.tone}
-                aria-live="polite"
+          <div className="world-controls">
+            <button className="connect" onClick={() => setShowConnect(true)}>
+              <Github size={17} />
+              {token ? (
+                <span
+                  className="token-status"
+                  data-tone={tokenStatus.tone}
+                  aria-live="polite"
+                >
+                  {tokenStatus.label}
+                </span>
+              ) : (
+                <span>GitHub 연결</span>
+              )}
+            </button>
+            <div className="refresh-controls">
+              <button
+                className="refresh-button"
+                aria-label="새로 고침"
+                aria-busy={loading}
+                data-warning={!loading && partial}
+                title={
+                  !loading && partial
+                    ? '일부 GitHub 기록을 확인하지 못했습니다.'
+                    : undefined
+                }
+                disabled={loading}
+                onClick={() => refresh.current?.()}
               >
-                {tokenStatus.label}
-              </span>
-            ) : (
-              <span>GitHub 연결</span>
-            )}
-          </button>
+                <RefreshCw
+                  size={16}
+                  className={loading ? 'rotate' : ''}
+                  aria-hidden="true"
+                />
+              </button>
+              {updated ? (
+                <time dateTime={updated} aria-label="마지막 갱신 시각">
+                  {new Date(updated).toLocaleTimeString('ko-KR', {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    hourCycle: 'h23',
+                  })}
+                </time>
+              ) : (
+                <span aria-label="갱신 기록 없음">—</span>
+              )}
+            </div>
+          </div>
         </header>
 
         <section className="map-viewport" aria-label="저장소 왕국">
@@ -848,6 +879,9 @@ function App() {
               </div>
             ))}
           </div>
+        </section>
+
+        <footer className="world-footer">
           <ul className="expedition-legend" aria-label="기본 파티 구성">
             {partyRoles.map(({ name, Icon, color }) => (
               <li className={color} key={name}>
@@ -855,51 +889,7 @@ function App() {
               </li>
             ))}
           </ul>
-        </section>
-
-        <div className="world-footer">
-          <div className="world-summary" aria-label="월드 현황">
-            <span>
-              왕국 <strong>{worldRegions.length}</strong>
-            </span>
-            <span>
-              열린 이슈 <strong>{hasData ? openCount : '—'}</strong>
-            </span>
-          </div>
-          <footer className="map-footer">
-            <button
-              className="refresh-button"
-              aria-label="새로 고침"
-              aria-busy={loading}
-              data-warning={!loading && partial}
-              title={
-                !loading && partial
-                  ? '일부 GitHub 기록을 확인하지 못했습니다.'
-                  : undefined
-              }
-              disabled={loading}
-              onClick={() => refresh.current?.()}
-            >
-              <RefreshCw
-                size={16}
-                className={loading ? 'rotate' : ''}
-                aria-hidden="true"
-              />
-            </button>
-            {updated ? (
-              <time dateTime={updated} aria-label="마지막 갱신 시각">
-                {new Date(updated).toLocaleTimeString('ko-KR', {
-                  hour: '2-digit',
-                  minute: '2-digit',
-                  second: '2-digit',
-                  hourCycle: 'h23',
-                })}
-              </time>
-            ) : (
-              <span aria-label="갱신 기록 없음">—</span>
-            )}
-          </footer>
-        </div>
+        </footer>
       </main>
       {selected && (
         <RegionDetail

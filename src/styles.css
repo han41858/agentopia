@@ -73,12 +73,22 @@ svg {
 
 .world-header,
 .world-footer {
-  position: relative;
+  margin: clamp(12px, 3vw, 32px);
+}
+.world-header,
+.world-controls {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 12px;
-  margin: clamp(12px, 3vw, 32px);
+}
+.world-header {
+  justify-content: space-between;
+}
+.world-controls {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+  min-width: 0;
 }
 .world-heading {
   display: flex;
@@ -353,10 +363,9 @@ svg {
 .expedition-legend {
   display: flex;
   flex-wrap: wrap;
-  justify-content: center;
   gap: 6px 15px;
   padding: 0;
-  margin: clamp(16px, 4vh, 36px) 0 0;
+  margin: 0;
   font-size: 11px;
 }
 .expedition-legend li {
@@ -380,33 +389,16 @@ svg {
 .expedition-legend .release {
   color: #e1c4ff;
 }
-.world-summary,
-.map-footer {
+.refresh-controls {
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
-  gap: 9px;
-}
-.world-summary,
-.map-footer {
+  gap: 4px;
+  padding: 2px 10px 2px 3px;
   background: #15212f;
   border: 1px solid #405361;
   border-radius: 8px;
-  padding: 7px 11px;
   color: #c5d0db;
   font-size: 12px;
-}
-.world-summary {
-  gap: 14px;
-}
-.world-summary strong {
-  color: #f3d69a;
-  margin-inline-start: 3px;
-}
-.map-footer {
-  gap: 4px;
-  padding: 2px 10px 2px 3px;
-  flex-wrap: nowrap;
   font-variant-numeric: tabular-nums;
 }
 .refresh-button {
@@ -425,7 +417,7 @@ svg {
 .refresh-button[data-warning='true'] {
   color: #ffb6ad;
 }
-.map-footer time {
+.refresh-controls time {
   color: #b4a7c1;
   font-size: 11px;
 }
@@ -715,10 +707,6 @@ svg {
 }
 
 @media (max-width: 640px) {
-  .world-footer {
-    flex-wrap: wrap;
-    gap: 6px;
-  }
   .kingdoms {
     grid-template-columns: repeat(auto-fit, minmax(min(130px, 100%), 1fr));
   }
