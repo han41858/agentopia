@@ -43,3 +43,5 @@ npm run format:check
 ## 배포
 
 Vercel에서 GitHub의 Agentopia 저장소를 가져오고 Node.js 24 기반 Vite 프로젝트로 배포합니다. `vercel.json`이 빌드 명령과 출력 경로를 설정합니다. 별도 서버나 데이터베이스는 필요하지 않습니다.
+
+GitHub에 `.github/rulesets/main.json` 룰셋을 적용하면 `main` 대상 PR을 병합하려면 `Vercel` 프리뷰 검사를 통과해야 합니다.
