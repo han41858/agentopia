@@ -163,7 +163,7 @@ async function listRepositories(
     }>(
       `query($owner: String!, $cursor: String) {
         repositoryOwner(login: $owner) {
-          repositories(first: 50, after: $cursor, orderBy: {field: UPDATED_AT, direction: DESC}) {
+          repositories(first: 50, after: $cursor, isArchived: false, orderBy: {field: UPDATED_AT, direction: DESC}) {
             nodes { nameWithOwner isPrivate visibility }
             pageInfo { hasNextPage endCursor }
           }
@@ -190,18 +190,25 @@ async function listRepositories(
   const page = Number(cursor ?? 1);
   const get = client();
   const results = await get<
-    { full_name: string; private: boolean; visibility?: string }[]
+    {
+      full_name: string;
+      private: boolean;
+      visibility?: string;
+      archived: boolean;
+    }[]
   >(
     `/users/${owner}/repos?type=owner&sort=updated&direction=desc&per_page=50&page=${page}`,
   );
   return {
     repositories: ownerRepositories(
       owner,
-      results.map((item) => ({
-        slug: item.full_name,
-        private: item.private,
-        visibility: item.visibility,
-      })),
+      results
+        .filter((item) => !item.archived)
+        .map((item) => ({
+          slug: item.full_name,
+          private: item.private,
+          visibility: item.visibility,
+        })),
     ).filter((repo) => !repo.private),
     next: results.length === 50 ? String(page + 1) : undefined,
   };

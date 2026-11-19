@@ -404,10 +404,12 @@ function OutLink({ item }: { item: Source }) {
 
 function Dialog({
   title,
+  className,
   children,
   close,
 }: {
   title: string;
+  className?: string;
   children: ReactNode;
   close: () => void;
 }) {
@@ -418,7 +420,7 @@ function Dialog({
   return (
     <dialog
       ref={ref}
-      className="panel dialog"
+      className={className ? `panel dialog ${className}` : 'panel dialog'}
       aria-label={title}
       onCancel={close}
     >
@@ -955,7 +957,7 @@ function RepositoryDialog({
   }
 
   return (
-    <Dialog title="저장소 추가" close={close}>
+    <Dialog title="저장소 추가" className="repository-dialog" close={close}>
       <form className="token-form" onSubmit={submit}>
         <label htmlFor="github-repository">GitHub 계정 또는 저장소</label>
         <input
@@ -1010,7 +1012,11 @@ function RepositoryDialog({
               ))}
             </fieldset>
           ) : (
-            <p>조회 가능한 저장소가 없습니다.</p>
+            <p>
+              {page.next
+                ? '이 페이지에 표시할 저장소가 없습니다.'
+                : '조회 가능한 저장소가 없습니다.'}
+            </p>
           )}
           {page.next && owner && (
             <button

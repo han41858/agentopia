@@ -636,6 +636,9 @@ svg {
   color: inherit;
   box-shadow: 0 18px 60px #0c0813;
 }
+.repository-dialog {
+  width: min(393px, calc(100% - 32px));
+}
 .dialog::backdrop {
   background: #0d0a17c9;
 }

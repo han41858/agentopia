@@ -428,7 +428,9 @@ test('lists public or token-visible repositories for one owner without exposing 
           new Headers(options.headers).get('authorization'),
           'Bearer account_token',
         );
-        assert.deepEqual(JSON.parse(String(options.body)).variables, {
+        const body = JSON.parse(String(options.body));
+        assert.match(body.query, /isArchived: false/);
+        assert.deepEqual(body.variables, {
           owner: 'example',
           cursor: 'next=',
         });
@@ -450,8 +452,17 @@ test('lists public or token-visible repositories for one owner without exposing 
         });
       }
       assert.equal(url.pathname, '/users/example/repos');
+      if (url.searchParams.get('page') === '2')
+        return Response.json(
+          Array.from({ length: 50 }, (_, index) => ({
+            full_name: `Example/Archive-${index}`,
+            private: false,
+            archived: true,
+          })),
+        );
       return Response.json([
         { full_name: 'Example/Public', private: false },
+        { full_name: 'Example/Old', private: false, archived: true },
         { full_name: 'Elsewhere/Public', private: false },
         { full_name: 'Example/Private', private: true },
       ]);
@@ -470,7 +481,12 @@ test('lists public or token-visible repositories for one owner without exposing 
       next: 'next2=',
     },
   );
-  assert.equal(fetch.mock.callCount(), 2);
+  url.searchParams.set('cursor', '2');
+  assert.deepEqual(JSON.parse((await githubResponse(url, 'GET')).body), {
+    repositories: [],
+    next: '3',
+  });
+  assert.equal(fetch.mock.callCount(), 3);
 });
 
 test('public refresh reuses recent reports, refreshes on demand, and honors rate limits', async (context) => {
