@@ -1,7 +1,10 @@
 import {
+  linkedPullIssues,
+  makePullQuests,
   makeQuests,
-  pullIssue,
+  pullActor,
   regions,
+  repositoryOwner,
   repositoryRegion,
   repositorySlug,
   runIssue,
@@ -11,9 +14,11 @@ import type {
   Comment,
   Issue,
   Pull,
+  PullLinks,
   Region,
   Release,
   Repository,
+  RepositoryPage,
   Report,
   Run,
   Source,
@@ -37,8 +42,10 @@ class GitHubError extends Error {
   }
 }
 
-function client(region: Region, token?: string) {
-  const root = `https://api.github.com/repos/${region.slug}`;
+function client(region?: Region, token?: string) {
+  const root = region
+    ? `https://api.github.com/repos/${region.slug}`
+    : 'https://api.github.com';
   return async function get<T>(path: string): Promise<T> {
     const headers: Record<string, string> = {
       Accept: 'application/vnd.github+json',
@@ -85,7 +92,186 @@ const releaseStages: Record<string, Stage> = {
   error: 'failed',
   failure: 'failed',
 };
-const recent = '?per_page=50';
+const pageSize = 50;
+const recent = `?per_page=${pageSize}`;
+
+async function githubGraphql<T>(
+  query: string,
+  variables: Record<string, string | null>,
+  token: string,
+) {
+  const response = await fetch('https://api.github.com/graphql', {
+    method: 'POST',
+    headers: {
+      Authorization: token,
+      'Content-Type': 'application/json',
+      'User-Agent': 'Agentopia/0.1',
+    },
+    body: JSON.stringify({ query, variables }),
+    redirect: 'error',
+    signal: AbortSignal.timeout(9000),
+  });
+  if (!response.ok) throw new GitHubError(response.status);
+  const body = (await response.json()) as {
+    errors?: { type?: string }[];
+    data?: T;
+  };
+  if (body.errors?.length)
+    throw new GitHubError(
+      body.errors.some(({ type }) => type === 'NOT_FOUND') ? 404 : 403,
+    );
+  if (!body.data) throw new GitHubError(502);
+  return body.data;
+}
+
+type ListedRepository = { slug: string; private: boolean; visibility?: string };
+
+function ownerRepositories(owner: string, nodes: ListedRepository[]) {
+  return nodes.flatMap((node) => {
+    const slug = repositorySlug(node.slug);
+    return slug?.startsWith(`${owner}/`)
+      ? [
+          {
+            slug,
+            private:
+              node.private ||
+              (node.visibility !== undefined &&
+                node.visibility.toLowerCase() !== 'public'),
+          },
+        ]
+      : [];
+  });
+}
+
+async function listRepositories(
+  owner: string,
+  cursor: string | null,
+  token?: string,
+): Promise<RepositoryPage> {
+  if (token) {
+    const data = await githubGraphql<{
+      repositoryOwner: {
+        repositories: {
+          nodes: {
+            nameWithOwner: string;
+            isPrivate: boolean;
+            visibility: string;
+          }[];
+          pageInfo: { hasNextPage: boolean; endCursor: string };
+        };
+      } | null;
+    }>(
+      `query($owner: String!, $cursor: String) {
+        repositoryOwner(login: $owner) {
+          repositories(first: 50, after: $cursor, orderBy: {field: NAME, direction: ASC}) {
+            nodes { nameWithOwner isPrivate visibility }
+            pageInfo { hasNextPage endCursor }
+          }
+        }
+      }`,
+      { owner, cursor },
+      token,
+    );
+    const result = data.repositoryOwner?.repositories;
+    if (!result) throw new GitHubError(404);
+    return {
+      repositories: ownerRepositories(
+        owner,
+        result.nodes.map((node) => ({
+          slug: node.nameWithOwner,
+          private: node.isPrivate,
+          visibility: node.visibility,
+        })),
+      ),
+      next: result.pageInfo.hasNextPage ? result.pageInfo.endCursor : undefined,
+    };
+  }
+
+  const page = Number(cursor ?? 1);
+  const get = client();
+  const results = await get<
+    { full_name: string; private: boolean; visibility?: string }[]
+  >(`/users/${owner}/repos?type=owner&sort=full_name&per_page=50&page=${page}`);
+  return {
+    repositories: ownerRepositories(
+      owner,
+      results.map((item) => ({
+        slug: item.full_name,
+        private: item.private,
+        visibility: item.visibility,
+      })),
+    ).filter((repo) => !repo.private),
+    next: results.length === 50 ? String(page + 1) : undefined,
+  };
+}
+
+type NativePull = {
+  number: number;
+  closingIssuesReferences: {
+    nodes: { number: number; repository: { nameWithOwner: string } }[];
+  };
+  latestReviews: {
+    nodes: {
+      author: { login: string; __typename: string } | null;
+      state: string;
+      submittedAt: string | null;
+      commit: { oid: string } | null;
+    }[];
+  };
+};
+
+async function nativePullLinks(region: Region, token: string, pulls: Pull[]) {
+  const [owner, name] = region.slug.split('/');
+  const query = `
+    query($owner: String!, $name: String!) {
+      repository(owner: $owner, name: $name) {
+        pullRequests(first: 50, states: OPEN, orderBy: {field: UPDATED_AT, direction: DESC}) {
+          nodes {
+            number
+            closingIssuesReferences(first: 20) { nodes { number repository { nameWithOwner } } }
+            latestReviews(first: 10) { nodes { author { login __typename } state submittedAt commit { oid } } }
+          }
+        }
+      }
+    }`;
+  const data = await githubGraphql<{
+    repository?: { pullRequests: { nodes: NativePull[] } };
+  }>(query, { owner, name }, token);
+  const nodes = data.repository?.pullRequests.nodes;
+  if (!nodes) throw new GitHubError(404);
+
+  const headByNumber = new Map(
+    pulls.map((pull) => [pull.number, pull.head.sha]),
+  );
+  const links = new Map<number, PullLinks>();
+  for (const pull of nodes) {
+    const issues = pull.closingIssuesReferences.nodes
+      .filter(
+        (issue) => issue.repository.nameWithOwner.toLowerCase() === region.slug,
+      )
+      .map(({ number }) => number);
+    const latest = pull.latestReviews.nodes
+      .filter(
+        (review) =>
+          review.submittedAt &&
+          review.state !== 'DISMISSED' &&
+          review.commit?.oid === headByNumber.get(pull.number),
+      )
+      .sort((a, b) =>
+        (b.submittedAt ?? '').localeCompare(a.submittedAt ?? ''),
+      )[0];
+    const reviewer = pullActor(
+      latest?.author?.login,
+      latest?.author?.__typename,
+    );
+    links.set(pull.number, {
+      issues,
+      reviewer,
+      review: reviewer ? latest.state : undefined,
+    });
+  }
+  return links;
+}
 
 async function getReport(region: Region, token?: string): Promise<Report> {
   const get = client(region, token);
@@ -99,8 +285,8 @@ async function getReport(region: Region, token?: string): Promise<Report> {
     }
   }
 
-  const [issuePage, pulls, workflow, comments, deployments] = await Promise.all(
-    [
+  const [issuePage, pullPage, workflow, comments, deployments] =
+    await Promise.all([
       get<Issue[]>(
         `/issues${recent}&state=all&sort=updated&direction=desc`,
       ).catch((error) => {
@@ -127,18 +313,38 @@ async function getReport(region: Region, token?: string): Promise<Report> {
         [],
       ),
       optional('배포', get<Deployment[]>('/deployments?per_page=5'), []),
-    ],
-  );
+    ]);
   const runs = workflow.workflow_runs.sort((a, b) => b.id - a.id);
   const issues = new Map(
     issuePage
       .filter((issue) => !issue.pull_request)
       .map((issue) => [issue.number, issue]),
   );
+  const pulls = [...pullPage];
+  if (pullPage.length === pageSize) {
+    const seen = new Set(pullPage.map(({ number }) => number));
+    const open = await optional(
+      '열린 PR',
+      get<Pull[]>(`/pulls${recent}&state=open&sort=updated&direction=desc`),
+      [],
+    );
+    pulls.push(...open.filter(({ number }) => !seen.has(number)));
+    pulls.sort((a, b) => b.updated_at.localeCompare(a.updated_at));
+  }
+  const pullLinks =
+    token && pulls.some(({ state }) => state === 'open')
+      ? await optional(
+          'PR 이슈 연결 및 리뷰',
+          nativePullLinks(region, token, pulls),
+          new Map<number, PullLinks>(),
+        )
+      : new Map<number, PullLinks>();
   const linked = [
     ...new Set([
       ...runs.map(runIssue),
-      ...pulls.map((pull) => pullIssue(pull, region)),
+      ...pulls.flatMap((pull) =>
+        linkedPullIssues(pull, region, pullLinks.get(pull.number)),
+      ),
     ]),
   ];
   const missing = linked.filter(
@@ -268,9 +474,17 @@ async function getReport(region: Region, token?: string): Promise<Report> {
     comments,
     parents,
     releases,
+    pullLinks,
   );
   return {
     quests,
+    pullQuests: makePullQuests(
+      region,
+      pulls,
+      runs,
+      new Set(issues.keys()),
+      pullLinks,
+    ),
     releases: releases.map(({ title, url, status, stage }) => ({
       title,
       url,
@@ -372,18 +586,29 @@ export async function githubResponse(
   if (authorization && !/^Bearer [a-zA-Z0-9_]{1,512}$/.test(authorization)) {
     return reply(400, { error: 'GitHub 토큰 형식을 확인해 주세요.' });
   }
-  const repo = url.searchParams.get('repo');
-  const slug = repo === null ? undefined : repositorySlug(repo);
-  const region =
-    repo === null
-      ? regions.find(({ id }) => id === url.searchParams.get('region'))
-      : slug && repositoryRegion(slug);
-  if (!region) return reply(400, { error: '지원하는 저장소를 선택해 주세요.' });
-  const pull = url.searchParams.get('reviews');
-  if (pull !== null && !/^[1-9]\d{0,11}$/.test(pull))
-    return reply(400, { error: 'PR 번호를 확인해 주세요.' });
-
   try {
+    const ownerInput = url.searchParams.get('owner');
+    if (ownerInput !== null) {
+      const owner = repositoryOwner(ownerInput);
+      const cursor = url.searchParams.get('cursor');
+      const cursorPattern = authorization
+        ? /^[a-z\d_+=/-]{1,256}$/i
+        : /^[1-9]\d{0,5}$/;
+      if (!owner || (cursor !== null && !cursorPattern.test(cursor)))
+        return reply(400, { error: 'GitHub 계정 이름을 확인해 주세요.' });
+      return reply(200, await listRepositories(owner, cursor, authorization));
+    }
+    const repo = url.searchParams.get('repo');
+    const slug = repo === null ? undefined : repositorySlug(repo);
+    const region =
+      repo === null
+        ? regions.find(({ id }) => id === url.searchParams.get('region'))
+        : slug && repositoryRegion(slug);
+    if (!region)
+      return reply(400, { error: '지원하는 저장소를 선택해 주세요.' });
+    const pull = url.searchParams.get('reviews');
+    if (pull !== null && !/^[1-9]\d{0,11}$/.test(pull))
+      return reply(400, { error: 'PR 번호를 확인해 주세요.' });
     if (url.searchParams.get('repository') === '1')
       return reply(200, await repositoryInfo(region, authorization));
     const result =
@@ -401,7 +626,9 @@ export async function githubResponse(
         {
           401: 'GitHub 인증에 실패했습니다. 읽기 전용 토큰을 확인해 주세요.',
           403: 'GitHub에서 요청을 거부했습니다. 권한 또는 API 사용 한도를 확인해 주세요.',
-          404: '저장소 또는 PR을 찾을 수 없습니다. 비공개 저장소라면 읽기 전용 토큰이 필요합니다.',
+          404: url.searchParams.has('owner')
+            ? 'GitHub 계정을 찾을 수 없습니다.'
+            : '저장소 또는 PR을 찾을 수 없습니다. 비공개 저장소라면 읽기 전용 토큰이 필요합니다.',
           429: 'GitHub API 사용 한도에 도달했습니다. 잠시 후 다시 시도해 주세요.',
         }[error.status] ?? error.message;
       return reply(error.status >= 500 ? 502 : error.status, {

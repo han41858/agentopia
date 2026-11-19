@@ -302,15 +302,10 @@ svg {
   grid-column: 1 / -1;
 }
 .guild-leader {
-  display: grid;
-  gap: 5px;
-  width: 100%;
-  padding: 9px;
+  padding: 6px 8px;
   border: 1px solid #948666;
   border-radius: 7px;
   background: #25313a;
-  text-align: left;
-  overflow-wrap: anywhere;
   font-size: 12px;
 }
 .guild-leader:hover {
@@ -322,9 +317,6 @@ svg {
   gap: 6px;
   color: var(--accent);
   font-weight: 700;
-}
-.guild-leader small {
-  color: #c5d0db;
 }
 .guild-parties {
   margin: 6px 0 0 7px;
@@ -785,6 +777,35 @@ svg {
   background: #151020;
   color: inherit;
   padding: 9px 11px;
+}
+.repository-options {
+  display: grid;
+  gap: 4px;
+  max-height: min(37dvh, 260px);
+  min-width: 0;
+  overflow-y: auto;
+  padding: 6px 9px 9px;
+  border: 1px solid var(--rim);
+  border-radius: 7px;
+  font-size: 12px;
+}
+.repository-options label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding-block: 4px;
+  overflow-wrap: anywhere;
+}
+.repository-options label small {
+  flex-shrink: 0;
+  color: #b7c5d2;
+}
+.repository-add-selected,
+.repository-error {
+  margin-top: 9px;
+}
+.repository-error {
+  white-space: pre-line;
 }
 .primary {
   display: flex;

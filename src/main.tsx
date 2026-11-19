@@ -26,17 +26,19 @@ import {
   X,
 } from 'lucide-react';
 import {
-  regions,
   repositoryInput,
+  repositoryOwner,
   repositoryRegion,
   repositorySlug,
   stages,
 } from '../server/model.ts';
 import type {
+  PullQuest,
   Quest,
   Region,
   Report,
   Repository,
+  RepositoryPage,
   Source,
   Stage,
 } from '../server/model.ts';
@@ -80,7 +82,10 @@ const activeStages = new Set<Stage>([
   'merging',
 ]);
 const alerts = new Set<Stage>(['failed', 'attention']);
-const defaultRegion = regions[0];
+const defaultRegion: Region = {
+  ...repositoryRegion('han41858/agentopia'),
+  name: 'Agentopia',
+};
 const repositoryListKey = 'agentopia.public-repositories';
 
 function readRepositories(): Repository[] {
@@ -191,14 +196,67 @@ function Expedition({ quest, open }: { quest: Quest; open: () => void }) {
   );
 }
 
+function pullStatus(pull: PullQuest) {
+  if (pull.stage === 'ci') return 'CI 검사 중';
+  if (pull.stage !== 'idle') return stages[pull.stage];
+  return pull.draft ? '초안' : 'PR 열림';
+}
+
+function pullActivity(pull: PullQuest) {
+  if (pull.reviewer)
+    return `${partyRoles.find(({ color }) => color === pull.reviewer)?.name} 리뷰 기록`;
+  if (pull.author)
+    return `${partyRoles.find(({ color }) => color === pull.author)?.name} 작성`;
+  return undefined;
+}
+
+function PullMarker({ pull, open }: { pull: PullQuest; open: () => void }) {
+  const role = partyRoles.find(
+    ({ color }) => color === (pull.reviewer ?? pull.author),
+  );
+  const Icon = role?.Icon ?? GitPullRequest;
+  const label = [
+    `PR #${pull.number}`,
+    pull.title,
+    pullActivity(pull),
+    pullStatus(pull),
+  ]
+    .filter(Boolean)
+    .join(' · ');
+  return (
+    <button
+      className={`expedition pull-marker${alerts.has(pull.stage) ? ' blocked' : ''}`}
+      title={label}
+      aria-label={label}
+      onClick={open}
+    >
+      <span
+        className={`role-symbol current-role${role ? ` ${role.color}` : ''}`}
+      >
+        <Icon size={15} aria-hidden="true" />
+      </span>
+      <small className="expedition-number">PR #{pull.number}</small>
+      {pull.stage === 'attention' ? (
+        <Badge stage="attention" />
+      ) : (
+        <small className="expedition-status-label">{pullStatus(pull)}</small>
+      )}
+    </button>
+  );
+}
+
 function GuildQuests({
   quests,
+  pulls,
   label,
   openQuest,
+  openPull,
 }: {
   quests: Quest[];
+  pulls: PullQuest[];
   label: string;
   openQuest: (quest: Quest) => void;
+  openPull: (pull: PullQuest) => void;
 }) {
   const byNumber = new Map(quests.map((quest) => [quest.number, quest]));
   const childrenByParent = new Map<number, Quest[]>();
@@ -244,20 +302,18 @@ function GuildQuests({
         className={guildLeader ? 'guild-branch' : undefined}
       >
         {guildLeader ? (
-          <button className="guild-leader" onClick={() => openQuest(quest)}>
+          <button
+            className="guild-leader"
+            title={quest.title}
+            aria-label={`길드장 #${quest.number} · ${quest.title}`}
+            onClick={() => openQuest(quest)}
+          >
             <span>
-              <Crown size={17} aria-hidden="true" /> 길드장 #{quest.number}
+              <Crown size={17} aria-hidden="true" /> #{quest.number}
+              {quest.state !== 'closed' && quest.stage === 'attention' && (
+                <Badge stage={quest.stage} />
+              )}
             </span>
-            <span>{quest.title}</span>
-            {quest.state !== 'closed' && quest.stage === 'attention' ? (
-              <Badge stage={quest.stage} />
-            ) : (
-              <small>
-                {quest.state === 'closed'
-                  ? closedIssueLabel(quest)
-                  : stages[quest.stage]}
-              </small>
-            )}
           </button>
         ) : (
           <Expedition quest={quest} open={() => openQuest(quest)} />
@@ -277,6 +333,11 @@ function GuildQuests({
   return (
     <ul className="expeditions" aria-label={label}>
       {roots.map(render)}
+      {pulls.map((pull) => (
+        <li key={`pr-${pull.number}`}>
+          <PullMarker pull={pull} open={() => openPull(pull)} />
+        </li>
+      ))}
     </ul>
   );
 }
@@ -562,6 +623,56 @@ function QuestDetail({
   );
 }
 
+function PullDetail({
+  pull,
+  region,
+  token,
+  close,
+}: {
+  pull: PullQuest;
+  region: Region;
+  token: string;
+  close: () => void;
+}) {
+  const [showReviews, setShowReviews] = useState(false);
+  const author = partyRoles.find(({ color }) => color === pull.author);
+  const reviewer = partyRoles.find(({ color }) => color === pull.reviewer);
+  return (
+    <Dialog title={`PR #${pull.number}`} close={close}>
+      <h3>{pull.title}</h3>
+      <PullStatus pull={pull} />
+      {author && <p>작성 · {author.name}</p>}
+      {reviewer && (
+        <p>
+          리뷰 기록 · {reviewer.name} {pull.review}
+        </p>
+      )}
+      <OutLink item={{ title: `GitHub PR #${pull.number}`, url: pull.url }} />
+      <button
+        className="text-button"
+        onClick={() => setShowReviews(!showReviews)}
+      >
+        <GitPullRequest size={14} aria-hidden="true" />{' '}
+        {showReviews ? '리뷰 접기' : 'PR 리뷰 조회'}
+      </button>
+      {showReviews && (
+        <Reviews region={region.slug} pull={pull.number} token={token} />
+      )}
+      {pull.runs.map((run) => (
+        <OutLink key={run.url} item={run} />
+      ))}
+    </Dialog>
+  );
+}
+
+function PullStatus({ pull }: { pull: PullQuest }) {
+  return pull.stage === 'attention' || pull.stage === 'failed' ? (
+    <Badge stage={pull.stage} />
+  ) : (
+    <span className={`badge ${pull.stage}`}>{pullStatus(pull)}</span>
+  );
+}
+
 function RegionDetail({
   region,
   snapshot,
@@ -674,18 +785,23 @@ function TokenDialog({
   token,
   status,
   setToken,
+  openAdd,
   close,
 }: {
   token: string;
   status: ReturnType<typeof getTokenStatus>;
   setToken: (token: string) => void;
+  openAdd: () => void;
   close: () => void;
 }) {
   const [value, setValue] = useState('');
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (value.trim()) setToken(value.trim());
+    const next = value.trim();
+    if (!next) return;
+    setToken(next);
     close();
+    openAdd();
   }
   return (
     <Dialog title="GitHub 연결" close={close}>
@@ -740,77 +856,193 @@ function RepositoryDialog({
 }: {
   token: string;
   regions: Region[];
-  added: (repo: Repository) => void;
+  added: (repos: Repository[]) => void;
   select: (region: Region) => void;
   close: () => void;
 }) {
   const [value, setValue] = useState('');
+  const [page, setPage] = useState<RepositoryPage>();
+  const [checked, setChecked] = useState<Set<string>>(new Set());
   const [pending, setPending] = useState(false);
   const [error, setError] = useState('');
-  const requestController = useRef<AbortController>(null);
-  useEffect(() => () => requestController.current?.abort(), []);
+  const controller = useRef<AbortController>(null);
+  const owner = repositoryOwner(value);
+  const existing = new Set(regions.map(({ slug }) => slug));
+  useEffect(() => () => controller.current?.abort(), []);
 
-  async function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (requestController.current) return;
-    const slug = repositoryInput(value);
-    if (!slug) {
-      setError('owner/repo 또는 GitHub 저장소 주소를 입력하세요.');
-      return;
-    }
-    const existing = regions.find((region) => region.slug === slug);
-    if (existing) {
-      select(existing);
-      close();
-      return;
-    }
-    const controller = new AbortController();
-    requestController.current = controller;
+  async function run(operation: (signal: AbortSignal) => Promise<void>) {
+    if (controller.current) return;
+    const current = new AbortController();
+    controller.current = current;
     setError('');
     setPending(true);
     try {
-      const repo = await request<Repository>(
-        new URLSearchParams({ repo: slug, repository: '1' }),
-        token,
-        controller.signal,
-      );
-      if (controller.signal.aborted) return;
-      const match = regions.find((region) => region.slug === repo.slug);
-      if (match) select(match);
-      else added(repo);
-      close();
+      await operation(current.signal);
     } catch (cause) {
-      if (!controller.signal.aborted) setError((cause as Error).message);
+      if (!current.signal.aborted) setError((cause as Error).message);
     } finally {
-      requestController.current = null;
-      if (!controller.signal.aborted) setPending(false);
+      controller.current = null;
+      if (!current.signal.aborted) setPending(false);
     }
+  }
+
+  function verify(slug: string, signal: AbortSignal) {
+    return request<Repository>(
+      new URLSearchParams({ repo: slug, repository: '1' }),
+      token,
+      signal,
+    );
+  }
+
+  function browse(account: string, cursor?: string) {
+    return run(async (signal) => {
+      const params = new URLSearchParams({ owner: account });
+      if (cursor) params.set('cursor', cursor);
+      const result = await request<RepositoryPage>(params, token, signal);
+      if (signal.aborted) return;
+      setPage((previous) => {
+        if (!cursor || !previous) return result;
+        const repos = new Map(
+          previous.repositories.map((repo) => [repo.slug, repo]),
+        );
+        for (const repo of result.repositories) repos.set(repo.slug, repo);
+        return { ...result, repositories: [...repos.values()] };
+      });
+      if (!cursor) setChecked(new Set());
+    });
+  }
+
+  function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (owner) {
+      void browse(owner);
+      return;
+    }
+    const slug = repositoryInput(value);
+    if (!slug) {
+      setError('owner, owner/repo 또는 GitHub 저장소 주소를 입력하세요.');
+      return;
+    }
+    const match = regions.find((region) => region.slug === slug);
+    if (match) {
+      select(match);
+      close();
+      return;
+    }
+    void run(async (signal) => {
+      const repo = await verify(slug, signal);
+      if (signal.aborted) return;
+      const duplicate = regions.find((region) => region.slug === repo.slug);
+      if (duplicate) select(duplicate);
+      else added([repo]);
+      close();
+    });
+  }
+
+  function addChecked() {
+    void run(async (signal) => {
+      const verified = new Map<string, Repository>();
+      const errors: string[] = [];
+      for (const slug of checked) {
+        if (existing.has(slug) || signal.aborted) continue;
+        try {
+          const repo = await verify(slug, signal);
+          if (!existing.has(repo.slug)) verified.set(repo.slug, repo);
+        } catch (cause) {
+          if (!signal.aborted)
+            errors.push(`${slug} · ${(cause as Error).message}`);
+        }
+      }
+      if (signal.aborted) return;
+      if (verified.size) added([...verified.values()]);
+      if (errors.length) setError(errors.join('\n'));
+      else close();
+    });
   }
 
   return (
     <Dialog title="저장소 추가" close={close}>
-      <form className="token-form" onSubmit={(event) => void submit(event)}>
-        <label htmlFor="github-repository">GitHub 저장소</label>
+      <form className="token-form" onSubmit={submit}>
+        <label htmlFor="github-repository">GitHub 계정 또는 저장소</label>
         <input
           id="github-repository"
-          placeholder="owner/repo"
+          placeholder="owner 또는 owner/repo"
           autoCapitalize="none"
           autoComplete="off"
           spellCheck={false}
           value={value}
-          onChange={(event) => setValue(event.target.value)}
+          disabled={pending}
+          onChange={(event) => {
+            setValue(event.target.value);
+            setPage(undefined);
+            setChecked(new Set());
+            setError('');
+          }}
           required
         />
-        {error && (
-          <p className="fetch-error" role="alert">
-            {error}
-          </p>
-        )}
         <button className="primary" type="submit" disabled={pending}>
-          <Plus size={16} aria-hidden="true" />
-          {pending ? '접근 확인 중…' : '추가'}
+          {owner ? '목록 보기' : '추가'}
         </button>
       </form>
+      {pending && <p role="status">GitHub 확인 중…</p>}
+      {page && (
+        <>
+          {page.repositories.length ? (
+            <fieldset className="repository-options" disabled={pending}>
+              <legend>저장소 선택</legend>
+              {page.repositories.map((repo) => (
+                <label key={repo.slug}>
+                  <input
+                    type="checkbox"
+                    disabled={existing.has(repo.slug)}
+                    checked={existing.has(repo.slug) || checked.has(repo.slug)}
+                    onChange={(event) => {
+                      const selected = event.target.checked;
+                      setChecked((items) => {
+                        const next = new Set(items);
+                        if (selected) next.add(repo.slug);
+                        else next.delete(repo.slug);
+                        return next;
+                      });
+                    }}
+                  />
+                  <span>{repo.slug}</span>
+                  {(existing.has(repo.slug) || repo.private) && (
+                    <small>
+                      {existing.has(repo.slug) ? '추가됨' : '비공개'}
+                    </small>
+                  )}
+                </label>
+              ))}
+            </fieldset>
+          ) : (
+            <p>조회 가능한 저장소가 없습니다.</p>
+          )}
+          {page.next && owner && (
+            <button
+              className="text-button"
+              disabled={pending}
+              onClick={() => void browse(owner, page.next)}
+            >
+              더 보기
+            </button>
+          )}
+          <button
+            className="primary repository-add-selected"
+            disabled={
+              pending || ![...checked].some((slug) => !existing.has(slug))
+            }
+            onClick={addChecked}
+          >
+            <Plus size={16} aria-hidden="true" /> 선택한 저장소 추가
+          </button>
+        </>
+      )}
+      {error && (
+        <p className="fetch-error repository-error" role="alert">
+          {error}
+        </p>
+      )}
     </Dialog>
   );
 }
@@ -820,24 +1052,28 @@ function QuestLog({
   snapshots,
   loading,
   openQuest,
+  openPull,
 }: {
   regions: Region[];
   snapshots: Record<string, Snapshot>;
   loading: boolean;
   openQuest: (region: Region, quest: Quest) => void;
+  openPull: (region: Region, pull: PullQuest) => void;
 }) {
   const entries = regions
-    .flatMap((region) =>
-      (snapshots[region.id]?.report?.quests ?? []).map((quest) => ({
-        region,
-        quest,
-      })),
-    )
+    .flatMap((region) => {
+      const report = snapshots[region.id]?.report;
+      const items: (Quest | PullQuest)[] = [
+        ...(report?.quests ?? []),
+        ...(report?.pullQuests ?? []),
+      ];
+      return items.map((item) => ({ region, item }));
+    })
     .sort(
       (a, b) =>
-        Number(a.quest.state === 'closed') -
-          Number(b.quest.state === 'closed') ||
-        b.quest.number - a.quest.number ||
+        Number('state' in a.item && a.item.state === 'closed') -
+          Number('state' in b.item && b.item.state === 'closed') ||
+        b.item.number - a.item.number ||
         a.region.slug.localeCompare(b.region.slug),
     );
   const hasReport = regions.some(({ id }) => snapshots[id]?.report);
@@ -849,28 +1085,39 @@ function QuestLog({
       </h2>
       {entries.length ? (
         <ul className="quest-log-list">
-          {entries.map(({ region, quest }) => (
-            <li key={`${region.slug}#${quest.number}`}>
-              <button
-                className="quest-log-row"
-                onClick={() => openQuest(region, quest)}
+          {entries.map(({ region, item }) => {
+            const issue = 'state' in item;
+            return (
+              <li
+                key={`${region.slug}:${issue ? 'issue' : 'pr'}:${item.number}`}
               >
-                <small>
-                  {region.name} · #{quest.number}
-                </small>
-                <strong>{quest.title}</strong>
-                <IssueBadge quest={quest} />
-              </button>
-            </li>
-          ))}
+                <button
+                  className="quest-log-row"
+                  onClick={() =>
+                    issue ? openQuest(region, item) : openPull(region, item)
+                  }
+                >
+                  <small>
+                    {region.name} · {issue ? '' : 'PR '}#{item.number}
+                  </small>
+                  <strong>{item.title}</strong>
+                  {issue ? (
+                    <IssueBadge quest={item} />
+                  ) : (
+                    <PullStatus pull={item} />
+                  )}
+                </button>
+              </li>
+            );
+          })}
         </ul>
       ) : (
         <p>
           {hasReport
-            ? '조회된 이슈 없음'
+            ? '조회된 이슈·PR 없음'
             : loading
-              ? '이슈 불러오는 중'
-              : '이슈 조회 필요'}
+              ? '이슈·PR 불러오는 중'
+              : '이슈·PR 조회 필요'}
         </p>
       )}
     </section>
@@ -892,6 +1139,7 @@ function App() {
   const [selectedQuest, setSelectedQuest] = useState<{
     region: Region;
     number: number;
+    kind?: 'pull';
   }>();
   const refresh = useRef<(() => void) | null>(null);
   const [loading, setLoading] = useState(true);
@@ -1012,9 +1260,20 @@ function App() {
   );
   const quest =
     selectedQuest &&
+    selectedQuest.kind !== 'pull' &&
     snapshots[selectedQuest.region.id]?.report?.quests.find(
       ({ number }) => number === selectedQuest.number,
     );
+  const pull =
+    selectedQuest?.kind === 'pull'
+      ? snapshots[selectedQuest.region.id]?.report?.pullQuests?.find(
+          ({ number }) => number === selectedQuest.number,
+        )
+      : undefined;
+
+  function openPull(region: Region, item: PullQuest) {
+    setSelectedQuest({ region, number: item.number, kind: 'pull' });
+  }
 
   return (
     <>
@@ -1079,38 +1338,43 @@ function App() {
 
         <section className="map-viewport" aria-label="저장소 왕국">
           <div className="kingdoms">
-            {worldRegions.map((region) => (
-              <div className={`kingdom-area ${region.theme}`} key={region.id}>
-                <button className="kingdom" onClick={() => select(region)}>
-                  <span className="kingdom-land" aria-hidden="true">
-                    <Castle size={34} strokeWidth={1.5} />
-                  </span>
-                  <span className="kingdom-label">
-                    <strong>{region.name}</strong>
-                    <small>{region.title}</small>
-                  </span>
-                </button>
-                {snapshots[region.id]?.report?.quests.some(
-                  ({ state }) => state === 'open',
-                ) ? (
-                  <GuildQuests
-                    quests={snapshots[region.id].report!.quests}
-                    label={`${region.name} 이슈`}
-                    openQuest={(item) =>
-                      setSelectedQuest({ region, number: item.number })
-                    }
-                  />
-                ) : (
-                  <p className="expedition-status">
-                    {snapshots[region.id]?.report
-                      ? '열린 이슈 없음'
-                      : loading
-                        ? '기록 확인 중'
-                        : '기록 확인 필요'}
-                  </p>
-                )}
-              </div>
-            ))}
+            {worldRegions.map((region) => {
+              const report = snapshots[region.id]?.report;
+              return (
+                <div className={`kingdom-area ${region.theme}`} key={region.id}>
+                  <button className="kingdom" onClick={() => select(region)}>
+                    <span className="kingdom-land" aria-hidden="true">
+                      <Castle size={34} strokeWidth={1.5} />
+                    </span>
+                    <span className="kingdom-label">
+                      <strong>{region.name}</strong>
+                      <small>{region.title}</small>
+                    </span>
+                  </button>
+                  {report &&
+                  (report.quests.some(({ state }) => state === 'open') ||
+                    report.pullQuests?.length) ? (
+                    <GuildQuests
+                      quests={report.quests}
+                      pulls={report.pullQuests ?? []}
+                      openPull={(item) => openPull(region, item)}
+                      label={`${region.name} 이슈`}
+                      openQuest={(item) =>
+                        setSelectedQuest({ region, number: item.number })
+                      }
+                    />
+                  ) : (
+                    <p className="expedition-status">
+                      {snapshots[region.id]?.report
+                        ? '열린 이슈·PR 없음'
+                        : loading
+                          ? '기록 확인 중'
+                          : '기록 확인 필요'}
+                    </p>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </section>
 
@@ -1119,6 +1383,7 @@ function App() {
             regions={worldRegions}
             snapshots={snapshots}
             loading={loading}
+            openPull={openPull}
             openQuest={(region, item) =>
               setSelectedQuest({ region, number: item.number })
             }
@@ -1152,7 +1417,7 @@ function App() {
         <RepositoryDialog
           token={token}
           regions={worldRegions}
-          added={(repo) => setRepositories((items) => [...items, repo])}
+          added={(repos) => setRepositories((items) => [...items, ...repos])}
           select={select}
           close={() => setShowAdd(false)}
         />
@@ -1162,7 +1427,17 @@ function App() {
           token={token}
           status={tokenStatus}
           setToken={setToken}
+          openAdd={() => setShowAdd(true)}
           close={() => setShowConnect(false)}
+        />
+      )}
+      {selectedQuest && pull && (
+        <PullDetail
+          key={`${selectedQuest.region.id}-pr-${pull.number}`}
+          pull={pull}
+          region={selectedQuest.region}
+          token={token}
+          close={() => setSelectedQuest(undefined)}
         />
       )}
       {selectedQuest && quest && (

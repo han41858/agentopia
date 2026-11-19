@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
+  linkedPullIssues,
+  makePullQuests,
   makeQuests,
   readState,
   regions,
@@ -340,6 +342,135 @@ test('does not infer a reviewer for repositories without a known review policy',
   );
   assert.equal(quest.developer, 'codex');
   assert.equal(quest.reviewer, undefined);
+});
+
+test('standalone PRs exclude issue-linked and closed PRs and use verified actor and CI evidence', () => {
+  const direct = {
+    ...pull,
+    number: 12,
+    draft: false,
+    body: null,
+    user: { login: 'chatgpt-codex-connector[bot]' },
+    head: { ...pull.head, ref: 'feature/direct' },
+  };
+  const byBody = { ...direct, number: 13, body: 'Fixes #2' };
+  const byNative = { ...direct, number: 14 };
+  const human = {
+    ...direct,
+    number: 15,
+    draft: true,
+    body: 'Discussion about #2 and `Fixes #2`',
+    user: { login: 'claude', type: 'User' },
+    head: { ...direct.head, sha: mergeSha },
+  };
+  const links = new Map([
+    [14, { issues: [2] }],
+    [12, { issues: [], reviewer: 'claude' as const, review: 'APPROVED' }],
+  ]);
+  assert.deepEqual(linkedPullIssues(byBody, commitTrail), [2]);
+  assert.deepEqual(linkedPullIssues(human, commitTrail), []);
+  const ci = run(2, {
+    path: '.github/workflows/ci.yml',
+    head_sha: sha,
+    head_branch: 'feature/direct',
+    pull_requests: [{ number: 12 }],
+  });
+  const quests = makePullQuests(
+    commitTrail,
+    [
+      pull,
+      direct,
+      byBody,
+      byNative,
+      human,
+      { ...direct, number: 16, state: 'closed' },
+    ],
+    [ci],
+    new Set([2]),
+    links,
+  );
+  assert.deepEqual(
+    quests.map(({ number, stage, author, reviewer }) => [
+      number,
+      stage,
+      author,
+      reviewer,
+    ]),
+    [
+      [12, 'ci', 'codex', 'claude'],
+      [15, 'idle', undefined, undefined],
+    ],
+  );
+  assert.deepEqual(
+    makeQuests(
+      commitTrail,
+      [issue(2)],
+      [pull, direct, byBody, byNative],
+      [],
+      [],
+      new Map(),
+      [],
+      links,
+    )[0].pulls.map(({ number }) => number),
+    [pull.number, 13, 14],
+  );
+});
+
+test('lists public or token-visible repositories for one owner without exposing unrelated slugs', async (context) => {
+  const fetch = context.mock.method(
+    globalThis,
+    'fetch',
+    async (input: string, options: RequestInit) => {
+      const url = new URL(input);
+      assert.equal(url.origin, 'https://api.github.com');
+      if (url.pathname === '/graphql') {
+        assert.equal(
+          new Headers(options.headers).get('authorization'),
+          'Bearer account_token',
+        );
+        assert.deepEqual(JSON.parse(String(options.body)).variables, {
+          owner: 'example',
+          cursor: 'next=',
+        });
+        return Response.json({
+          data: {
+            repositoryOwner: {
+              repositories: {
+                nodes: [
+                  {
+                    nameWithOwner: 'Example/Private',
+                    isPrivate: true,
+                    visibility: 'PRIVATE',
+                  },
+                ],
+                pageInfo: { hasNextPage: true, endCursor: 'next2=' },
+              },
+            },
+          },
+        });
+      }
+      assert.equal(url.pathname, '/users/example/repos');
+      return Response.json([
+        { full_name: 'Example/Public', private: false },
+        { full_name: 'Elsewhere/Public', private: false },
+        { full_name: 'Example/Private', private: true },
+      ]);
+    },
+  );
+  const url = new URL('http://localhost/api/github?owner=Example');
+  assert.deepEqual(JSON.parse((await githubResponse(url, 'GET')).body), {
+    repositories: [{ slug: 'example/public', private: false }],
+  });
+  url.searchParams.set('cursor', 'next=');
+  assert.equal((await githubResponse(url, 'GET')).status, 400);
+  assert.deepEqual(
+    JSON.parse((await githubResponse(url, 'GET', 'Bearer account_token')).body),
+    {
+      repositories: [{ slug: 'example/private', private: true }],
+      next: 'next2=',
+    },
+  );
+  assert.equal(fetch.mock.callCount(), 2);
 });
 
 test('public refresh reuses recent reports, refreshes on demand, and honors rate limits', async (context) => {

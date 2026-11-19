@@ -27,6 +27,14 @@ export type Region = {
 };
 
 export type Repository = { slug: string; private: boolean };
+export type RepositoryPage = { repositories: Repository[]; next?: string };
+
+export function repositoryOwner(value: string) {
+  const owner = value.trim();
+  return /^[a-z\d][a-z\d-]{0,38}$/i.test(owner)
+    ? owner.toLowerCase()
+    : undefined;
+}
 
 export function repositorySlug(value: string) {
   const match = /^([a-z\d][a-z\d-]{0,38})\/([a-z\d_.-]{1,100})$/i.exec(value);
@@ -99,8 +107,25 @@ export type Quest = {
   pulls: (Source & { number: number })[];
   runs: Source[];
 };
+export type PullQuest = Source & {
+  number: number;
+  draft: boolean;
+  stage: Stage;
+  author?: Agent;
+  reviewer?: Agent;
+  review?: string;
+  runs: Source[];
+};
+
+export type PullLinks = {
+  issues: number[];
+  reviewer?: Agent;
+  review?: string;
+};
+
 export type Report = {
   quests: Quest[];
+  pullQuests?: PullQuest[];
   releases: (Source & { stage: Stage })[];
   updatedAt: string;
   warnings: string[];
@@ -123,6 +148,7 @@ export type Pull = {
   state: string;
   draft: boolean;
   body: string | null;
+  user?: { login: string; type?: string };
   head: { ref: string; sha: string; repo?: { full_name: string } };
   merge_commit_sha?: string;
   updated_at: string;
@@ -189,6 +215,58 @@ export function pullIssue(pull: Pull, region: Region) {
   return Number(branch[1]);
 }
 
+export function pullActor(login?: string, type?: string): Agent | undefined {
+  const account = login?.toLowerCase();
+  if (type !== 'Bot' && !account?.endsWith('[bot]')) return;
+  switch (account) {
+    case 'codex':
+    case 'codex[bot]':
+    case 'chatgpt-codex-connector':
+    case 'chatgpt-codex-connector[bot]':
+      return 'codex';
+    case 'claude':
+    case 'claude[bot]':
+    case 'claude-code':
+    case 'claude-code[bot]':
+      return 'claude';
+  }
+}
+
+export function linkedPullIssues(
+  pull: Pull,
+  region: Region,
+  native?: PullLinks,
+) {
+  const numbers = new Set(native?.issues ?? []);
+  const branch = pullIssue(pull, region);
+  if (branch !== undefined) numbers.add(branch);
+  const body = (pull.body ?? '')
+    .replace(/<!--[\s\S]*?-->/g, '')
+    .replace(/^[ \t]*`{3,}[\s\S]*?^[ \t]*`{3,}[^\n]*/gm, '')
+    .replace(/^[ \t]*~{3,}[\s\S]*?^[ \t]*~{3,}[^\n]*/gm, '')
+    .replace(/^[ \t]*>.*$/gm, '')
+    .replace(/`+[^`]*`+/g, '');
+  const references = body.matchAll(
+    /\b(?:clos(?:e[sd]?)|fix(?:e[sd])?|resolv(?:e[sd]?))[ \t]*:?[ \t]+((?:[\w.-]+\/[\w.-]+)?#\d+|https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/issues\/\d+)(?![\w/])/gi,
+  );
+  for (const [, reference] of references) {
+    const match =
+      /^(?:(?<repo>[\w.-]+\/[\w.-]+)?#|https:\/\/github\.com\/(?<urlRepo>[\w.-]+\/[\w.-]+)\/issues\/)(?<number>\d+)$/i.exec(
+        reference,
+      );
+    if (!match?.groups) continue;
+    const repo = (match.groups.repo ?? match.groups.urlRepo)?.toLowerCase();
+    const number = Number(match.groups.number);
+    if (
+      (!repo || repo === region.slug) &&
+      Number.isSafeInteger(number) &&
+      number > 0
+    )
+      numbers.add(number);
+  }
+  return [...numbers];
+}
+
 export function readState(comment: Comment, region: Region) {
   if (comment.user?.login !== 'github-actions[bot]') return;
   const prefix = `<!-- ${region.slug.split('/')[1]}-ai-state:`;
@@ -240,6 +318,53 @@ function runSource(run: Run): Source {
   };
 }
 
+export function makePullQuests(
+  region: Region,
+  pulls: Pull[],
+  runs: Run[],
+  issueNumbers: ReadonlySet<number>,
+  links: ReadonlyMap<number, PullLinks>,
+): PullQuest[] {
+  return pulls
+    .filter(
+      (pull) =>
+        pull.state === 'open' &&
+        !linkedPullIssues(pull, region, links.get(pull.number)).some((number) =>
+          issueNumbers.has(number),
+        ),
+    )
+    .map((pull) => {
+      const relatedRuns = runs.filter(
+        (run) =>
+          run.head_sha === pull.head.sha &&
+          (run.pull_requests.some(({ number }) => number === pull.number) ||
+            (pull.head.repo?.full_name.toLowerCase() === region.slug &&
+              run.head_branch === pull.head.ref)),
+      );
+      const ci = relatedRuns.find(
+        (run) => run.path.split('@')[0] === '.github/workflows/ci.yml',
+      );
+      const outcome = ci ? runStage(ci) : 'idle';
+      const review = links.get(pull.number);
+      return {
+        number: pull.number,
+        title: pull.title,
+        url: pull.html_url,
+        draft: pull.draft,
+        stage:
+          outcome === 'developing' || outcome === 'queued'
+            ? 'ci'
+            : outcome === 'attention' || outcome === 'failed'
+              ? outcome
+              : 'idle',
+        author: pullActor(pull.user?.login, pull.user?.type),
+        reviewer: review?.reviewer,
+        review: review?.review,
+        runs: relatedRuns.slice(0, 8).map(runSource),
+      };
+    });
+}
+
 export function makeQuests(
   region: Region,
   issues: Issue[],
@@ -248,6 +373,7 @@ export function makeQuests(
   comments: Comment[],
   parents: Map<number, number>,
   releases: Release[],
+  pullLinks: ReadonlyMap<number, PullLinks> = new Map(),
 ): Quest[] {
   const records = new Map<
     number,
@@ -266,10 +392,20 @@ export function makeQuests(
     }
   }
 
+  const pullsByIssue = new Map<number, Pull[]>();
+  for (const pull of pulls) {
+    for (const number of linkedPullIssues(
+      pull,
+      region,
+      pullLinks.get(pull.number),
+    )) {
+      const entries = pullsByIssue.get(number) ?? [];
+      entries.push(pull);
+      pullsByIssue.set(number, entries);
+    }
+  }
   return issues.map((issue) => {
-    const issuePulls = pulls.filter(
-      (pull) => pullIssue(pull, region) === issue.number,
-    );
+    const issuePulls = pullsByIssue.get(issue.number) ?? [];
     const automation = runs.filter((run) => runIssue(run) === issue.number);
     const record = records.get(issue.number);
     const run = automation[0];
@@ -300,12 +436,14 @@ export function makeQuests(
       ),
     );
     let reviewer: Agent | undefined;
+    const branch =
+      pull && pullIssue(pull, region) === issue.number ? pull.head.ref : '';
     const developer =
       state?.developer === 'codex' || state?.developer === 'claude'
         ? state.developer
-        : pull?.head.ref.endsWith('-codex')
+        : branch.endsWith('-codex')
           ? 'codex'
-          : pull?.head.ref.endsWith('-claude')
+          : branch.endsWith('-claude')
             ? 'claude'
             : undefined;
     if (state?.reviewer === 'codex' || state?.reviewer === 'claude') {
