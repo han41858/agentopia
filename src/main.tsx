@@ -4,8 +4,10 @@ import { createRoot } from 'react-dom/client';
 import {
   Castle,
   Check,
+  ChevronUp,
   ChevronRight,
   Clock3,
+  Code2,
   ExternalLink,
   Flag,
   GitPullRequest,
@@ -16,8 +18,10 @@ import {
   Rocket,
   ScrollText,
   Shield,
+  Sparkles,
   Swords,
   TriangleAlert,
+  Workflow,
   X,
 } from 'lucide-react';
 import { regions, stages } from '../server/model.ts';
@@ -46,6 +50,29 @@ const glyph = {
   failed: TriangleAlert,
   attention: Flag,
 };
+
+const partyRoles = [
+  { name: 'GitHub Actions', Icon: Workflow, color: 'actions' },
+  { name: 'Codex', Icon: Code2, color: 'codex' },
+  { name: 'Claude', Icon: Sparkles, color: 'claude' },
+  { name: 'Release', Icon: Rocket, color: 'release' },
+] as const;
+
+function Expedition({ count, status }: { count: number; status: string }) {
+  return (
+    <span className={`expedition${count ? ' underway' : ''}`}>
+      <ChevronUp className="expedition-route" size={17} aria-hidden="true" />
+      <span className="expedition-party" aria-hidden="true">
+        {partyRoles.map(({ name, Icon, color }) => (
+          <span className={`role-symbol ${color}`} key={name}>
+            <Icon size={14} />
+          </span>
+        ))}
+      </span>
+      <small>{count > 0 ? `파티 출정 · 이슈 ${count}개` : status}</small>
+    </span>
+  );
+}
 
 async function request<T>(
   params: URLSearchParams,
@@ -519,9 +546,18 @@ function App() {
     setQuestNumber(undefined);
   }
 
-  const active = regions
-    .flatMap(({ id }) => snapshots[id]?.report?.quests ?? [])
-    .filter((quest) => activeStages.has(quest.stage)).length;
+  const activeCounts = Object.fromEntries(
+    regions.map(({ id }) => [
+      id,
+      snapshots[id]?.report?.quests.filter(({ stage }) =>
+        activeStages.has(stage),
+      ).length ?? 0,
+    ]),
+  );
+  const active = Object.values(activeCounts).reduce(
+    (sum, count) => sum + count,
+    0,
+  );
   const rescue = regions
     .flatMap(({ id }) => snapshots[id]?.report?.quests ?? [])
     .filter((quest) => alerts.has(quest.stage)).length;
@@ -585,9 +621,26 @@ function App() {
                     />
                   )}
                 </span>
+                <Expedition
+                  count={activeCounts[region.id]}
+                  status={
+                    snapshots[region.id]?.report
+                      ? '파티 대기'
+                      : loading
+                        ? '기록 확인 중'
+                        : '기록 확인 필요'
+                  }
+                />
               </button>
             ))}
           </div>
+          <ul className="expedition-legend" aria-label="기본 파티 구성">
+            {partyRoles.map(({ name, Icon, color }) => (
+              <li className={color} key={name}>
+                <Icon size={14} aria-hidden="true" /> {name}
+              </li>
+            ))}
+          </ul>
         </section>
 
         <div className="world-footer">

@@ -218,6 +218,77 @@ svg {
   right: 0;
   color: #ff9e91;
 }
+.expedition {
+  display: grid;
+  justify-items: center;
+  gap: 5px;
+  color: #b7c5d2;
+}
+.expedition-route {
+  margin-top: -8px;
+  color: #778b9b;
+}
+.expedition.underway .expedition-route {
+  color: var(--accent);
+  animation: route-up 1.4s ease-in-out 3;
+}
+@keyframes route-up {
+  50% {
+    transform: translateY(-4px);
+  }
+}
+.expedition-party {
+  display: flex;
+  gap: 3px;
+}
+.expedition:not(.underway) .expedition-party {
+  opacity: 0.7;
+}
+.role-symbol {
+  display: grid;
+  place-items: center;
+  width: 23px;
+  height: 23px;
+  border: 1px solid #405361;
+  border-radius: 5px;
+  background: #15212f;
+}
+.expedition small {
+  font-size: 10px;
+}
+.expedition.underway small {
+  color: var(--accent);
+}
+.expedition-legend {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px 15px;
+  padding: 0;
+  margin: clamp(16px, 4vh, 36px) 0 0;
+  font-size: 11px;
+}
+.expedition-legend li {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.role-symbol.actions,
+.expedition-legend .actions {
+  color: #9ad9ff;
+}
+.role-symbol.codex,
+.expedition-legend .codex {
+  color: #a5e1bc;
+}
+.role-symbol.claude,
+.expedition-legend .claude {
+  color: #ffbf9e;
+}
+.role-symbol.release,
+.expedition-legend .release {
+  color: #e1c4ff;
+}
 .world-summary,
 .map-footer,
 .map-footer > span {
