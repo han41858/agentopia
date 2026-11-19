@@ -2,28 +2,20 @@ import { useEffect, useRef, useState } from 'react';
 import type { FormEvent, ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 import {
-  ArrowDown,
-  ArrowRight,
-  ArrowUpRight,
   Castle,
   Check,
   ChevronRight,
-  CircleHelp,
   Clock3,
-  Compass,
   ExternalLink,
   Flag,
   GitPullRequest,
   GitFork as Github,
   Hourglass,
   KeyRound,
-  Layers3,
-  Map,
   RefreshCw,
   Rocket,
   ScrollText,
   Shield,
-  Sparkles,
   Swords,
   TriangleAlert,
   X,
@@ -374,26 +366,16 @@ function RegionDetail({
     );
   }
   return (
-    <section
-      className="panel details"
-      id="region-detail"
-      aria-label={`${region.name} 상세`}
-    >
-      <div className="details-heading">
-        <div>
-          <span className="eyebrow">REGION JOURNAL</span>
-          <h2>{region.name}</h2>
-        </div>
-        <button
-          className="icon-button"
-          onClick={close}
-          aria-label="지역 상세 닫기"
-        >
-          <X size={20} />
-        </button>
-      </div>
+    <Dialog title={region.name} close={close}>
+      <p>{region.description}</p>
+      <OutLink
+        item={{
+          title: 'GitHub 저장소',
+          url: `https://github.com/han41858/${region.id}`,
+        }}
+      />
       {snapshot?.error && <p className="fetch-error">{snapshot.error}</p>}
-      {!snapshot && <p>길드 기록을 불러오는 중…</p>}
+      {!snapshot && <p>왕국 기록을 불러오는 중…</p>}
       {snapshot?.report?.warnings.length ? (
         <p className="fetch-error">
           일부 기록을 확인하지 못했습니다 ·{' '}
@@ -410,7 +392,7 @@ function RegionDetail({
         ))}
       {!!snapshot?.report?.releases.length && (
         <>
-          <h3>지역 배포 기록</h3>
+          <h4>왕국 배포 기록</h4>
           {snapshot.report.releases.map((release, index) => (
             <div className="release" key={index}>
               <OutLink item={release} />
@@ -419,7 +401,7 @@ function RegionDetail({
           ))}
         </>
       )}
-    </section>
+    </Dialog>
   );
 }
 
@@ -482,7 +464,6 @@ function App() {
   const [revision, refresh] = useState(0);
   const [loading, setLoading] = useState(true);
   const [showConnect, setShowConnect] = useState(false);
-  const detail = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -536,9 +517,6 @@ function App() {
   function select(region: Region) {
     setSelected(region);
     setQuestNumber(undefined);
-    requestAnimationFrame(() =>
-      detail.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }),
-    );
   }
 
   const active = regions
@@ -566,101 +544,63 @@ function App() {
 
   return (
     <>
-      <header className="topbar">
-        <div className="shell nav">
-          <a className="brand" href="#world" aria-label="Agentopia 월드맵">
-            <span className="crest">
-              <Castle size={21} />
+      <main className="world" aria-labelledby="world-title">
+        <header className="world-header">
+          <div className="world-heading">
+            <span className="crest" aria-hidden="true">
+              <Castle size={22} />
             </span>
-            <span>Agentopia</span>
-          </a>
-          <nav aria-label="주 메뉴">
-            <a className="current" href="#world">
-              <Map size={17} /> 월드맵
-            </a>
-            <a href="#regions">
-              <Compass size={17} /> 지역 탐색
-            </a>
-          </nav>
+            <div>
+              <p className="brand">Agentopia</p>
+              <h1 id="world-title">월드맵</h1>
+            </div>
+          </div>
           <button className="connect" onClick={() => setShowConnect(true)}>
             <Github size={17} />
             <span>{token ? 'GitHub 토큰 관리' : 'GitHub 연결'}</span>
           </button>
-        </div>
-      </header>
-      <main className="shell" id="world">
-        <section className="intro" aria-labelledby="world-title">
-          <div>
-            <div className="eyebrow">
-              <Sparkles size={15} /> AI DEVELOPER WORLD
-            </div>
-            <h1 id="world-title">
-              Agentopia <span>월드맵</span>
-            </h1>
-            <p>GitHub에서 펼쳐지는 AI 개발 파티의 모험을 탐험하세요.</p>
-          </div>
-          <div className="summary" aria-label="길드 현황">
-            <div>
-              <Map size={18} />
-              <span>
-                지역<strong>{regions.length}</strong>
-              </span>
-            </div>
-            <div>
-              <Swords size={18} />
-              <span>
-                진행 중<strong>{hasData ? active : '—'}</strong>
-              </span>
-            </div>
-            <div className="rescue">
-              <TriangleAlert size={18} />
-              <span>
-                구조 요청<strong>{hasData ? rescue : '—'}</strong>
-              </span>
-            </div>
-          </div>
-        </section>
+        </header>
 
-        <section className="map-frame" aria-label="Agentopia 지도">
-          <div className="map-toolbar">
-            <span>
-              <Compass size={17} /> <strong>월드 지도</strong>
-            </span>
-            <span className="map-coordinate">
-              <span /> AGENTOPIA REALM
-            </span>
-          </div>
-          <div className="map-art">
-            <img
-              src="/agentopia-world.webp"
-              alt="태엽 시계탑과 보랏빛 극장, 그 사이로 강이 흐르는 길드 왕국의 픽셀 아트 지도"
-              fetchPriority="high"
-            />
-            {regions.map((region, index) => (
+        <section className="map-viewport" aria-label="저장소 왕국">
+          <div className="kingdoms">
+            {regions.map((region) => (
               <button
                 key={region.id}
-                className={`map-marker ${region.theme}`}
-                aria-label={`${region.name} 지역 보기`}
+                className={`kingdom ${region.theme}`}
                 onClick={() => select(region)}
               >
-                <span className="marker-icon">
-                  {index === 0 ? <Clock3 size={22} /> : <Sparkles size={22} />}
+                <span className="kingdom-land" aria-hidden="true">
+                  <Castle size={34} strokeWidth={1.5} />
                 </span>
-                <span className="marker-name">
-                  {region.name}
+                <span className="kingdom-label">
+                  <strong>{region.name}</strong>
+                  <small>{region.title}</small>
                   {snapshots[region.id]?.report?.quests.some(({ stage }) =>
                     alerts.has(stage),
                   ) && (
                     <TriangleAlert
-                      className="marker-alert"
-                      size={14}
+                      className="kingdom-alert"
+                      size={16}
                       aria-label="구조 요청 있음"
                     />
                   )}
-                  <ChevronRight size={14} />
                 </span>
               </button>
             ))}
+          </div>
+        </section>
+
+        <div className="world-footer">
+          <div className="world-summary" aria-label="월드 현황">
+            <span>
+              왕국 <strong>{regions.length}</strong>
+            </span>
+            <span>
+              진행 중 <strong>{hasData ? active : '—'}</strong>
+            </span>
+            <span>
+              구조 요청 <strong>{hasData ? rescue : '—'}</strong>
+            </span>
           </div>
           <footer className="map-footer">
             <span>
@@ -694,123 +634,17 @@ function App() {
               고침
             </button>
           </footer>
-        </section>
-
-        <section
-          className="regions"
-          id="regions"
-          aria-labelledby="regions-title"
-        >
-          <div className="section-heading">
-            <div>
-              <span className="eyebrow">
-                <Compass size={15} /> REGIONS
-              </span>
-              <h2 id="regions-title">탐험할 지역</h2>
-            </div>
-            <a className="text-button" href="#legend">
-              범례 보기 <ArrowDown size={14} />
-            </a>
-          </div>
-          <div className="region-grid">
-            {regions.map((region, index) => {
-              const snapshot = snapshots[region.id];
-              const quests = snapshot?.report?.quests;
-              return (
-                <article
-                  className={`panel region ${region.theme}`}
-                  key={region.id}
-                >
-                  <div className="region-copy">
-                    <span className="region-emblem">
-                      {index === 0 ? (
-                        <Castle size={25} />
-                      ) : (
-                        <Sparkles size={25} />
-                      )}
-                    </span>
-                    <div>
-                      <span className="region-title">{region.title}</span>
-                      <h3>{region.name}</h3>
-                    </div>
-                    <a
-                      className="icon-button"
-                      href={`https://github.com/han41858/${region.id}`}
-                      target="_blank"
-                      rel="noreferrer"
-                      aria-label={`${region.name} GitHub 저장소`}
-                    >
-                      <ArrowUpRight size={19} />
-                    </a>
-                  </div>
-                  <p>{region.description}</p>
-                  {snapshot?.error ? (
-                    <p className="fetch-error">{snapshot.error}</p>
-                  ) : snapshot?.report?.warnings.length ? (
-                    <p className="fetch-error">
-                      일부 기록을 확인하지 못했습니다.
-                    </p>
-                  ) : null}
-                  <div className="region-footer">
-                    <span>
-                      <Swords size={15} /> 진행 중{' '}
-                      {quests
-                        ? quests.filter((item) => activeStages.has(item.stage))
-                            .length
-                        : '—'}
-                    </span>
-                    <span>
-                      <TriangleAlert size={15} /> 구조 요청{' '}
-                      {quests
-                        ? quests.filter((item) => alerts.has(item.stage)).length
-                        : '—'}
-                    </span>
-                    <button
-                      className="text-button"
-                      onClick={() => select(region)}
-                    >
-                      지역 탐험 <ArrowRight size={16} />
-                    </button>
-                  </div>
-                </article>
-              );
-            })}
-          </div>
-        </section>
-
-        <div ref={detail} className="detail-anchor">
-          {selected && (
-            <RegionDetail
-              region={selected}
-              snapshot={snapshots[selected.id]}
-              openQuest={(item) => setQuestNumber(item.number)}
-              close={() => setSelected(undefined)}
-            />
-          )}
         </div>
-        <section
-          className="panel legend"
-          id="legend"
-          aria-label="퀘스트 상태 범례"
-        >
-          <h2>
-            <Layers3 size={19} /> 퀘스트 상태
-          </h2>
-          <div>
-            {(Object.keys(stages) as Stage[]).map((stage) => (
-              <Badge key={stage} stage={stage} />
-            ))}
-          </div>
-        </section>
       </main>
-      <footer className="page-footer shell">
-        <span>
-          <Castle size={15} /> Agentopia
-        </span>
-        <span>
-          <CircleHelp size={14} /> GitHub 읽기 전용 · 5분 간격 동기화
-        </span>
-      </footer>
+      {selected && (
+        <RegionDetail
+          key={selected.id}
+          region={selected}
+          snapshot={snapshots[selected.id]}
+          openQuest={(item) => setQuestNumber(item.number)}
+          close={() => setSelected(undefined)}
+        />
+      )}
       {showConnect && (
         <TokenDialog
           token={token}
