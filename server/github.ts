@@ -163,7 +163,7 @@ async function listRepositories(
     }>(
       `query($owner: String!, $cursor: String) {
         repositoryOwner(login: $owner) {
-          repositories(first: 50, after: $cursor, orderBy: {field: NAME, direction: ASC}) {
+          repositories(first: 50, after: $cursor, orderBy: {field: UPDATED_AT, direction: DESC}) {
             nodes { nameWithOwner isPrivate visibility }
             pageInfo { hasNextPage endCursor }
           }
@@ -191,7 +191,7 @@ async function listRepositories(
   const get = client();
   const results = await get<
     { full_name: string; private: boolean; visibility?: string }[]
-  >(`/users/${owner}/repos?type=owner&sort=full_name&per_page=50&page=${page}`);
+  >(`/users/${owner}/repos?type=owner&sort=updated&direction=desc&per_page=50&page=${page}`);
   return {
     repositories: ownerRepositories(
       owner,
