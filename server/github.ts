@@ -191,7 +191,9 @@ async function listRepositories(
   const get = client();
   const results = await get<
     { full_name: string; private: boolean; visibility?: string }[]
-  >(`/users/${owner}/repos?type=owner&sort=updated&direction=desc&per_page=50&page=${page}`);
+  >(
+    `/users/${owner}/repos?type=owner&sort=updated&direction=desc&per_page=50&page=${page}`,
+  );
   return {
     repositories: ownerRepositories(
       owner,
