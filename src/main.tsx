@@ -171,7 +171,11 @@ function Expedition({ quest, open }: { quest: Quest; open: () => void }) {
     <button
       className={`expedition${blocked ? ' blocked' : ''}${underway ? ' underway' : ''}${closed ? ' closed-issue' : ''}`}
       aria-label={`이슈 #${quest.number} 파티 · ${quest.title} · ${status}`}
-      title={blocked ? quest.title : `${quest.title} · ${status}`}
+      title={
+        blocked || (closed && action === '완료')
+          ? quest.title
+          : `${quest.title} · ${status}`
+      }
       onClick={open}
     >
       <span className="expedition-party" aria-hidden="true">
@@ -188,7 +192,9 @@ function Expedition({ quest, open }: { quest: Quest; open: () => void }) {
         <StatusIcon size={blocked ? 13 : 11} aria-hidden="true" /> #
         {quest.number}
       </small>
-      {closed && <small className="expedition-status-label">{action}</small>}
+      {closed && action !== '완료' && (
+        <small className="expedition-status-label">{action}</small>
+      )}
     </button>
   );
 }
@@ -212,19 +218,18 @@ function PullMarker({ pull, open }: { pull: PullQuest; open: () => void }) {
     ({ color }) => color === (pull.reviewer ?? pull.author),
   );
   const Icon = role?.Icon ?? GitPullRequest;
-  const label = [
-    `PR #${pull.number}`,
-    pull.title,
-    pullActivity(pull),
-    pullStatus(pull),
-  ]
+  const openOnly = pull.stage === 'idle' && !pull.draft;
+  const label = [`PR #${pull.number}`, pull.title, pullActivity(pull)]
     .filter(Boolean)
     .join(' · ');
+  const status = pullStatus(pull);
   return (
     <button
       className={`expedition pull-marker${alerts.has(pull.stage) ? ' blocked' : ''}`}
-      title={alerts.has(pull.stage) ? pull.title : label}
-      aria-label={label}
+      title={
+        alerts.has(pull.stage) || openOnly ? label : `${label} · ${status}`
+      }
+      aria-label={`${label} · ${status}`}
       onClick={open}
     >
       <span
@@ -235,8 +240,8 @@ function PullMarker({ pull, open }: { pull: PullQuest; open: () => void }) {
       <small className="expedition-number">PR #{pull.number}</small>
       {alerts.has(pull.stage) ? (
         <Badge stage={pull.stage} />
-      ) : (
-        <small className="expedition-status-label">{pullStatus(pull)}</small>
+      ) : openOnly ? null : (
+        <small className="expedition-status-label">{status}</small>
       )}
     </button>
   );
@@ -365,7 +370,7 @@ async function request<T>(
 
 function Badge({ stage }: { stage: Stage }) {
   const Icon = glyph[stage];
-  if (alerts.has(stage)) {
+  if (alerts.has(stage) || stage === 'complete') {
     return (
       <span className={`badge ${stage}`} role="img" aria-label={stages[stage]}>
         <Icon size={14} aria-hidden="true" />
@@ -382,12 +387,13 @@ function Badge({ stage }: { stage: Stage }) {
 
 function IssueBadge({ quest }: { quest: Quest }) {
   if (quest.state !== 'closed') return <Badge stage={quest.stage} />;
-  const label = closedIssueLabel(quest);
-  return (
-    <span className={`badge${label === '완료' ? ' complete' : ''}`}>
-      {label}
-    </span>
-  );
+  if (closedIssueLabel(quest) === '완료')
+    return (
+      <span className="badge complete" role="img" aria-label="완료">
+        <Check size={14} aria-hidden="true" />
+      </span>
+    );
+  return <span className="badge">닫힘</span>;
 }
 
 function OutLink({ item }: { item: Source }) {
@@ -662,6 +668,12 @@ function PullDetail({
 }
 
 function PullStatus({ pull }: { pull: PullQuest }) {
+  if (pull.stage === 'idle' && !pull.draft)
+    return (
+      <span className="badge idle" role="img" aria-label={pullStatus(pull)}>
+        <GitPullRequest size={14} aria-hidden="true" />
+      </span>
+    );
   return pull.stage === 'attention' || pull.stage === 'failed' ? (
     <Badge stage={pull.stage} />
   ) : (
