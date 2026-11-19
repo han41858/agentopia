@@ -219,8 +219,8 @@ svg {
   max-width: 560px;
 }
 .kingdom-area {
-  --land: #948666;
-  --accent: #f3d69a;
+  --land: oklch(66% 0.09 var(--kingdom-hue));
+  --accent: oklch(86% 0.11 var(--kingdom-hue));
   --territory-shape: polygon(
     47% 0,
     65% min(2%, 9px),
@@ -311,10 +311,6 @@ svg {
   z-index: -1;
   background: color-mix(in srgb, var(--land) 19%, #142430);
 }
-.kingdom-area.violet {
-  --land: #81729b;
-  --accent: #e6d0ff;
-}
 .kingdom {
   display: grid;
   justify-items: center;
@@ -329,7 +325,7 @@ svg {
   text-align: center;
 }
 .kingdom:hover .kingdom-crest {
-  color: #fff4da;
+  color: color-mix(in srgb, var(--accent), white 35%);
 }
 .kingdom-label {
   min-width: 0;

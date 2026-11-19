@@ -3,14 +3,12 @@ export const regions = [
     id: 'commit-trail',
     slug: 'han41858/commit-trail',
     name: 'Commit Trail',
-    theme: 'amber',
     description: '시간을 기록하는 기계와 고대의 문서가 잠든 성채.',
   },
   {
     id: 'videx',
     slug: 'han41858/videx',
     name: 'Videx',
-    theme: 'violet',
     description: '별빛과 마법으로 이야기를 비추는 보랏빛 극장.',
   },
 ] as const;
@@ -19,7 +17,6 @@ export type Region = {
   id: string;
   slug: string;
   name: string;
-  theme: 'amber' | 'violet';
   description: string;
 };
 
@@ -55,7 +52,6 @@ export function repositoryRegion(slug: string): Region {
     id: slug,
     slug,
     name,
-    theme: 'amber',
     description: slug,
   };
 }

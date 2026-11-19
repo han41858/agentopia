@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { FormEvent, ReactNode } from 'react';
+import type { CSSProperties, FormEvent, ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 import {
   Castle,
@@ -88,6 +88,14 @@ const defaultRegion: Region = {
   name: 'Agentopia',
 };
 const repositoryListKey = 'agentopia.public-repositories';
+
+function kingdomHue(slug: string) {
+  let hash = 2166136261;
+  for (const character of slug.toLowerCase()) {
+    hash = Math.imul(hash ^ character.charCodeAt(0), 16777619);
+  }
+  return ((hash >>> 0) % 36_000) / 100;
+}
 
 function readRepositories(): Repository[] {
   try {
@@ -1367,7 +1375,15 @@ function App() {
             {worldRegions.map((region) => {
               const report = snapshots[region.id]?.report;
               return (
-                <div className={`kingdom-area ${region.theme}`} key={region.id}>
+                <div
+                  className="kingdom-area"
+                  key={region.id}
+                  style={
+                    {
+                      '--kingdom-hue': kingdomHue(region.slug),
+                    } as CSSProperties
+                  }
+                >
                   <button className="kingdom" onClick={() => select(region)}>
                     <Castle
                       className="kingdom-crest"
