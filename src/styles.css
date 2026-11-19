@@ -216,12 +216,6 @@ svg {
   color: #c5d0db;
   font-size: 11px;
 }
-.kingdom-alert {
-  position: absolute;
-  top: 2px;
-  right: 0;
-  color: #ff9e91;
-}
 .expeditions {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(110px, 100%), 1fr));
@@ -246,8 +240,15 @@ svg {
 .expedition:hover {
   border-color: var(--accent);
 }
-.expedition-route {
+.expedition:not(.blocked) .expedition-route {
   animation: route-up 1.4s ease-in-out 3;
+}
+.expedition.blocked {
+  --accent: #ffb4aa;
+  border-color: #88505a;
+}
+.expedition.blocked .expedition-activity strong {
+  color: var(--accent);
 }
 @keyframes route-up {
   50% {

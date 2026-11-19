@@ -38,6 +38,7 @@ const activeStages = new Set<Stage>([
   'merging',
 ]);
 const alerts = new Set<Stage>(['failed', 'attention']);
+const worldRegions = regions.filter(({ id }) => id !== 'videx');
 const glyph = {
   idle: Clock3,
   queued: Hourglass,
@@ -81,18 +82,20 @@ function expeditionActivity(quest: Quest): {
 }
 
 function Expedition({ quest, open }: { quest: Quest; open: () => void }) {
+  const blocked = alerts.has(quest.stage);
+  const Direction = blocked ? glyph[quest.stage] : ChevronUp;
   const { role, action } = expeditionActivity(quest);
   const actor =
     partyRoles.find(({ color }) => color === role)?.name ?? '담당 미확인';
 
   return (
     <button
-      className="expedition"
-      aria-label={`이슈 #${quest.number} 파티 · ${quest.title} · ${actor} · ${action}`}
+      className={`expedition${blocked ? ' blocked' : ''}`}
+      aria-label={`이슈 #${quest.number} 파티 · ${quest.title} · ${blocked ? action : `${actor} · ${action}`}`}
       title={quest.title}
       onClick={open}
     >
-      <ChevronUp className="expedition-route" size={17} aria-hidden="true" />
+      <Direction className="expedition-route" size={17} aria-hidden="true" />
       <span className="expedition-party" aria-hidden="true">
         {partyRoles.map(({ name, Icon, color }) => (
           <span
@@ -105,8 +108,14 @@ function Expedition({ quest, open }: { quest: Quest; open: () => void }) {
       </span>
       <small>이슈 #{quest.number}</small>
       <span className="expedition-activity">
-        <strong>{actor}</strong>
-        <span>{action}</span>
+        {blocked ? (
+          <strong>{action}</strong>
+        ) : (
+          <>
+            <strong>{actor}</strong>
+            <span>{action}</span>
+          </>
+        )}
       </span>
     </button>
   );
@@ -538,7 +547,7 @@ function App() {
     async function sync() {
       setLoading(true);
       await Promise.all(
-        regions.map(async (region) => {
+        worldRegions.map(async (region) => {
           try {
             const report = await request<Report>(
               new URLSearchParams({ region: region.id }),
@@ -587,29 +596,25 @@ function App() {
     setSelectedQuest(undefined);
   }
 
-  const activeQuests = Object.fromEntries(
-    regions.map(({ id }) => [
+  const mapQuests = Object.fromEntries(
+    worldRegions.map(({ id }) => [
       id,
-      (snapshots[id]?.report?.quests ?? []).filter(({ stage }) =>
-        activeStages.has(stage),
+      (snapshots[id]?.report?.quests ?? []).filter(
+        ({ stage }) => activeStages.has(stage) || alerts.has(stage),
       ),
     ]),
   );
-  const active = Object.values(activeQuests).reduce(
-    (sum, quests) => sum + quests.length,
-    0,
-  );
-  const rescue = regions
-    .flatMap(({ id }) => snapshots[id]?.report?.quests ?? [])
-    .filter((quest) => alerts.has(quest.stage)).length;
-  const hasData = regions.some(({ id }) => snapshots[id]?.report);
-  const partial = regions.some(
+  const active = Object.values(mapQuests)
+    .flat()
+    .filter(({ stage }) => activeStages.has(stage)).length;
+  const hasData = worldRegions.some(({ id }) => snapshots[id]?.report);
+  const partial = worldRegions.some(
     ({ id }) =>
       !snapshots[id]?.report ||
       snapshots[id].error ||
       snapshots[id].report?.warnings.length,
   );
-  const updated = regions
+  const updated = worldRegions
     .map(({ id }) => snapshots[id]?.report?.updatedAt ?? '')
     .sort()
     .at(-1);
@@ -640,7 +645,7 @@ function App() {
 
         <section className="map-viewport" aria-label="저장소 왕국">
           <div className="kingdoms">
-            {regions.map((region) => (
+            {worldRegions.map((region) => (
               <div className={`kingdom-area ${region.theme}`} key={region.id}>
                 <button className="kingdom" onClick={() => select(region)}>
                   <span className="kingdom-land" aria-hidden="true">
@@ -649,23 +654,14 @@ function App() {
                   <span className="kingdom-label">
                     <strong>{region.name}</strong>
                     <small>{region.title}</small>
-                    {snapshots[region.id]?.report?.quests.some(({ stage }) =>
-                      alerts.has(stage),
-                    ) && (
-                      <TriangleAlert
-                        className="kingdom-alert"
-                        size={16}
-                        aria-label="구조 요청 있음"
-                      />
-                    )}
                   </span>
                 </button>
-                {activeQuests[region.id].length ? (
+                {mapQuests[region.id].length ? (
                   <ul
                     className="expeditions"
-                    aria-label={`${region.name} 출정 파티`}
+                    aria-label={`${region.name} 이슈 파티`}
                   >
-                    {activeQuests[region.id].map((item) => (
+                    {mapQuests[region.id].map((item) => (
                       <li key={item.number}>
                         <Expedition
                           quest={item}
@@ -700,13 +696,10 @@ function App() {
         <div className="world-footer">
           <div className="world-summary" aria-label="월드 현황">
             <span>
-              왕국 <strong>{regions.length}</strong>
+              왕국 <strong>{worldRegions.length}</strong>
             </span>
             <span>
               진행 중 <strong>{hasData ? active : '—'}</strong>
-            </span>
-            <span>
-              구조 요청 <strong>{hasData ? rescue : '—'}</strong>
             </span>
           </div>
           <footer className="map-footer">
