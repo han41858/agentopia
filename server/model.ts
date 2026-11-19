@@ -1,23 +1,6 @@
-export const regions = [
-  {
-    id: 'commit-trail',
-    slug: 'han41858/commit-trail',
-    name: 'Commit Trail',
-    description: '시간을 기록하는 기계와 고대의 문서가 잠든 성채.',
-  },
-  {
-    id: 'videx',
-    slug: 'han41858/videx',
-    name: 'Videx',
-    description: '별빛과 마법으로 이야기를 비추는 보랏빛 극장.',
-  },
-] as const;
-
 export type Region = {
-  id: string;
   slug: string;
   name: string;
-  description: string;
 };
 
 export type Repository = { slug: string; private: boolean };
@@ -45,15 +28,8 @@ export function repositoryInput(value: string) {
 }
 
 export function repositoryRegion(slug: string): Region {
-  const known = regions.find((region) => region.slug === slug);
-  if (known) return known;
   const [, name] = slug.split('/');
-  return {
-    id: slug,
-    slug,
-    name,
-    description: slug,
-  };
+  return { slug, name };
 }
 export type Stage =
   | 'idle'
@@ -427,7 +403,6 @@ export function makeQuests(
           pr.merge_commit_sha === release.sha,
       ),
     );
-    let reviewer: Agent | undefined;
     const branch =
       pull && pullIssue(pull, region) === issue.number ? pull.head.ref : '';
     const developer =
@@ -438,13 +413,10 @@ export function makeQuests(
           : branch.endsWith('-claude')
             ? 'claude'
             : undefined;
-    if (state?.reviewer === 'codex' || state?.reviewer === 'claude') {
-      reviewer = state.reviewer;
-    } else if (developer && region.slug === 'han41858/videx') {
-      reviewer = 'claude';
-    } else if (developer && region.slug === 'han41858/commit-trail') {
-      reviewer = developer === 'codex' ? 'claude' : 'codex';
-    }
+    const reviewer =
+      state?.reviewer === 'codex' || state?.reviewer === 'claude'
+        ? state.reviewer
+        : pull && pullLinks.get(pull.number)?.reviewer;
     let stage: Stage = state ? automationStages[state.status] : 'idle';
     let evidence: Source | undefined =
       state && record

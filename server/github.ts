@@ -3,7 +3,6 @@ import {
   makePullQuests,
   makeQuests,
   pullActor,
-  regions,
   repositoryOwner,
   repositoryRegion,
   repositorySlug,
@@ -83,7 +82,6 @@ function client(region?: Region, token?: string) {
 
 type Deployment = { id: number; environment: string; sha: string };
 type DeploymentStatus = { state: string; description?: string };
-type Job = Pick<Run, 'name' | 'status' | 'conclusion' | 'html_url'>;
 const releaseStages: Record<string, Stage> = {
   queued: 'queued',
   pending: 'queued',
@@ -417,51 +415,17 @@ async function getReport(region: Region, token?: string): Promise<Report> {
       };
     },
   );
-  const publishTasks =
-    region.slug === 'han41858/videx'
-      ? runs
-          .filter(
-            (run) =>
-              run.path.split('@')[0] ===
-                '.github/workflows/windows-tauri.yml' &&
-              run.head_branch === 'main' &&
-              run.event !== 'pull_request',
-          )
-          .slice(0, 2)
-          .map(async (run): Promise<Release | undefined> => {
-            const result = await optional(
-              'Windows 릴리스',
-              get<{ jobs: Job[] }>(
-                `/actions/runs/${run.id}/attempts/${run.run_attempt}/jobs?per_page=50`,
-              ),
-              { jobs: [] },
-            );
-            const publish = result.jobs.find(
-              ({ name }) => name === 'Publish GitHub release',
-            );
-            if (!publish || publish.conclusion === 'skipped') return;
-            const outcome = runStage(publish);
-            return {
-              title: publish.name,
-              url: publish.html_url,
-              status: publish.conclusion ?? publish.status,
-              stage: outcome === 'developing' ? 'deploying' : outcome,
-              sha: run.head_sha,
-            };
-          })
-      : [];
-  const [, , repoDeployments, publishJobs] = await Promise.all([
+  const [, , repoDeployments] = await Promise.all([
     Promise.all(subIssueTasks),
     Promise.all(issueTasks),
     Promise.all(deploymentTasks),
-    Promise.all(publishTasks),
   ]);
   const releaseRuns = runs.filter(
     (run) =>
       run.path.split('@')[0] === '.github/workflows/production-release.yml' ||
       run.path.split('@')[0] === '.github/workflows/release.yml',
   );
-  const releases: Release[] = [...repoDeployments, ...publishJobs].filter(
+  const releases: Release[] = repoDeployments.filter(
     (entry) => entry !== undefined,
   );
   // Recovery workflows execute against the automation ref. Only deployment records identify a deployed commit.
@@ -607,14 +571,9 @@ export async function githubResponse(
         return reply(400, { error: 'GitHub 계정 이름을 확인해 주세요.' });
       return reply(200, await listRepositories(owner, cursor, authorization));
     }
-    const repo = url.searchParams.get('repo');
-    const slug = repo === null ? undefined : repositorySlug(repo);
-    const region =
-      repo === null
-        ? regions.find(({ id }) => id === url.searchParams.get('region'))
-        : slug && repositoryRegion(slug);
-    if (!region)
-      return reply(400, { error: '지원하는 저장소를 선택해 주세요.' });
+    const slug = repositorySlug(url.searchParams.get('repo') ?? '');
+    if (!slug) return reply(400, { error: '지원하는 저장소를 선택해 주세요.' });
+    const region = repositoryRegion(slug);
     const pull = url.searchParams.get('reviews');
     if (pull !== null && !/^[1-9]\d{0,11}$/.test(pull))
       return reply(400, { error: 'PR 번호를 확인해 주세요.' });

@@ -5,7 +5,6 @@ import {
   makePullQuests,
   makeQuests,
   readState,
-  regions,
   repositoryInput,
   repositoryRegion,
   runIssue,
@@ -13,7 +12,8 @@ import {
 import type { Comment, Issue, Pull, Run } from './model.ts';
 import { githubResponse } from './github.ts';
 
-const [commitTrail, videx] = regions;
+const commitTrail = repositoryRegion('han41858/commit-trail');
+const videx = repositoryRegion('han41858/videx');
 const sha = 'a'.repeat(40);
 const mergeSha = 'b'.repeat(40);
 const stamp = '2026-11-19T10:00:00Z';
@@ -59,7 +59,7 @@ const comment = (
   number: number,
   status: string,
   extras: Record<string, unknown> = {},
-  region: string = commitTrail.id,
+  region: string = 'commit-trail',
 ): Comment => ({
   body: `<!-- ${region}-ai-state:${Buffer.from(
     JSON.stringify({
@@ -86,7 +86,7 @@ test('independent parties retain hierarchy and reflect actual developer and revi
     [run(3), run(2), run(1)],
     [
       comment(1, 'developing', { developer: 'codex' }),
-      comment(2, 'reviewing'),
+      comment(2, 'reviewing', { reviewer: 'codex' }),
       comment(3, 'failed', { reason: 'verification failed' }),
     ],
     new Map([[2, 1]]),
@@ -100,9 +100,9 @@ test('independent parties retain hierarchy and reflect actual developer and revi
       parent,
     ]),
     [
-      ['developing', 'codex', 'claude', undefined],
+      ['developing', 'codex', undefined, undefined],
       ['reviewing', 'claude', 'codex', 1],
-      ['failed', 'claude', 'codex', undefined],
+      ['failed', 'claude', undefined, undefined],
     ],
   );
   assert.equal(quests[2].reason, 'verification failed');
@@ -198,13 +198,13 @@ test('API rejects mutations and unknown repositories before contacting GitHub', 
   const fetch = context.mock.method(globalThis, 'fetch', () => {
     throw new Error('unexpected fetch');
   });
-  const url = new URL('http://localhost/api/github?region=videx');
+  const url = new URL('http://localhost/api/github?repo=han41858%2Fvidex');
   assert.equal((await githubResponse(url, 'POST')).status, 405);
   assert.equal(
     (await githubResponse(url, 'GET', 'Basic anything')).status,
     400,
   );
-  url.searchParams.set('region', 'unexpected');
+  url.searchParams.set('repo', 'unexpected');
   assert.equal((await githubResponse(url, 'GET')).status, 400);
   assert.equal(fetch.mock.callCount(), 0);
 });
@@ -227,7 +227,7 @@ test('API gets only the allowed repository and keeps authenticated reports out o
       return Response.json([]);
     },
   );
-  const url = new URL('http://localhost/api/github?region=videx');
+  const url = new URL('http://localhost/api/github?repo=han41858%2Fvidex');
   const authenticated = await githubResponse(url, 'GET', 'Bearer test_token');
   const publicReport = await githubResponse(url, 'GET');
   assert.equal(authenticated.status, 200);
@@ -512,7 +512,9 @@ test('public refresh reuses recent reports, refreshes on demand, and honors rate
       return Response.json({ workflow_runs: [] });
     return Response.json([]);
   });
-  const url = new URL('http://localhost/api/github?region=commit-trail');
+  const url = new URL(
+    'http://localhost/api/github?repo=han41858%2Fcommit-trail',
+  );
   await githubResponse(url, 'GET');
   url.searchParams.set('refresh', '1');
   now += 10_000;

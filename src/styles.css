@@ -118,11 +118,6 @@ svg {
   color: #f6dc9f;
   font: 800 20px/1.2 var(--display);
 }
-.world h1 {
-  color: #c5d0db;
-  font-size: 12px;
-  margin-top: 3px;
-}
 .connect {
   display: inline-flex;
   align-items: center;
@@ -193,9 +188,61 @@ svg {
 }
 .map-viewport {
   display: grid;
+  grid-auto-rows: max-content;
   align-content: safe center;
   overflow: auto;
   padding: 18px clamp(12px, 4vw, 44px);
+}
+.world-land {
+  --world-shape: polygon(
+    45% 0,
+    63% min(2%, 13px),
+    78% min(5%, 30px),
+    89% min(9%, 48px),
+    95% min(16%, 72px),
+    98% 32%,
+    100% 53%,
+    98% 69%,
+    94% calc(100% - min(14%, 68px)),
+    85% calc(100% - min(7%, 42px)),
+    71% calc(100% - min(3%, 21px)),
+    52% 100%,
+    35% calc(100% - min(2%, 14px)),
+    20% calc(100% - min(5%, 30px)),
+    10% calc(100% - min(9%, 51px)),
+    5% calc(100% - min(15%, 72px)),
+    1% 65%,
+    0 46%,
+    2% 29%,
+    7% min(14%, 65px),
+    16% min(8%, 43px),
+    29% min(3%, 20px)
+  );
+  position: relative;
+  isolation: isolate;
+  display: grid;
+  align-items: center;
+  width: min(100%, 1320px);
+  min-height: clamp(255px, 45dvh, 465px);
+  margin-inline: auto;
+  padding: clamp(34px, 3.8vw, 58px) clamp(18px, 7vw, 100px);
+}
+.world-land::before,
+.world-land::after {
+  content: '';
+  position: absolute;
+  pointer-events: none;
+  clip-path: var(--world-shape);
+}
+.world-land::before {
+  inset: 0;
+  z-index: -2;
+  background: #507d74;
+}
+.world-land::after {
+  inset: 2px;
+  z-index: -1;
+  background: radial-gradient(ellipse at 47% 38%, #29483f, #172f32 83%);
 }
 .kingdoms {
   width: min(100%, 1160px);
@@ -257,9 +304,6 @@ svg {
   justify-self: center;
 }
 @media (min-width: 900px) {
-  .kingdoms:has(> .kingdom-area:nth-child(2)) {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
   .kingdoms:has(> .kingdom-area:nth-child(2))
     > .kingdom-area:has(
       > .expeditions > li:nth-child(13),
@@ -369,6 +413,7 @@ svg {
   border-inline-start: 2px solid #948666;
 }
 .expedition {
+  position: relative;
   width: 100%;
   display: grid;
   justify-items: center;
@@ -379,6 +424,21 @@ svg {
   border-radius: 6px;
   color: var(--accent);
   background: transparent;
+}
+.party-pulse {
+  position: absolute;
+  inset: 1px;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--accent) 27%, transparent);
+  opacity: 0;
+  pointer-events: none;
+  animation: party-pulse 750ms ease-out 2;
+}
+@keyframes party-pulse {
+  35% {
+    opacity: 1;
+  }
 }
 .expedition:hover {
   background: #15212f;
