@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
   linkedPullIssues,
+  makeForges,
   makePullQuests,
   makeQuests,
   readState,
@@ -808,4 +809,67 @@ test('activity detail requests stay on the validated GitHub resource and omit un
   });
   assert.equal(JSON.parse(commits.body).entries[0].body, 'Implement change');
   assert.equal(JSON.parse(comments.body).entries[0].body, 'Discuss change');
+});
+
+test('forges represent many-to-many links and activate only the uniquely matched PR head', () => {
+  const second = {
+    ...pull,
+    number: 21,
+    body: 'Closes #2 and closes #3',
+    head: { ...pull.head, ref: 'feature/shared', sha: mergeSha },
+  };
+  const independent = {
+    ...pull,
+    number: 24,
+    head: { ...pull.head, ref: 'feature/independent' },
+  };
+  const pulls = [pull, second, independent];
+  const workflow = run(2);
+  const records = [
+    comment(2, 'reviewing', {
+      reviewer: 'codex',
+      head: mergeSha,
+      reviewInProgress: mergeSha,
+    }),
+  ];
+  const quests = makeQuests(
+    commitTrail,
+    [issue(2), issue(3)],
+    pulls,
+    [workflow],
+    records,
+    new Map(),
+    [],
+  );
+  assert.equal(quests[0].workPull, 21);
+  const forges = makeForges(commitTrail, pulls, [workflow], new Map(), quests);
+  assert.deepEqual(
+    forges.map(({ number }) => number),
+    [20, 21, 24],
+  );
+  assert.deepEqual(forges[1].issues, [2, 3]);
+  assert.equal(forges[1].stage, 'reviewing');
+  assert.equal(forges[1].adventurers?.[0].active, 'review');
+  assert.equal(forges[0].adventurers?.length, 0);
+  assert.deepEqual(forges[2].issues, []);
+  const ambiguous = [...pulls, { ...second, number: 22 }];
+  const ambiguousQuests = makeQuests(
+    commitTrail,
+    [issue(2)],
+    ambiguous,
+    [workflow],
+    records,
+    new Map(),
+    [],
+  );
+  assert.equal(ambiguousQuests[0].workPull, undefined);
+  assert.ok(
+    makeForges(
+      commitTrail,
+      ambiguous,
+      [workflow],
+      new Map(),
+      ambiguousQuests,
+    ).every((forge) => !forge.adventurers?.length),
+  );
 });

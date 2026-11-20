@@ -92,6 +92,7 @@ export type Quest = {
   activities?: ActivityCounts;
   activity?: ActivityProfile;
   reopened?: boolean;
+  workPull?: number;
   issueComments?: number;
   subIssueCount?: number;
   parent?: number;
@@ -109,6 +110,9 @@ export type PullQuest = Source & {
   number: number;
   draft: boolean;
   merged?: boolean;
+  issues?: number[];
+  adventurers?: Adventurer[];
+  quality?: Stage;
   activity?: ActivityProfile;
   activities?: ActivityCounts;
   stage: Stage;
@@ -129,6 +133,7 @@ export type PullLinks = {
 export type Report = {
   quests: Quest[];
   pullQuests?: PullQuest[];
+  forges?: PullQuest[];
   releases: (Source & { stage: Stage })[];
   updatedAt: string;
   warnings: string[];
@@ -326,21 +331,22 @@ function runSource(run: Run): Source {
   };
 }
 
-export function makePullQuests(
+export function makeForges(
   region: Region,
   pulls: Pull[],
   runs: Run[],
-  issueNumbers: ReadonlySet<number>,
   links: ReadonlyMap<number, PullLinks>,
+  quests: Quest[] = [],
 ): PullQuest[] {
+  const work = new Map<number, Quest[]>();
+  for (const quest of quests) {
+    if (quest.workPull === undefined) continue;
+    const current = work.get(quest.workPull) ?? [];
+    current.push(quest);
+    work.set(quest.workPull, current);
+  }
   return pulls
-    .filter(
-      (pull) =>
-        (pull.state === 'open' || Boolean(pull.merged_at)) &&
-        !linkedPullIssues(pull, region, links.get(pull.number)).some((number) =>
-          issueNumbers.has(number),
-        ),
-    )
+    .filter((pull) => pull.state === 'open' || Boolean(pull.merged_at))
     .map((pull) => {
       const relatedRuns = runs.filter(
         (run) =>
@@ -354,29 +360,85 @@ export function makePullQuests(
       );
       const outcome = ci ? runStage(ci) : 'idle';
       const review = links.get(pull.number);
+      const relatedWork = pull.merged_at ? [] : (work.get(pull.number) ?? []);
+      const workers = new Map<Agent, Adventurer>();
+      for (const quest of relatedWork) {
+        for (const member of quest.adventurers ?? []) {
+          if (!member.active && !member.fallen) continue;
+          const previous = workers.get(member.agent);
+          workers.set(member.agent, {
+            ...member,
+            roles: [...new Set([...(previous?.roles ?? []), ...member.roles])],
+            active: member.active ?? previous?.active,
+            fallen:
+              !member.active &&
+              !previous?.active &&
+              Boolean(member.fallen || previous?.fallen),
+          });
+        }
+      }
+      const adventurers = [...workers.values()];
+      const quality =
+        outcome === 'developing' || outcome === 'queued'
+          ? 'ci'
+          : outcome === 'attention' || outcome === 'failed'
+            ? outcome
+            : undefined;
+      const stage = pull.merged_at
+        ? 'complete'
+        : quality === 'failed' || quality === 'attention'
+          ? quality
+          : adventurers.some((member) => member.fallen)
+            ? 'failed'
+            : adventurers.some((member) => member.active === 'review')
+              ? 'reviewing'
+              : adventurers.some((member) => member.active === 'develop')
+                ? relatedWork.some((quest) => quest.stage === 'revising')
+                  ? 'revising'
+                  : 'developing'
+                : (quality ??
+                  (relatedWork.some((quest) => quest.stage === 'merging')
+                    ? 'merging'
+                    : 'idle'));
       return {
         number: pull.number,
         title: pull.title,
         url: pull.html_url,
         draft: pull.draft,
         merged: Boolean(pull.merged_at),
+        issues: linkedPullIssues(pull, region, review),
+        adventurers,
+        quality: pull.merged_at ? undefined : quality,
         activity: summarizeActivity(undefined, [
           pullDiscussion(pull, review?.activity),
         ]),
         activities: review?.activities,
-        stage: pull.merged_at
-          ? 'complete'
-          : outcome === 'developing' || outcome === 'queued'
-            ? 'ci'
-            : outcome === 'attention' || outcome === 'failed'
-              ? outcome
-              : 'idle',
+        stage,
         author: pullActor(pull.user?.login, pull.user?.type),
         reviewer: review?.reviewer,
         review: review?.review,
-        runs: relatedRuns.slice(0, 8).map(runSource),
+        runs: [
+          ...new Map(
+            [
+              ...relatedWork.flatMap((quest) => quest.runs),
+              ...relatedRuns.map(runSource),
+            ].map((run) => [run.url, run]),
+          ).values(),
+        ].slice(0, 8),
       };
     });
+}
+
+export function makePullQuests(
+  region: Region,
+  pulls: Pull[],
+  runs: Run[],
+  issueNumbers: ReadonlySet<number>,
+  links: ReadonlyMap<number, PullLinks>,
+) {
+  return makeForges(region, pulls, runs, links).filter(
+    (pull) => !pull.issues?.some((number) => issueNumbers.has(number)),
+  );
 }
 
 function pullDiscussion(
@@ -460,7 +522,21 @@ export function makeQuests(
           (record.state.attempt ?? 1) >= run.run_attempt))
         ? record.state
         : undefined;
-    const pull = issuePulls[0];
+    const runPulls = issuePulls.filter(
+      (item) =>
+        item.state === 'open' &&
+        run?.pull_requests.some(({ number }) => number === item.number),
+    );
+    const headPulls = issuePulls.filter(
+      (item) => item.state === 'open' && item.head.sha === state?.head,
+    );
+    const workPull =
+      runPulls.length === 1
+        ? runPulls[0]
+        : headPulls.length === 1
+          ? headPulls[0]
+          : undefined;
+    const pull = workPull ?? issuePulls[0];
     const ci = runs.find(
       (candidate) =>
         candidate.path.split('@')[0] === '.github/workflows/ci.yml' &&
@@ -688,6 +764,8 @@ export function makeQuests(
           ? true
           : undefined,
       victory,
+      workPull:
+        matchingRun && issue.state === 'open' ? workPull?.number : undefined,
       adventurers: [...adventurers.values()],
       activities,
       activity,

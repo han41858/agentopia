@@ -3,6 +3,9 @@ import type { CSSProperties, FormEvent, ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 import {
   Castle,
+  Anvil,
+  Hammer,
+  FlaskConical,
   ClipboardCheck,
   GitCommitHorizontal,
   MessageCircle,
@@ -65,6 +68,10 @@ import { ActivityAura, monsterGrowth } from './activity-effects.tsx';
 import { nextRefreshInterval, refreshDue } from './refresh.ts';
 import './styles.css';
 
+function reportForges(report?: Report) {
+  return report?.forges ?? report?.pullQuests ?? [];
+}
+
 type Snapshot = {
   report?: Report;
   error?: string;
@@ -88,13 +95,14 @@ function partyStates(report: Report) {
         quest.adventurers,
         quest.activity,
         quest.reopened,
+        quest.workPull,
         quest.reason,
         quest.pulls
           .map(({ number, status }) => [number, status])
           .sort((a, b) => Number(a[0]) - Number(b[0])),
       ]),
     ]),
-    ...(report.pullQuests ?? []).map((pull): [string, string] => [
+    ...reportForges(report).map((pull): [string, string] => [
       `pr-${pull.number}`,
       JSON.stringify([
         pull.stage,
@@ -103,6 +111,9 @@ function partyStates(report: Report) {
         pull.reviewer,
         pull.review,
         pull.activity,
+        pull.issues,
+        pull.quality,
+        pull.adventurers,
       ]),
     ]),
   ]);
@@ -125,15 +136,28 @@ function reportSnapshot(report: Report, previous?: Snapshot): Snapshot {
       missingDeployments && !report.releases.length
         ? oldReport.releases
         : report.releases,
-    pullQuests: missingPulls
+    forges: missingPulls
       ? [
-          ...(report.pullQuests ?? []),
-          ...(oldReport.pullQuests ?? []).filter(
-            (pull) =>
-              !report.pullQuests?.some((fresh) => fresh.number === pull.number),
-          ),
+          ...reportForges(report),
+          ...reportForges(oldReport)
+            .filter(
+              (pull) =>
+                !reportForges(report).some(
+                  (fresh) => fresh.number === pull.number,
+                ),
+            )
+            .map((pull) => ({
+              ...pull,
+              adventurers: pull.adventurers?.map(
+                ({ active: _, ...member }) => member,
+              ),
+              stage: activeStages.has(pull.stage)
+                ? ('idle' as const)
+                : pull.stage,
+              quality: pull.quality === 'ci' ? undefined : pull.quality,
+            })),
         ]
-      : report.pullQuests,
+      : reportForges(report),
     quests: report.quests.map((quest) => {
       const old = prior.get(quest.number);
       if (old && (missingPulls || missingRuns || missingLinks)) {
@@ -320,11 +344,17 @@ function MonsterMarker({
   boss,
   open,
   pulse,
+  inspected,
+  related,
+  inspect,
 }: {
   quest: Quest;
   boss: boolean;
   open: () => void;
   pulse?: number;
+  inspected: boolean;
+  related: boolean;
+  inspect: (active: boolean) => void;
 }) {
   const defeated = quest.state === 'closed';
   const members = quest.adventurers ?? [];
@@ -338,7 +368,7 @@ function MonsterMarker({
     quest.stage !== 'idle' && quest.stage !== 'complete'
       ? stages[quest.stage]
       : undefined,
-    quest.victory ? '전투 승리' : undefined,
+    quest.victory ? '제작 결과 반영' : undefined,
     quest.stage === 'failed' ? '구조 요청' : undefined,
     ...members.map((member) => partyLabel(member, resting)),
   ]
@@ -351,11 +381,24 @@ function MonsterMarker({
       aria-label={`${boss ? '보스 몬스터' : '몬스터'} #${quest.number} · ${quest.title} · ${status}${activityEffectsLabel(quest.activity)}`}
       title={`${quest.title} · ${status}`}
       onClick={open}
+      data-highlight={inspected ? 'selected' : related ? 'related' : undefined}
+      onPointerEnter={() => inspect(true)}
+      onPointerLeave={() => inspect(false)}
+      onFocus={() => inspect(true)}
+      onBlur={() => inspect(false)}
     >
       {pulse !== undefined && (
         <span key={pulse} className="party-pulse" aria-hidden="true" />
       )}
-      <ActivityAura activity={quest.activity}>
+      <ActivityAura
+        activity={
+          quest.activity && {
+            ...quest.activity,
+            reviews: undefined,
+            opinion: undefined,
+          }
+        }
+      >
         <MonsterGlyph
           boss={boss}
           defeated={defeated}
@@ -364,7 +407,14 @@ function MonsterMarker({
         />
       </ActivityAura>
       <small className="expedition-number">{`#${quest.number}`}</small>
-      <AdventurerParty members={members} resting={resting} />
+      <AdventurerParty
+        members={
+          quest.workPull === undefined
+            ? members
+            : members.filter((member) => !member.active && !member.fallen)
+        }
+        resting={resting}
+      />
       <MonsterStatusIcons quest={quest} />
     </button>
   );
@@ -399,7 +449,24 @@ function activityEffectsLabel(activity?: ActivityProfile) {
 }
 
 function pullStatus(pull: PullQuest) {
-  if (pull.stage !== 'idle') return stages[pull.stage];
+  switch (pull.stage) {
+    case 'developing':
+      return '제작 중';
+    case 'revising':
+      return '재제련 중';
+    case 'reviewing':
+      return '장비 검수 중';
+    case 'ci':
+      return '품질 시험';
+    case 'merging':
+      return '제작 결과 반영 중';
+    case 'complete':
+      return '제작 결과 반영';
+    case 'idle':
+      break;
+    default:
+      return stages[pull.stage];
+  }
   return pull.draft ? '초안' : 'PR 열림';
 }
 
@@ -409,75 +476,89 @@ function pullActivity(pull: PullQuest) {
   return undefined;
 }
 
-function PullMarker({
+function ForgeMarker({
   pull,
   open,
   pulse,
+  inspected,
+  related,
+  inspect,
 }: {
   pull: PullQuest;
   open: () => void;
   pulse?: number;
+  inspected: boolean;
+  related: boolean;
+  inspect: (active: boolean) => void;
 }) {
-  const agent = pull.reviewer ?? pull.author;
-  const ci = pull.stage === 'ci';
-  const Icon = ci
-    ? Workflow
-    : pull.draft
-      ? GitPullRequestDraft
-      : GitPullRequest;
-  const StageIcon = glyph[pull.stage];
-  const label = [`PR #${pull.number}`, pull.title, pullActivity(pull)]
+  const working = pull.stage === 'developing' || pull.stage === 'revising';
+  const reviewing = pull.stage === 'reviewing';
+  const quality = pull.quality === 'ci' || pull.stage === 'ci';
+  const label = [
+    `대장간 PR #${pull.number}`,
+    pull.title,
+    pullActivity(pull),
+    pullStatus(pull),
+    ...(pull.issues ?? []).map((number) => `이슈 #${number}`),
+  ]
     .filter(Boolean)
     .join(' · ');
-  const status = pullStatus(pull);
+
   return (
     <button
-      className={`expedition pull-marker${alerts.has(pull.stage) ? ' blocked' : ''}`}
-      title={`${label} · ${status}`}
-      aria-label={`${label} · ${status}${activityEffectsLabel(pull.activity)}`}
+      className={`expedition pull-marker forge-marker${alerts.has(pull.stage) ? ' blocked' : ''}`}
+      data-highlight={inspected ? 'selected' : related ? 'related' : undefined}
+      data-stage={pull.stage}
+      title={label}
+      aria-label={`${label}${activityEffectsLabel(pull.activity)}`}
       onClick={open}
+      onPointerEnter={() => inspect(true)}
+      onPointerLeave={() => inspect(false)}
+      onFocus={() => inspect(true)}
+      onBlur={() => inspect(false)}
     >
       {pulse !== undefined && (
         <span key={pulse} className="party-pulse" aria-hidden="true" />
       )}
       <ActivityAura activity={pull.activity}>
-        <span
-          className={`role-symbol current-role${ci ? ' actions' : ''}`}
-          data-draft={pull.draft}
-        >
-          {!ci && agent ? (
-            <AdventurerGlyph agent={agent} />
-          ) : (
-            <Icon size={15} aria-hidden="true" />
+        <span className="forge-core" data-draft={pull.draft} aria-hidden="true">
+          <Anvil size={22} />
+          {working && <Hammer className="forge-tool" size={13} />}
+          {reviewing && <ScrollText className="forge-tool" size={13} />}
+          {quality && <FlaskConical className="forge-test" size={13} />}
+          {pull.stage === 'merging' && (
+            <GitPullRequest className="forge-result" size={13} />
+          )}
+          {pull.merged && <Check className="forge-result" size={13} />}
+          {alerts.has(pull.stage) && (
+            <Skull className="forge-result" size={13} />
           )}
         </span>
       </ActivityAura>
       <small className="expedition-number">{`PR #${pull.number}`}</small>
-      {!ci && pull.stage !== 'idle' && (
-        <StageIcon size={12} aria-hidden="true" />
-      )}
+      <AdventurerParty members={pull.adventurers ?? []} resting="대기" forge />
     </button>
   );
 }
 
 function KingdomMonsters({
   quests,
-  pulls,
   pulses,
   changed,
   label,
   openQuest,
-  openPull,
-  openList,
+  highlight,
+  related,
+  inspect,
 }: {
   quests: Quest[];
-  pulls: PullQuest[];
   pulses?: Record<string, number>;
   changed?: Set<string>;
   label: string;
   openQuest: (quest: Quest) => void;
-  openPull: (pull: PullQuest) => void;
-  openList: () => void;
+  highlight?: number;
+  related: ReadonlySet<number>;
+  inspect: (number: number, active: boolean) => void;
 }) {
   const byNumber = new Map(quests.map((quest) => [quest.number, quest]));
   const childrenByParent = new Map<number, Quest[]>();
@@ -511,44 +592,34 @@ function KingdomMonsters({
   const priority = (quest: Quest) =>
     alerts.has(quest.stage) ? 2 : activeStages.has(quest.stage) ? 1 : 0;
   const comparePriority = (a: Quest, b: Quest) => priority(b) - priority(a);
-  const condensed = visible.size > 16;
-  const onMap = new Set(visible);
-  if (condensed) {
-    onMap.clear();
-    const candidates = quests.filter((quest) => visible.has(quest.number));
-    const urgent = candidates.filter(
-      (quest) => priority(quest) > 0 || changed?.has(`issue-${quest.number}`),
-    );
-    const urgentNumbers = new Set(urgent.map(({ number }) => number));
-    const waiting = candidates.filter(
-      (quest) => quest.state === 'open' && !urgentNumbers.has(quest.number),
-    );
-    for (const quest of [
-      ...urgent,
-      ...waiting.slice(0, Math.max(0, 12 - urgent.length)),
-    ]) {
-      let current: Quest | undefined = quest;
-      while (current && !onMap.has(current.number)) {
-        onMap.add(current.number);
-        current =
-          current.parent === undefined
-            ? undefined
-            : byNumber.get(current.parent);
-      }
+  if (highlight !== undefined) {
+    let current = byNumber.get(highlight);
+    while (current && !visible.has(current.number)) {
+      visible.add(current.number);
+      current =
+        current.parent === undefined ? undefined : byNumber.get(current.parent);
     }
   }
-  const roots = quests.filter(
-    ({ number, parent }) =>
-      onMap.has(number) && (parent === undefined || !onMap.has(parent)),
-  );
-
-  if (condensed) roots.sort(comparePriority);
+  for (const number of related) {
+    let current = byNumber.get(number);
+    while (current && !visible.has(current.number)) {
+      visible.add(current.number);
+      current =
+        current.parent === undefined ? undefined : byNumber.get(current.parent);
+    }
+  }
+  const roots = quests
+    .filter(
+      ({ number, parent }) =>
+        visible.has(number) && (parent === undefined || !visible.has(parent)),
+    )
+    .sort(comparePriority);
 
   function render(quest: Quest) {
     const children = (childrenByParent.get(quest.number) ?? []).filter(
-      ({ number }) => onMap.has(number),
+      ({ number }) => visible.has(number),
     );
-    if (condensed) children.sort(comparePriority);
+    children.sort(comparePriority);
     const boss =
       childrenByParent.has(quest.number) || Boolean(quest.subIssueCount);
     return (
@@ -561,6 +632,9 @@ function KingdomMonsters({
           boss={boss}
           open={() => openQuest(quest)}
           pulse={pulses?.[`issue-${quest.number}`]}
+          inspected={highlight === quest.number}
+          related={related.has(quest.number)}
+          inspect={(active) => inspect(quest.number, active)}
         />
         {children.length > 0 && (
           <ul
@@ -574,28 +648,13 @@ function KingdomMonsters({
     );
   }
 
+  if (!roots.length) return null;
   return (
-    <ul className="expeditions" aria-label={label}>
-      {roots.map(render)}
-      {onMap.size < visible.size && (
-        <li className="guild-branch">
-          <button className="text-button" onClick={openList}>
-            몬스터 목록 보기
-          </button>
-        </li>
-      )}
-      {pulls
-        .filter((pull) => !pull.merged || changed?.has(`pr-${pull.number}`))
-        .map((pull) => (
-          <li key={`pr-${pull.number}`}>
-            <PullMarker
-              pull={pull}
-              open={() => openPull(pull)}
-              pulse={pulses?.[`pr-${pull.number}`]}
-            />
-          </li>
-        ))}
-    </ul>
+    <div className="kingdom-fields">
+      <ul className="expeditions" aria-label={label}>
+        {roots.map(render)}
+      </ul>
+    </div>
   );
 }
 
@@ -657,7 +716,7 @@ function IssueBadge({ quest }: { quest: Quest }) {
           <Check size={14} aria-hidden="true" />
         </span>
       )}
-      {quest.victory && <Badge stage="complete" />}
+      {quest.victory && <Badge stage="complete" label="제작 결과 반영" />}
       {quest.stage !== 'idle' && quest.stage !== 'complete' ? (
         <Badge stage={quest.stage} />
       ) : quest.state === 'open' && !quest.victory ? (
@@ -1144,11 +1203,13 @@ function PullDetail({
   region,
   token,
   close,
+  openIssue,
 }: {
   pull: PullQuest;
   region: Region;
   token: string;
   close: () => void;
+  openIssue: (number: number) => boolean;
 }) {
   const author = pull.author && agentNames[pull.author];
   const reviewer = pull.reviewer && agentNames[pull.reviewer];
@@ -1156,6 +1217,36 @@ function PullDetail({
     <Dialog title={`PR #${pull.number}`} titleHref={pull.url} close={close}>
       <h3>{pull.title}</h3>
       <PullStatus pull={pull} />
+      <AdventurerParty
+        members={pull.adventurers ?? []}
+        resting="대기"
+        detailed
+        forge
+      />
+      {!!pull.issues?.length && (
+        <ul className="forge-issues" aria-label="연결된 이슈">
+          {pull.issues.map((number) => (
+            <li key={number}>
+              <a
+                className="text-button"
+                href={`https://github.com/${region.slug}/issues/${number}`}
+                onClick={(event) => {
+                  if (
+                    !event.metaKey &&
+                    !event.ctrlKey &&
+                    !event.shiftKey &&
+                    !event.altKey &&
+                    openIssue(number)
+                  )
+                    event.preventDefault();
+                }}
+              >
+                이슈 #{number}
+              </a>
+            </li>
+          ))}
+        </ul>
+      )}
       {author && <p>작성 · {author}</p>}
       {reviewer && (
         <p>
@@ -1194,7 +1285,7 @@ function PullStatus({ pull }: { pull: PullQuest }) {
   return alerts.has(pull.stage) ||
     pull.stage === 'ci' ||
     pull.stage === 'complete' ? (
-    <Badge stage={pull.stage} />
+    <Badge stage={pull.stage} label={pullStatus(pull)} />
   ) : (
     <span className={`badge ${pull.stage}`}>{pullStatus(pull)}</span>
   );
@@ -1216,7 +1307,7 @@ function RegionDetail({
   close: () => void;
 }) {
   const quests = snapshot?.report?.quests ?? [];
-  const pulls = snapshot?.report?.pullQuests ?? [];
+  const pulls = reportForges(snapshot?.report);
   const known = new Set(quests.map((quest) => quest.number));
   const roots = quests.filter(
     (quest) => !quest.parent || !known.has(quest.parent),
@@ -1290,7 +1381,7 @@ function RegionDetail({
         ))}
       {pulls.length > 0 && (
         <>
-          <h4>독립 공략 결과</h4>
+          <h4>대장간</h4>
           <ul className="quest-tree">
             {pulls.map((pull) => (
               <li key={pull.number}>
@@ -1597,6 +1688,8 @@ function RepositoryDialog({
   );
 }
 
+type MapEntry = { region: Region; number: number; kind?: 'pull' };
+
 function App() {
   const [settings, setSettings] = useState(readSettings);
   const { token, repositories } = settings;
@@ -1606,11 +1699,19 @@ function App() {
   );
   const [snapshots, setSnapshots] = useState<Record<string, Snapshot>>({});
   const [selected, setSelected] = useState<Region>();
-  const [selectedQuest, setSelectedQuest] = useState<{
-    region: Region;
-    number: number;
-    kind?: 'pull';
-  }>();
+  const [selectedQuest, setSelectedQuest] = useState<MapEntry>();
+  const [inspected, setInspected] = useState<MapEntry>();
+  function inspect(entry: MapEntry, active: boolean) {
+    setInspected((current) =>
+      active
+        ? entry
+        : current?.region.slug === entry.region.slug &&
+            current.number === entry.number &&
+            current.kind === entry.kind
+          ? undefined
+          : current,
+    );
+  }
   const refresh = useRef<(() => void) | null>(null);
   const [loading, setLoading] = useState(true);
   const refreshInterval = token ? 20_000 : 60_000;
@@ -1710,7 +1811,7 @@ function App() {
             JSON.stringify(report.releases);
         const active =
           report.quests.some(({ stage }) => activeStages.has(stage)) ||
-          report.pullQuests?.some(({ stage }) => activeStages.has(stage)) ||
+          reportForges(report).some(({ stage }) => activeStages.has(stage)) ||
           report.releases.some(({ stage }) => activeStages.has(stage));
         const interval = nextRefreshInterval(
           refreshInterval,
@@ -1812,7 +1913,7 @@ function App() {
     );
   const pull =
     selectedQuest?.kind === 'pull'
-      ? snapshots[selectedQuest.region.slug]?.report?.pullQuests?.find(
+      ? reportForges(snapshots[selectedQuest.region.slug]?.report).find(
           ({ number }) => number === selectedQuest.number,
         )
       : undefined;
@@ -1885,10 +1986,28 @@ function App() {
         <section className="map-viewport" aria-label="저장소 왕국">
           <div className="kingdoms">
             {worldRegions.map((region) => {
-              const report = snapshots[region.slug]?.report;
+              const snapshot = snapshots[region.slug];
+              const report = snapshot?.report;
+              const forges = reportForges(report);
+              const focus = selectedQuest ?? inspected;
+              const localFocus =
+                focus?.region.slug === region.slug ? focus : undefined;
+              const related = new Set(
+                localFocus?.kind === 'pull'
+                  ? forges.find(({ number }) => number === localFocus.number)
+                      ?.issues
+                  : [],
+              );
+              const portalNames = new Set<string>();
+              const portals = (report?.releases ?? []).filter((release) => {
+                if (portalNames.has(release.title)) return false;
+                portalNames.add(release.title);
+                return true;
+              });
               return (
-                <div
-                  className="kingdom-area"
+                <section
+                  className="kingdom-region"
+                  aria-label={region.name}
                   key={region.slug}
                   style={
                     {
@@ -1896,48 +2015,113 @@ function App() {
                     } as CSSProperties
                   }
                 >
-                  <button className="kingdom" onClick={() => select(region)}>
-                    <Castle
-                      className="kingdom-crest"
-                      size={34}
-                      strokeWidth={1.5}
-                      aria-hidden="true"
-                    />
-                    <span className="kingdom-label">
-                      <strong>{region.name}</strong>
-                    </span>
-                  </button>
-                  {report &&
-                  (report.quests.some(
-                    ({ state, number }) =>
-                      state === 'open' ||
-                      snapshots[region.slug]?.changed?.has(`issue-${number}`),
-                  ) ||
-                    report.pullQuests?.some(
-                      (item) =>
-                        !item.merged ||
-                        snapshots[region.slug]?.changed?.has(
-                          `pr-${item.number}`,
-                        ),
-                    )) ? (
+                  <div className="kingdom-area">
+                    <button className="kingdom" onClick={() => select(region)}>
+                      <span className="kingdom-guild">
+                        <Castle
+                          className="kingdom-crest"
+                          size={34}
+                          strokeWidth={1.5}
+                          aria-hidden="true"
+                        />
+                        {(forges.some((forge) => forge.runs.length) ||
+                          report?.quests.some(
+                            (quest) => quest.runs.length,
+                          )) && (
+                          <span
+                            className="kingdom-guild-master"
+                            role="img"
+                            aria-label="GitHub Actions · 길드 마스터"
+                            title="GitHub Actions · 길드 마스터"
+                          >
+                            <Workflow size={14} aria-hidden="true" />
+                          </span>
+                        )}
+                      </span>
+                      <span className="kingdom-label">
+                        <strong>{region.name}</strong>
+                      </span>
+                    </button>
+                    {(forges.length > 0 || portals.length > 0) && (
+                      <ul
+                        className="expeditions kingdom-workshops"
+                        aria-label={`${region.name} 왕국 내부`}
+                      >
+                        {forges.map((item) => (
+                          <li key={item.number}>
+                            <ForgeMarker
+                              pull={item}
+                              open={() => openPull(region, item)}
+                              pulse={snapshot?.pulses?.[`pr-${item.number}`]}
+                              inspected={
+                                localFocus?.kind === 'pull' &&
+                                localFocus.number === item.number
+                              }
+                              related={
+                                localFocus !== undefined &&
+                                localFocus.kind !== 'pull' &&
+                                Boolean(
+                                  item.issues?.includes(localFocus.number),
+                                )
+                              }
+                              inspect={(active) =>
+                                inspect(
+                                  { region, number: item.number, kind: 'pull' },
+                                  active,
+                                )
+                              }
+                            />
+                          </li>
+                        ))}
+                        {portals.map((portal) => (
+                          <li key={portal.title}>
+                            <button
+                              className="expedition portal-marker"
+                              data-active={activeStages.has(portal.stage)}
+                              data-stage={portal.stage}
+                              aria-label={`배포 포탈 · ${portal.title} · ${stages[portal.stage]}`}
+                              title={`${portal.title} · ${stages[portal.stage]}`}
+                              onClick={() => select(region)}
+                            >
+                              <DoorOpen size={23} aria-hidden="true" />
+                              {portal.stage === 'complete' && (
+                                <Check size={12} aria-hidden="true" />
+                              )}
+                              {alerts.has(portal.stage) && (
+                                <Flag size={12} aria-hidden="true" />
+                              )}
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                    {!report && (
+                      <p className="expedition-status">
+                        {loading ? '기록 확인 중' : '기록 확인 필요'}
+                      </p>
+                    )}
+                  </div>
+                  {report && (
                     <KingdomMonsters
                       quests={report.quests}
-                      pulls={report.pullQuests ?? []}
-                      pulses={snapshots[region.slug]?.pulses}
-                      changed={snapshots[region.slug]?.changed}
-                      openPull={(item) => openPull(region, item)}
-                      label={`${region.name} 몬스터와 공략 결과`}
-                      openList={() => select(region)}
+                      pulses={snapshot?.pulses}
+                      changed={snapshot?.changed}
+                      label={`${region.name} 왕국 외부 몬스터`}
+                      highlight={
+                        localFocus?.kind === undefined
+                          ? localFocus?.number
+                          : undefined
+                      }
+                      related={related}
+                      inspect={(number, active) =>
+                        inspect({ region, number }, active)
+                      }
                       openQuest={(item) =>
                         setSelectedQuest({ region, number: item.number })
                       }
                     />
-                  ) : !report ? (
-                    <p className="expedition-status">
-                      {loading ? '기록 확인 중' : '기록 확인 필요'}
-                    </p>
-                  ) : null}
-                </div>
+                  )}
+                </section>
               );
             })}
           </div>
@@ -1946,7 +2130,7 @@ function App() {
         <footer className="world-footer">
           <ul className="expedition-legend" aria-label="기본 파티 구성">
             <li className="actions">
-              <Workflow size={14} aria-hidden="true" /> 파티장
+              <Workflow size={14} aria-hidden="true" /> 길드 마스터
             </li>
             <li className="codex">
               <AdventurerGlyph agent="codex" /> Codex
@@ -2002,6 +2186,17 @@ function App() {
           pull={pull}
           region={selectedQuest.region}
           token={token}
+          openIssue={(number) => {
+            const region = selectedQuest.region;
+            if (
+              !snapshots[region.slug]?.report?.quests.some(
+                (item) => item.number === number,
+              )
+            )
+              return false;
+            setSelectedQuest({ region, number });
+            return true;
+          }}
           close={() => setSelectedQuest(undefined)}
         />
       )}
