@@ -110,6 +110,8 @@ export type PullQuest = Source & {
   number: number;
   draft: boolean;
   merged?: boolean;
+  cancelled?: boolean;
+  finishedAt?: string;
   issues?: number[];
   adventurers?: Adventurer[];
   quality?: Stage;
@@ -162,6 +164,7 @@ export type Pull = {
   head: { ref: string; sha: string; repo?: { full_name: string } };
   merge_commit_sha?: string;
   merged_at?: string | null;
+  closed_at?: string | null;
   updated_at: string;
 };
 export type Run = {
@@ -346,7 +349,12 @@ export function makeForges(
     work.set(quest.workPull, current);
   }
   return pulls
-    .filter((pull) => pull.state === 'open' || Boolean(pull.merged_at))
+    .filter(
+      (pull) =>
+        pull.state === 'open' ||
+        pull.state === 'closed' ||
+        Boolean(pull.merged_at),
+    )
     .map((pull) => {
       const relatedRuns = runs.filter(
         (run) =>
@@ -360,7 +368,9 @@ export function makeForges(
       );
       const outcome = ci ? runStage(ci) : 'idle';
       const review = links.get(pull.number);
-      const relatedWork = pull.merged_at ? [] : (work.get(pull.number) ?? []);
+      const cancelled = pull.state === 'closed' && !pull.merged_at;
+      const relatedWork =
+        pull.merged_at || cancelled ? [] : (work.get(pull.number) ?? []);
       const workers = new Map<Agent, Adventurer>();
       for (const quest of relatedWork) {
         for (const member of quest.adventurers ?? []) {
@@ -386,29 +396,35 @@ export function makeForges(
             : undefined;
       const stage = pull.merged_at
         ? 'complete'
-        : quality === 'failed' || quality === 'attention'
-          ? quality
-          : adventurers.some((member) => member.fallen)
-            ? 'failed'
-            : adventurers.some((member) => member.active === 'review')
-              ? 'reviewing'
-              : adventurers.some((member) => member.active === 'develop')
-                ? relatedWork.some((quest) => quest.stage === 'revising')
-                  ? 'revising'
-                  : 'developing'
-                : (quality ??
-                  (relatedWork.some((quest) => quest.stage === 'merging')
-                    ? 'merging'
-                    : 'idle'));
+        : cancelled
+          ? 'idle'
+          : quality === 'failed' || quality === 'attention'
+            ? quality
+            : adventurers.some((member) => member.fallen)
+              ? 'failed'
+              : adventurers.some((member) => member.active === 'review')
+                ? 'reviewing'
+                : adventurers.some((member) => member.active === 'develop')
+                  ? relatedWork.some((quest) => quest.stage === 'revising')
+                    ? 'revising'
+                    : 'developing'
+                  : (quality ??
+                    (relatedWork.some((quest) => quest.stage === 'merging')
+                      ? 'merging'
+                      : 'idle'));
       return {
         number: pull.number,
         title: pull.title,
         url: pull.html_url,
         draft: pull.draft,
         merged: Boolean(pull.merged_at),
+        cancelled,
+        finishedAt:
+          pull.merged_at ||
+          (cancelled ? (pull.closed_at ?? pull.updated_at) : undefined),
         issues: linkedPullIssues(pull, region, review),
         adventurers,
-        quality: pull.merged_at ? undefined : quality,
+        quality: pull.merged_at || cancelled ? undefined : quality,
         activity: summarizeActivity(undefined, [
           pullDiscussion(pull, review?.activity),
         ]),
@@ -437,7 +453,9 @@ export function makePullQuests(
   links: ReadonlyMap<number, PullLinks>,
 ) {
   return makeForges(region, pulls, runs, links).filter(
-    (pull) => !pull.issues?.some((number) => issueNumbers.has(number)),
+    (pull) =>
+      !pull.cancelled &&
+      !pull.issues?.some((number) => issueNumbers.has(number)),
   );
 }
 
