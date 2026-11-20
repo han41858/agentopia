@@ -57,9 +57,9 @@ svg {
   flex-shrink: 0;
 }
 .world {
-  height: 100dvh;
+  min-height: 100dvh;
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-rows: auto 1fr auto;
   background-color: #111c29;
   background-image:
     linear-gradient(#b4c5db14 1px, transparent 1px),
@@ -76,11 +76,8 @@ svg {
   margin: clamp(12px, 3vw, 32px);
 }
 .world-footer {
-  display: grid;
-  grid-template-columns: minmax(0, 30rem) auto;
-  justify-content: space-between;
-  align-items: end;
-  gap: clamp(8px, 2vw, 24px);
+  display: flex;
+  justify-content: flex-end;
   margin-top: 4px;
 }
 .world-header,
@@ -189,8 +186,7 @@ svg {
 .map-viewport {
   display: grid;
   grid-auto-rows: max-content;
-  align-content: safe center;
-  overflow: auto;
+  align-content: center;
   padding: 18px clamp(12px, 4vw, 44px);
 }
 .world-land {
@@ -634,73 +630,6 @@ svg {
   border: 1px solid var(--rim);
   border-radius: 12px;
   background: var(--panel);
-}
-.quest-log {
-  min-width: 0;
-}
-.quest-log h2 {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 10px;
-  color: var(--gold);
-  font-size: 13px;
-}
-.quest-log p {
-  padding: 0 10px 9px;
-  color: #b7c5d2;
-  font-size: 11px;
-}
-.quest-log-list {
-  max-height: min(23dvh, 184px);
-  overflow-y: auto;
-  margin: 0;
-  padding: 0 6px 6px;
-  list-style: none;
-}
-.quest-log-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  column-gap: 6px;
-  align-items: center;
-  width: 100%;
-  padding: 6px 5px;
-  border: 0;
-  border-block-start: 1px solid #405361;
-  background: transparent;
-  text-align: left;
-  font-size: 11px;
-}
-.quest-log-row:hover {
-  background: #263744;
-}
-.quest-log-row:focus-visible {
-  outline-offset: -2px;
-}
-.quest-log-row small {
-  color: #b7c5d2;
-}
-.quest-log-row small,
-.quest-log-row strong {
-  overflow-wrap: anywhere;
-}
-.quest-log-row strong {
-  grid-row: 2;
-  grid-column: 1 / -1;
-}
-.quest-log-row > .badge,
-.quest-log-row > .monster-statuses {
-  grid-row: 1;
-  grid-column: 2;
-  justify-self: end;
-}
-.quest-log-row .badge {
-  padding: 2px 4px;
-  font-size: 10px;
-}
-.quest-log-row .badge svg {
-  width: 12px;
-  height: 12px;
 }
 .icon-button {
   display: inline-grid;

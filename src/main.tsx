@@ -783,16 +783,19 @@ function RegionDetail({
   region,
   snapshot,
   openQuest,
+  openPull,
   remove,
   close,
 }: {
   region: Region;
   snapshot?: Snapshot;
   openQuest: (quest: Quest) => void;
+  openPull: (pull: PullQuest) => void;
   remove: () => void;
   close: () => void;
 }) {
   const quests = snapshot?.report?.quests ?? [];
+  const pulls = snapshot?.report?.pullQuests ?? [];
   const known = new Set(quests.map((quest) => quest.number));
   const roots = quests.filter(
     (quest) => !quest.parent || !known.has(quest.parent),
@@ -864,6 +867,25 @@ function RegionDetail({
         ) : (
           <p>조회 범위에 퀘스트가 없습니다.</p>
         ))}
+      {pulls.length > 0 && (
+        <>
+          <h4>독립 공략 결과</h4>
+          <ul className="quest-tree">
+            {pulls.map((pull) => (
+              <li key={pull.number}>
+                <button className="quest-row" onClick={() => openPull(pull)}>
+                  <span>
+                    <small>PR #{pull.number}</small>
+                    <strong>{pull.title}</strong>
+                  </span>
+                  <PullStatus pull={pull} />
+                  <ChevronRight size={16} aria-hidden="true" />
+                </button>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
       {!!snapshot?.report?.releases.length && (
         <>
           <h4>왕국 배포 기록</h4>
@@ -1150,93 +1172,6 @@ function RepositoryDialog({
         </p>
       )}
     </Dialog>
-  );
-}
-
-function QuestLog({
-  regions,
-  snapshots,
-  loading,
-  openQuest,
-  openPull,
-}: {
-  regions: Region[];
-  snapshots: Record<string, Snapshot>;
-  loading: boolean;
-  openQuest: (region: Region, quest: Quest) => void;
-  openPull: (region: Region, pull: PullQuest) => void;
-}) {
-  const entries = regions
-    .flatMap((region) => {
-      const report = snapshots[region.slug]?.report;
-      const items: (Quest | PullQuest)[] = [
-        ...(report?.quests ?? []),
-        ...(report?.pullQuests ?? []),
-      ];
-      return items.map((item) => ({ region, item }));
-    })
-    .sort(
-      (a, b) =>
-        Number(
-          'state' in a.item
-            ? a.item.state === 'closed'
-            : Boolean(a.item.merged),
-        ) -
-          Number(
-            'state' in b.item
-              ? b.item.state === 'closed'
-              : Boolean(b.item.merged),
-          ) ||
-        b.item.number - a.item.number ||
-        a.region.slug.localeCompare(b.region.slug),
-    );
-  const hasReport = regions.some(({ slug }) => snapshots[slug]?.report);
-
-  return (
-    <section className="panel quest-log" aria-labelledby="quest-log-title">
-      <h2 id="quest-log-title">
-        <ScrollText size={15} aria-hidden="true" /> 퀘스트
-      </h2>
-      {entries.length ? (
-        <ul className="quest-log-list">
-          {entries.map(({ region, item }) => {
-            const issue = 'state' in item;
-            return (
-              <li
-                key={`${region.slug}:${issue ? 'issue' : 'pr'}:${item.number}`}
-              >
-                <button
-                  className="quest-log-row"
-                  onClick={() =>
-                    issue ? openQuest(region, item) : openPull(region, item)
-                  }
-                >
-                  <small>
-                    {region.name} ·{' '}
-                    {issue ? (item.subIssueCount ? '보스 ' : '몬스터 ') : 'PR '}
-                    #{item.number}
-                  </small>
-                  <strong>{item.title}</strong>
-                  {issue ? (
-                    <IssueBadge quest={item} />
-                  ) : (
-                    <PullStatus pull={item} />
-                  )}
-                </button>
-              </li>
-            );
-          })}
-        </ul>
-      ) : (
-        <p>
-          {hasReport
-            ? '조회된 이슈·PR 없음'
-            : loading
-              ? '이슈·PR 불러오는 중'
-              : '이슈·PR 조회 필요'}
-        </p>
-      )}
-    </section>
   );
 }
 
@@ -1533,15 +1468,6 @@ function App() {
         </section>
 
         <footer className="world-footer">
-          <QuestLog
-            regions={worldRegions}
-            snapshots={snapshots}
-            loading={loading}
-            openPull={openPull}
-            openQuest={(region, item) =>
-              setSelectedQuest({ region, number: item.number })
-            }
-          />
           <ul className="expedition-legend" aria-label="기본 파티 구성">
             <li className="actions">
               <Workflow size={14} aria-hidden="true" /> 길드 마스터
@@ -1563,6 +1489,7 @@ function App() {
           key={selected.slug}
           region={selected}
           snapshot={snapshots[selected.slug]}
+          openPull={(item) => openPull(selected, item)}
           openQuest={(item) =>
             setSelectedQuest({ region: selected, number: item.number })
           }
