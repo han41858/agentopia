@@ -66,7 +66,7 @@ import type {
 import { ActivityAura, monsterGrowth } from './activity-effects.tsx';
 import { nextRefreshInterval, refreshDue } from './refresh.ts';
 import { facilities, FacilityGlyph } from './facility-art.tsx';
-import { facilityKind, isHistoricFacility } from './facility-kind.ts';
+import { facilityKind, isCurrentFacility } from './facility-kind.ts';
 import { HeritageArc, heritageBuildings } from './heritage-arc.tsx';
 import type {
   Heritage,
@@ -84,7 +84,6 @@ type Snapshot = {
   error?: string;
   httpStatus?: number;
   pulses?: Record<string, number>;
-  changed?: Set<string>;
 };
 
 function partyStates(report: Report) {
@@ -211,14 +210,12 @@ function reportSnapshot(report: Report, previous?: Snapshot): Snapshot {
   };
   const priorStates = partyStates(previous.report);
   const pulses: Record<string, number> = {};
-  const changed = new Set<string>();
   for (const [key, state] of partyStates(report)) {
     const pulse = previous.pulses?.[key] ?? 0;
-    if (priorStates.get(key) !== state) changed.add(key);
-    const next = pulse + Number(changed.has(key));
+    const next = pulse + Number(priorStates.get(key) !== state);
     if (next) pulses[key] = next;
   }
-  return { report, pulses, changed };
+  return { report, pulses };
 }
 
 function getTokenStatus(
@@ -503,11 +500,6 @@ function FacilityMarker({
 }) {
   const kind = facilityKind(pull.title);
   const { name, Tool } = facilities[kind];
-  const lifecycle = pull.merged
-    ? 'complete'
-    : pull.cancelled
-      ? 'cancelled'
-      : 'open';
   const working = pull.stage === 'developing' || pull.stage === 'revising';
   const reviewing = pull.stage === 'reviewing';
   const quality = pull.quality === 'ci' || pull.stage === 'ci';
@@ -527,7 +519,6 @@ function FacilityMarker({
       data-highlight={inspected ? 'selected' : related ? 'related' : undefined}
       data-stage={pull.stage}
       data-facility={kind}
-      data-lifecycle={lifecycle}
       title={label}
       aria-label={`${label}${activityEffectsLabel(pull.activity)}`}
       onClick={open}
@@ -546,11 +537,8 @@ function FacilityMarker({
           aria-hidden="true"
         >
           <FacilityGlyph kind={kind} />
-          {lifecycle === 'open' && pull.stage === 'idle' && (
+          {pull.stage === 'idle' && (
             <Construction className="facility-build" size={13} />
-          )}
-          {lifecycle === 'cancelled' && (
-            <X className="facility-result" size={13} />
           )}
           {working && <Tool className="facility-tool" size={13} />}
           {reviewing && <ScrollText className="facility-tool" size={13} />}
@@ -558,7 +546,6 @@ function FacilityMarker({
           {pull.stage === 'merging' && (
             <GitPullRequest className="facility-result" size={13} />
           )}
-          {pull.merged && <Check className="facility-result" size={13} />}
           {alerts.has(pull.stage) && (
             <Skull className="facility-result" size={13} />
           )}
@@ -573,7 +560,6 @@ function FacilityMarker({
 function KingdomMonsters({
   quests,
   pulses,
-  changed,
   label,
   openQuest,
   highlight,
@@ -582,14 +568,14 @@ function KingdomMonsters({
 }: {
   quests: Quest[];
   pulses?: Record<string, number>;
-  changed?: Set<string>;
   label: string;
   openQuest: (quest: Quest) => void;
   highlight?: number;
   related: ReadonlySet<number>;
   inspect: (number: number, active: boolean) => void;
 }) {
-  const byNumber = new Map(quests.map((quest) => [quest.number, quest]));
+  const openQuests = quests.filter((quest) => quest.state === 'open');
+  const visible = new Set(openQuests.map(({ number }) => number));
   const childrenByParent = new Map<number, Quest[]>();
   for (const quest of quests) {
     if (quest.parent === undefined) continue;
@@ -598,34 +584,11 @@ function KingdomMonsters({
     childrenByParent.set(quest.parent, siblings);
   }
 
-  const descendants = new Set<number>();
-  function includeDescendants(quest: Quest) {
-    if (descendants.has(quest.number)) return;
-    descendants.add(quest.number);
-    childrenByParent.get(quest.number)?.forEach(includeDescendants);
-  }
-
-  const visible = new Set<number>();
-  for (const quest of quests) {
-    if (quest.state !== 'open' && !changed?.has(`issue-${quest.number}`))
-      continue;
-    includeDescendants(quest);
-    let current: Quest | undefined = quest;
-    while (current && !visible.has(current.number)) {
-      visible.add(current.number);
-      current =
-        current.parent === undefined ? undefined : byNumber.get(current.parent);
-    }
-  }
-  for (const number of descendants) visible.add(number);
   const priority = (quest: Quest) =>
     alerts.has(quest.stage) ? 2 : activeStages.has(quest.stage) ? 1 : 0;
   const comparePriority = (a: Quest, b: Quest) => priority(b) - priority(a);
-  const roots = quests
-    .filter(
-      ({ number, parent }) =>
-        visible.has(number) && (parent === undefined || !visible.has(parent)),
-    )
+  const roots = openQuests
+    .filter(({ parent }) => parent === undefined || !visible.has(parent))
     .sort(comparePriority);
 
   function render(quest: Quest) {
@@ -1339,13 +1302,10 @@ function RegionDetail({
   close: () => void;
 }) {
   const quests = snapshot?.report?.quests ?? [];
-  const now = Date.now();
   const pulls = reportForges(snapshot?.report);
-  const currentFacilities = pulls.filter(
-    (pull) => !isHistoricFacility(pull.finishedAt, now),
-  );
+  const currentFacilities = pulls.filter(isCurrentFacility);
   const facilityHistory = pulls
-    .filter((pull) => isHistoricFacility(pull.finishedAt, now))
+    .filter((pull) => !isCurrentFacility(pull))
     .sort((left, right) =>
       (right.finishedAt ?? '').localeCompare(left.finishedAt ?? ''),
     );
@@ -2115,16 +2075,7 @@ function App() {
                       ?.issues
                   : [],
               );
-              const now = Date.now();
-              const visibleFacilities = forges.filter(
-                (pull) => !isHistoricFacility(pull.finishedAt, now),
-              );
-              const portalNames = new Set<string>();
-              const portals = (report?.releases ?? []).filter((release) => {
-                if (portalNames.has(release.title)) return false;
-                portalNames.add(release.title);
-                return true;
-              });
+              const visibleFacilities = forges.filter(isCurrentFacility);
               return (
                 <section
                   className="kingdom-region"
@@ -2136,17 +2087,17 @@ function App() {
                     } as CSSProperties
                   }
                 >
-                  <HeritageArc
-                    slug={region.slug}
-                    name={region.name}
-                    token={token}
-                    load={requestHeritage}
-                    onLoad={updateSelectedHeritage}
-                    open={(metric, record) =>
-                      setSelectedHeritage({ region, metric, record })
-                    }
-                  />
                   <div className="kingdom-area">
+                    <HeritageArc
+                      slug={region.slug}
+                      name={region.name}
+                      token={token}
+                      load={requestHeritage}
+                      onLoad={updateSelectedHeritage}
+                      open={(metric, record) =>
+                        setSelectedHeritage({ region, metric, record })
+                      }
+                    />
                     <button className="kingdom" onClick={() => select(region)}>
                       <span className="kingdom-guild">
                         <Castle
@@ -2173,7 +2124,7 @@ function App() {
                         <strong>{region.name}</strong>
                       </span>
                     </button>
-                    {(visibleFacilities.length > 0 || portals.length > 0) && (
+                    {visibleFacilities.length > 0 && (
                       <ul
                         className="expeditions kingdom-workshops"
                         aria-label={`${region.name} 왕국 내부`}
@@ -2204,26 +2155,6 @@ function App() {
                             />
                           </li>
                         ))}
-                        {portals.map((portal) => (
-                          <li key={portal.title}>
-                            <button
-                              className="expedition portal-marker"
-                              data-active={activeStages.has(portal.stage)}
-                              data-stage={portal.stage}
-                              aria-label={`배포 포탈 · ${portal.title} · ${stages[portal.stage]}`}
-                              title={`${portal.title} · ${stages[portal.stage]}`}
-                              onClick={() => select(region)}
-                            >
-                              <DoorOpen size={23} aria-hidden="true" />
-                              {portal.stage === 'complete' && (
-                                <Check size={12} aria-hidden="true" />
-                              )}
-                              {alerts.has(portal.stage) && (
-                                <Flag size={12} aria-hidden="true" />
-                              )}
-                            </button>
-                          </li>
-                        ))}
                       </ul>
                     )}
                     {!report && (
@@ -2236,7 +2167,6 @@ function App() {
                     <KingdomMonsters
                       quests={report.quests}
                       pulses={snapshot?.pulses}
-                      changed={snapshot?.changed}
                       label={`${region.name} 왕국 외부 몬스터`}
                       highlight={
                         localFocus?.kind === undefined

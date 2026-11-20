@@ -12,7 +12,7 @@ import {
 } from './model.ts';
 import type { Comment, Issue, Pull, Run } from './model.ts';
 import { githubResponse } from './github.ts';
-import { facilityKind, isHistoricFacility } from '../src/facility-kind.ts';
+import { facilityKind, isCurrentFacility } from '../src/facility-kind.ts';
 
 const commitTrail = repositoryRegion('han41858/commit-trail');
 const videx = repositoryRegion('han41858/videx');
@@ -898,26 +898,20 @@ test('facility classification uses the leading GitMoji and keeps a neutral defau
   assert.equal(facilityKind(''), 'workshop');
 });
 
-test('completed and cancelled facility ages use their respective GitHub events', () => {
-  const closed = {
-    ...pull,
-    state: 'closed',
-    closed_at: '2026-11-18T10:00:00Z',
-  };
-  const merged = { ...closed, number: 21, merged_at: '2026-11-19T10:00:01Z' };
-  const [cancelled, completed] = makeForges(
+test('closed facilities go to history immediately and reopened facilities return', () => {
+  const closed = { ...pull, state: 'closed', closed_at: stamp };
+  const merged = { ...closed, number: 21, merged_at: stamp };
+  const reopened = { ...closed, number: 22, state: 'open' };
+  const [cancelled, completed, current] = makeForges(
     commitTrail,
-    [closed, merged],
+    [closed, merged, reopened],
     [],
     new Map(),
   );
-  const today = Date.parse('2026-11-20T10:00:00Z');
-  assert.equal(cancelled.cancelled, true);
-  assert.equal(cancelled.stage, 'idle');
-  assert.equal(isHistoricFacility(cancelled.finishedAt, today), true);
-  assert.equal(completed.merged, true);
-  assert.equal(completed.stage, 'complete');
-  assert.equal(isHistoricFacility(completed.finishedAt, today), false);
-  assert.equal(isHistoricFacility(completed.finishedAt, today + 1000), true);
-  assert.equal(isHistoricFacility(undefined, today), false);
+  assert.equal(cancelled.finishedAt, stamp);
+  assert.equal(completed.finishedAt, stamp);
+  assert.deepEqual([cancelled, completed, current].filter(isCurrentFacility), [
+    current,
+  ]);
+  assert.equal(current.finishedAt, undefined);
 });
