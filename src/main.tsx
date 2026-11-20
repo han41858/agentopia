@@ -3,7 +3,6 @@ import type { CSSProperties, FormEvent, ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 import {
   Castle,
-  FlaskConical,
   Construction,
   ClipboardCheck,
   GitCommitHorizontal,
@@ -534,6 +533,7 @@ function FacilityMarker({
     pull.title,
     pullActivity(pull),
     pullStatus(pull),
+    quality ? 'GitHub Actions · 파티장 · CI' : undefined,
     ...activeMembers.map((member) => partyLabel(member, '대기')),
     ...(pull.issues ?? []).map((number) => `이슈 #${number}`),
   ]
@@ -585,7 +585,7 @@ function FacilityMarker({
           {!activeMembers.length && reviewing && (
             <ScrollText className="facility-tool" size={13} />
           )}
-          {quality && <FlaskConical className="facility-test" size={13} />}
+          {quality && <Workflow className="facility-test" size={13} />}
           {pull.stage === 'merging' && (
             <GitPullRequest className="facility-result" size={13} />
           )}
