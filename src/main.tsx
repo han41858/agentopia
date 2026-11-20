@@ -78,6 +78,7 @@ import type {
   HeritageRecord,
 } from '../server/heritage.ts';
 import { GitHubUsage } from './github-usage.tsx';
+import { KingdomWall } from './kingdom-wall.tsx';
 import './styles.css';
 
 function reportForges(report?: Report) {
@@ -406,7 +407,6 @@ function MonsterMarker({
           quest.activity && {
             ...quest.activity,
             reviews: undefined,
-            participants: undefined,
             opinion: undefined,
           }
         }
@@ -972,7 +972,6 @@ function ActivityTotals({
   const needsDetails =
     !initial ||
     initial.partialCommits ||
-    initial.partialParticipants ||
     initial.commits === undefined ||
     initial.pullComments === undefined ||
     initial.reviews === undefined ||
@@ -1018,7 +1017,6 @@ function ActivityTotals({
       : ([['이슈 댓글', activity?.issueComments, false]] as const)),
     ['PR 댓글', activity?.pullComments, false],
     ['리뷰', activity?.reviews, false],
-    ['고유 참여자', activity?.participants, activity?.partialParticipants],
   ] as const;
   return (
     <section className="activity-totals">
@@ -2095,6 +2093,7 @@ function App() {
                   }
                 >
                   <div className="kingdom-area">
+                    <KingdomWall />
                     <HeritageArc
                       slug={region.slug}
                       name={region.name}

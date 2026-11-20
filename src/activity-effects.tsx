@@ -1,11 +1,5 @@
 import type { ReactNode } from 'react';
-import {
-  Check,
-  MessageCircle,
-  ShieldAlert,
-  Sparkles,
-  UserRound,
-} from 'lucide-react';
+import { Check, MessageCircle, ShieldAlert, Sparkles } from 'lucide-react';
 import type { ActivityProfile } from '../server/activity.ts';
 
 export function monsterGrowth(commits = 0) {
@@ -27,7 +21,6 @@ export function ActivityAura({
     (activity?.issueComments ?? 0) + (activity?.pullComments ?? 0),
   );
   const runes = effectCount(activity?.reviews);
-  const participants = Math.min(3, activity?.participants ?? 0);
   return (
     <span className="activity-aura" aria-hidden="true">
       {discussion > 0 && (
@@ -42,13 +35,6 @@ export function ActivityAura({
         <span className="aura-runes">
           {Array.from({ length: runes }, (_, i) => (
             <Sparkles key={i} size={11} />
-          ))}
-        </span>
-      )}
-      {participants > 0 && (
-        <span className="aura-crowd">
-          {Array.from({ length: participants }, (_, i) => (
-            <UserRound key={i} size={10} />
           ))}
         </span>
       )}

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
-import { Archive, BookOpen, CircleHelp, Crown, Flag } from 'lucide-react';
+import { Archive, BookOpen, Crown, Flag } from 'lucide-react';
 import { heritageKeys } from '../server/heritage.ts';
 import type {
   Heritage,
@@ -130,21 +130,22 @@ export function HeritageArc({
   }, [slug, token, load, onLoad]);
 
   const data = snapshot?.token === token ? snapshot.data : undefined;
-  const visible =
-    data && heritageKeys.some((metric) => data[metric]) ? heritageKeys : [];
+  const visible = heritageKeys.flatMap((metric, index) => {
+    const record = data?.[metric];
+    return record ? [{ metric, index, record }] : [];
+  });
   return (
     <div
       ref={element}
       className="heritage-arc"
       role={visible.length ? 'group' : undefined}
       aria-label={visible.length ? `${name}의 유산` : undefined}
-      style={{ '--heritage-count': visible.length } as CSSProperties}
     >
-      {visible.map((metric, index) => {
-        const record = data?.[metric];
-        const tier = heritageTier(metric, record?.count);
+      {visible.map(({ metric, index, record }) => {
+        const tier = heritageTier(metric, record.count);
         const { title, kind, Emblem } = heritageBuildings[metric];
-        const offset = index === 0 || index === visible.length - 1 ? 12 : 0;
+        const offset =
+          index === 0 || index === heritageKeys.length - 1 ? 12 : 0;
         return (
           <button
             key={metric}
@@ -153,9 +154,13 @@ export function HeritageArc({
             data-metric={metric}
             data-tier={tier}
             title={title}
-            aria-label={record ? title : `${title} · 미확인`}
-            data-known={record !== undefined}
-            style={{ '--arc-drop': `${offset}px` } as CSSProperties}
+            aria-label={title}
+            style={
+              {
+                gridColumn: index + 1,
+                '--arc-drop': `${offset}px`,
+              } as CSSProperties
+            }
             onClick={() => open(metric, record)}
           >
             <span
@@ -165,11 +170,7 @@ export function HeritageArc({
             >
               <span className="heritage-sprite">
                 <FacilityGlyph kind={kind} />
-                {record ? (
-                  <Emblem className="heritage-emblem" size={11} />
-                ) : (
-                  <CircleHelp className="heritage-emblem" size={11} />
-                )}
+                <Emblem className="heritage-emblem" size={11} />
               </span>
               {tier >= 2 && <span className="heritage-plinth" />}
               {tier > 3 && <span className="heritage-plinth upper" />}
