@@ -636,11 +636,10 @@ test('public refresh reuses recent reports, refreshes on demand, and honors rate
     'http://localhost/api/github?repo=han41858%2Fcommit-trail',
   );
   await githubResponse(url, 'GET');
-  url.searchParams.set('refresh', '1');
   now += 10_000;
   await githubResponse(url, 'GET');
   assert.equal(issueRequests, 1);
-  now += 5_000;
+  url.searchParams.set('refresh', '1');
   await githubResponse(url, 'GET');
   assert.equal(issueRequests, 2);
   url.searchParams.delete('refresh');
