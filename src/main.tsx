@@ -1090,7 +1090,7 @@ function PullDetail({
   const author = pull.author && agentNames[pull.author];
   const reviewer = pull.reviewer && agentNames[pull.reviewer];
   return (
-    <Dialog title={`PR #${pull.number}`} close={close}>
+    <Dialog title={`PR #${pull.number}`} titleHref={pull.url} close={close}>
       <h3>{pull.title}</h3>
       <PullStatus pull={pull} />
       {author && <p>작성 · {author}</p>}
@@ -1099,7 +1099,6 @@ function PullDetail({
           리뷰 기록 · {reviewer} {pull.review}
         </p>
       )}
-      <OutLink item={{ title: `GitHub PR #${pull.number}`, url: pull.url }} />
       <ActivityTotals
         key={`${region.slug}:${pull.number}`}
         region={region.slug}
