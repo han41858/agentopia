@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 type QueryResponse = {
   body: unknown;
   next: boolean;
+  link: string | null;
   etag: string | null;
   checkedAt: number;
 };
@@ -18,7 +19,7 @@ type Usage = {
 const cached = new Map<string, QueryResponse>();
 const pending = new Map<string, Promise<QueryResponse>>();
 const usage = new Map<string, Usage>();
-const retention = 30 * 60_000;
+const retention = 2 * 60 * 60_000;
 
 export function observeGitHub(
   repo: string,
@@ -119,6 +120,7 @@ export async function githubGet(
         body: await response.json(),
         etag: response.headers.get('etag'),
         next: /rel="next"/.test(response.headers.get('link') ?? ''),
+        link: response.headers.get('link'),
         checkedAt: Date.now(),
       };
     }
