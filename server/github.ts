@@ -1,3 +1,5 @@
+import { onePerPageCount, verifiedCount } from './heritage.ts';
+import type { Heritage, HeritageMetric } from './heritage.ts';
 import { credentialScope, githubGet, observeGitHub } from './github-query.ts';
 import { latestOpinion, reviewOpinion } from './activity.ts';
 import type { Discussion, PullActivity } from './activity.ts';
@@ -48,13 +50,18 @@ class GitHubError extends Error {
   }
 }
 
-function client(region?: Region, token?: string, force = false) {
+function client(
+  region?: Region,
+  token?: string,
+  force = false,
+  scope = region?.slug ?? '(account)',
+) {
   const root = region
     ? `https://api.github.com/repos/${region.slug}`
     : 'https://api.github.com';
   return async function get<T>(
     path: string,
-    pagination?: (hasNext: boolean) => void,
+    pagination?: (hasNext: boolean, link: string | null) => void,
     ttl = 0,
   ): Promise<T> {
     const headers: Record<string, string> = {
@@ -65,7 +72,7 @@ function client(region?: Region, token?: string, force = false) {
     if (token) headers.Authorization = token;
     const result = await githubGet(
       root + path,
-      region?.slug ?? '(account)',
+      scope,
       token,
       headers,
       force ? 0 : ttl,
@@ -83,7 +90,12 @@ function client(region?: Region, token?: string, force = false) {
             /rate limit/i.test(payload?.message ?? '');
         }
         const error = new GitHubError(response.status, rateLimited);
-        if (!token && rateLimited) {
+        if (
+          !token &&
+          rateLimited &&
+          !path.startsWith('/search/') &&
+          (response.headers.get('x-ratelimit-resource') ?? 'core') === 'core'
+        ) {
           const reset = exhausted
             ? Number(response.headers.get('x-ratelimit-reset')) * 1000
             : 0;
@@ -98,7 +110,7 @@ function client(region?: Region, token?: string, force = false) {
         throw error;
       },
     );
-    pagination?.(result.next);
+    pagination?.(result.next, result.link);
     return result.body as T;
   };
 }
@@ -122,14 +134,13 @@ async function githubGraphql<T>(
   query: string,
   variables: Record<string, string | null>,
   token: string,
+  operation = variables.name ? 'pull-activity' : 'repositories',
 ) {
   const repo =
     variables.owner && variables.name
       ? `${variables.owner}/${variables.name}`
       : '(account)';
-  const endpoint = variables.name
-    ? 'graphql/pull-activity'
-    : 'graphql/repositories';
+  const endpoint = `graphql/${operation}`;
   const key = JSON.stringify([credentialScope(token), query, variables]);
   const pending = pendingGraphql.get(key);
   if (pending) {
@@ -962,6 +973,95 @@ async function activitySummary(
   } satisfies PullActivity;
 }
 
+const heritageTtl = 30 * 60_000;
+
+async function repositoryHeritage(
+  region: Region,
+  token?: string,
+): Promise<Heritage> {
+  const data: Heritage = {};
+  const get = client(region, token);
+  const search = client(undefined, token, false, region.slug);
+  const basics = {
+    issues: 'is:issue',
+    closedIssues: 'is:issue is:closed',
+    pulls: 'is:pr',
+    mergedPulls: 'is:pr is:merged',
+  } as const;
+  function record(
+    key: HeritageMetric,
+    value: unknown,
+    source: 'github' | 'search',
+  ) {
+    const count = verifiedCount(value);
+    if (count !== undefined) data[key] = { count, source };
+  }
+
+  async function readBasics() {
+    if (token) {
+      const [owner, name] = region.slug.split('/');
+      type Counts = { [Key in keyof typeof basics]?: { totalCount: number } };
+      const result = await githubGraphql<{ repository?: Counts }>(
+        `query($owner: String!, $name: String!) {
+          repository(owner: $owner, name: $name) {
+            issues { totalCount }
+            closedIssues: issues(states: CLOSED) { totalCount }
+            pulls: pullRequests { totalCount }
+            mergedPulls: pullRequests(states: MERGED) { totalCount }
+          }
+        }`,
+        { owner, name },
+        token,
+        'heritage',
+      );
+      for (const key of Object.keys(basics) as (keyof typeof basics)[])
+        record(key, result.repository?.[key]?.totalCount, 'github');
+      return;
+    }
+    await Promise.allSettled(
+      (Object.keys(basics) as (keyof typeof basics)[]).map(async (key) => {
+        const params = new URLSearchParams({
+          q: `repo:${region.slug} ${basics[key]}`,
+          per_page: '1',
+        });
+        const result = await search<{
+          total_count: number;
+          incomplete_results: boolean;
+        }>(`/search/issues?${params}`, undefined, heritageTtl);
+        if (result.incomplete_results === false)
+          record(key, result.total_count, 'search');
+      }),
+    );
+  }
+
+  async function countComments(path: string) {
+    let next = false;
+    let link: string | null = null;
+    const first = await get<unknown[]>(
+      `${path}?per_page=1`,
+      (more, header) => {
+        next = more;
+        link = header;
+      },
+      heritageTtl,
+    );
+    return onePerPageCount(first.length, next, link);
+  }
+
+  async function readComments() {
+    const [discussion, inline] = await Promise.all([
+      countComments('/issues/comments'),
+      countComments('/pulls/comments'),
+    ]);
+    // GitHub truncates repository conversation pagination at 30,000 entries.
+    if (discussion !== undefined && inline !== undefined && discussion < 30_000)
+      record('comments', discussion + inline, 'github');
+  }
+
+  await Promise.allSettled([readBasics(), readComments()]);
+  return data;
+}
+
 export async function githubResponse(
   url: URL,
   method: string | undefined,
@@ -990,6 +1090,8 @@ export async function githubResponse(
     const slug = repositorySlug(url.searchParams.get('repo') ?? '');
     if (!slug) return reply(400, { error: '지원하는 저장소를 선택해 주세요.' });
     const region = repositoryRegion(slug);
+    if (url.searchParams.get('heritage') === '1')
+      return reply(200, await repositoryHeritage(region, authorization));
     const summary = url.searchParams.get('summary');
     if (summary !== null) {
       const number = url.searchParams.get('number') ?? '';

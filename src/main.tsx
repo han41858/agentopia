@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties, FormEvent, ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 import {
@@ -67,6 +67,12 @@ import { ActivityAura, monsterGrowth } from './activity-effects.tsx';
 import { nextRefreshInterval, refreshDue } from './refresh.ts';
 import { facilities, FacilityGlyph } from './facility-art.tsx';
 import { facilityKind, isHistoricFacility } from './facility-kind.ts';
+import { HeritageArc, heritageBuildings } from './heritage-arc.tsx';
+import type {
+  Heritage,
+  HeritageMetric,
+  HeritageRecord,
+} from '../server/heritage.ts';
 import './styles.css';
 
 function reportForges(report?: Report) {
@@ -706,6 +712,14 @@ async function request<T>(
       response.status,
     );
   return body as T;
+}
+
+function requestHeritage(slug: string, token: string, signal: AbortSignal) {
+  return request<Heritage>(
+    new URLSearchParams({ repo: slug, heritage: '1' }),
+    token,
+    signal,
+  );
 }
 
 function Badge({ stage, label }: { stage: Stage; label?: string }) {
@@ -1755,6 +1769,48 @@ function RepositoryDialog({
   );
 }
 
+type HeritageSelection = {
+  region: Region;
+  metric: HeritageMetric;
+  record?: HeritageRecord;
+};
+
+function HeritageDetail({
+  selection,
+  close,
+}: {
+  selection: HeritageSelection;
+  close: () => void;
+}) {
+  const { region, metric, record } = selection;
+  const { title, label, kind } = heritageBuildings[metric];
+  const unavailable =
+    metric === 'commits'
+      ? 'GitHub에서 저장소 전체 커밋의 합계를 제공하지 않습니다.'
+      : metric === 'reviews'
+        ? 'GitHub에서 저장소 전체 리뷰의 합계를 제공하지 않습니다.'
+        : 'GitHub에서 이 누적 수치를 확인하지 못했습니다.';
+  return (
+    <Dialog title={title} closeOnBackdrop close={close}>
+      <div className="facility-detail">
+        <FacilityGlyph kind={kind} />
+        <span>{region.name}</span>
+      </div>
+      <dl className="heritage-total">
+        <dt>{label}</dt>
+        <dd>{record ? record.count.toLocaleString('ko-KR') : '미확인'}</dd>
+      </dl>
+      {!record && <p>{unavailable}</p>}
+      {record?.source === 'search' && (
+        <p>GitHub 검색 인덱스 기준이며 최근 변경 반영이 늦을 수 있습니다.</p>
+      )}
+      {metric === 'comments' && record && (
+        <p>이슈·PR 대화 댓글과 PR 코드 리뷰 댓글을 합산합니다.</p>
+      )}
+    </Dialog>
+  );
+}
+
 type MapEntry = { region: Region; number: number; kind?: 'pull' };
 
 function App() {
@@ -1767,7 +1823,15 @@ function App() {
   const [snapshots, setSnapshots] = useState<Record<string, Snapshot>>({});
   const [selected, setSelected] = useState<Region>();
   const [selectedQuest, setSelectedQuest] = useState<MapEntry>();
+  const [selectedHeritage, setSelectedHeritage] = useState<HeritageSelection>();
   const [inspected, setInspected] = useState<MapEntry>();
+  const updateSelectedHeritage = useCallback((slug: string, data: Heritage) => {
+    setSelectedHeritage((current) => {
+      if (!current || current.region.slug !== slug) return current;
+      const record = data[current.metric];
+      return record ? { ...current, record } : current;
+    });
+  }, []);
   function inspect(entry: MapEntry, active: boolean) {
     setInspected((current) =>
       active
@@ -1814,6 +1878,7 @@ function App() {
         return;
       const next = readSettings();
       refreshJobs.current.jobs.clear();
+      setSelectedHeritage(undefined);
       setSettings(next);
       setSnapshots({});
       setSelected(undefined);
@@ -1936,6 +2001,7 @@ function App() {
     setSelected(undefined);
     setSnapshots({});
     setSelectedQuest(undefined);
+    setSelectedHeritage(undefined);
     setLoading(true);
   }
 
@@ -2089,6 +2155,16 @@ function App() {
                     } as CSSProperties
                   }
                 >
+                  <HeritageArc
+                    slug={region.slug}
+                    name={region.name}
+                    token={token}
+                    load={requestHeritage}
+                    onLoad={updateSelectedHeritage}
+                    open={(metric, record) =>
+                      setSelectedHeritage({ region, metric, record })
+                    }
+                  />
                   <div className="kingdom-area">
                     <button className="kingdom" onClick={() => select(region)}>
                       <span className="kingdom-guild">
@@ -2252,6 +2328,12 @@ function App() {
           setToken={setToken}
           openAdd={() => setShowAdd(true)}
           close={() => setShowConnect(false)}
+        />
+      )}
+      {selectedHeritage && (
+        <HeritageDetail
+          selection={selectedHeritage}
+          close={() => setSelectedHeritage(undefined)}
         />
       )}
       {selectedQuest && pull && (
