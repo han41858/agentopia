@@ -1,4 +1,4 @@
-import { Bug, Crown, ScrollText, Swords, X } from 'lucide-react';
+import { Bug, Crown, Hammer, ScrollText, Swords, X } from 'lucide-react';
 import type { Adventurer, AdventurerRole, Agent } from '../server/model.ts';
 
 export const agentNames: Record<Agent, string> = {
@@ -34,15 +34,18 @@ export function AdventurerGlyph({
   agent,
   active,
   fallen,
+  forge = false,
 }: {
   agent: Agent;
   active?: AdventurerRole;
   fallen?: boolean;
+  forge?: boolean;
 }) {
-  const RoleIcon = active === 'develop' ? Swords : ScrollText;
+  const RoleIcon =
+    active === 'develop' ? (forge ? Hammer : Swords) : ScrollText;
   return (
     <span
-      className={`adventurer-glyph ${agent}${active ? ` active ${active}` : ''}${fallen ? ' fallen' : ''}`}
+      className={`adventurer-glyph ${agent}${active ? ` active ${active}` : ''}${fallen ? ' fallen' : ''}${forge ? ' crafting' : ''}`}
       aria-hidden="true"
     >
       <span className="adventurer-avatar" />
@@ -64,10 +67,12 @@ export function AdventurerParty({
   members,
   resting,
   detailed = false,
+  forge = false,
 }: {
   members: Adventurer[];
   resting: string;
   detailed?: boolean;
+  forge?: boolean;
 }) {
   if (!members.length) return null;
   return (
@@ -82,6 +87,7 @@ export function AdventurerParty({
             agent={member.agent}
             active={member.active}
             fallen={member.fallen}
+            forge={forge}
           />
           {detailed && (
             <span>

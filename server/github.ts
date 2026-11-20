@@ -3,7 +3,7 @@ import { latestOpinion, reviewOpinion } from './activity.ts';
 import type { Discussion, PullActivity } from './activity.ts';
 import {
   linkedPullIssues,
-  makePullQuests,
+  makeForges,
   makeQuests,
   pullActor,
   repositoryOwner,
@@ -701,19 +701,14 @@ async function getReport(
     releases,
     pullLinks,
   );
+  const forges = makeForges(region, pulls, runs, pullLinks, quests);
   return {
     quests: quests.map((quest) =>
       quest.state === 'open' && reopened.has(quest.number)
         ? { ...quest, reopened: true }
         : quest,
     ),
-    pullQuests: makePullQuests(
-      region,
-      pulls,
-      runs,
-      new Set(issues.keys()),
-      pullLinks,
-    ),
+    forges,
     releases: releases.map(({ title, url, status, stage }) => ({
       title,
       url,

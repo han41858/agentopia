@@ -197,8 +197,6 @@ svg {
   gap: clamp(12px, 2vw, 24px);
 }
 .kingdom-area {
-  --land: oklch(66% 0.09 var(--kingdom-hue));
-  --accent: oklch(86% 0.11 var(--kingdom-hue));
   --territory-shape: polygon(
     47% 0,
     65% min(2%, 9px),
@@ -230,7 +228,7 @@ svg {
   max-width: min(100%, 720px);
   padding: 38px clamp(17px, 2.7vw, 33px) 42px;
 }
-.kingdom-area:nth-child(even) {
+.kingdom-region:nth-child(even) > .kingdom-area {
   --territory-shape: polygon(
     42% 1px,
     61% 0,
@@ -566,24 +564,6 @@ svg {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
-.role-symbol {
-  display: grid;
-  place-items: center;
-  width: 21px;
-  height: 21px;
-  border: 1px solid #405361;
-  border-radius: 5px;
-}
-.pull-marker .role-symbol[data-draft='true'] {
-  border-style: dashed;
-}
-.role-symbol:not(.current-role) {
-  opacity: 0.43;
-}
-.role-symbol.current-role {
-  border-color: currentColor;
-  background: color-mix(in srgb, currentColor 15%, transparent);
-}
 .expedition small,
 .expedition-status {
   font-size: 10px;
@@ -605,19 +585,15 @@ svg {
   align-items: center;
   gap: 5px;
 }
-.role-symbol.actions,
 .expedition-legend .actions {
   color: #9ad9ff;
 }
-.role-symbol.codex,
 .expedition-legend .codex {
   color: #a5e1bc;
 }
-.role-symbol.claude,
 .expedition-legend .claude {
   color: #ffbf9e;
 }
-.role-symbol.release,
 .expedition-legend .release {
   color: #e1c4ff;
 }
@@ -1055,4 +1031,129 @@ svg {
 .activity-totals dd {
   margin: 0;
   font-variant-numeric: tabular-nums;
+}
+
+.kingdom-region {
+  --land: oklch(66% 0.09 var(--kingdom-hue));
+  --accent: oklch(86% 0.11 var(--kingdom-hue));
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  justify-items: center;
+  align-content: start;
+  min-width: 0;
+  max-width: min(100%, 720px);
+}
+.kingdom-fields {
+  position: relative;
+  max-width: 100%;
+  margin-top: 10px;
+  padding: 6px 8px 3px;
+  border-top: 1px dashed color-mix(in srgb, var(--land), transparent 30%);
+  background: radial-gradient(
+    ellipse at top,
+    color-mix(in srgb, var(--land) 12%, transparent),
+    transparent 70%
+  );
+}
+.kingdom-fields > .expeditions,
+.kingdom-workshops {
+  justify-content: center;
+}
+.kingdom-fields > .expeditions {
+  margin-top: 0;
+}
+.forge-core {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 28px;
+  border: 1px solid color-mix(in srgb, currentColor, #142430 55%);
+  border-radius: 4px;
+  background: #242329;
+}
+.forge-core[data-draft='true'] {
+  border-style: dashed;
+}
+.forge-tool,
+.forge-test,
+.forge-result {
+  position: absolute;
+  top: -4px;
+  right: -3px;
+  border-radius: 2px;
+  color: #ffdc8d;
+  background: #242329;
+}
+.forge-test {
+  right: auto;
+  left: -3px;
+  color: #c9e9ff;
+  animation: forge-test 1.6s ease-in-out infinite;
+}
+.forge-marker[data-stage='developing'] .forge-tool,
+.forge-marker[data-stage='revising'] .forge-tool {
+  transform-origin: bottom right;
+  animation: forge-hammer 1.5s ease-in-out infinite;
+}
+.forge-marker[data-stage='reviewing'] .forge-tool {
+  animation: read-scroll 1.8s ease-in-out infinite;
+}
+.forge-marker[data-stage='complete'] .forge-result {
+  color: #b8f8b0;
+}
+.forge-marker.blocked .forge-result,
+.portal-marker[data-stage='failed'] {
+  color: #ffb3a6;
+}
+.expedition[data-highlight='selected'] {
+  outline: 2px solid #fae9a7;
+  outline-offset: 1px;
+}
+.expedition[data-highlight='related'] {
+  outline: 2px dashed #fae9a7;
+  outline-offset: 1px;
+  background: #384033;
+}
+.portal-marker[data-active='true'] > svg:first-child {
+  animation: forge-test 1.6s ease-in-out infinite;
+}
+@keyframes forge-hammer {
+  45% {
+    transform: rotate(35deg) translateY(2px);
+  }
+  60% {
+    transform: rotate(-13deg);
+  }
+}
+@keyframes forge-test {
+  45% {
+    transform: translateY(-2px);
+  }
+}
+
+.forge-issues {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  list-style: none;
+  padding: 0;
+}
+
+.kingdom-guild {
+  display: grid;
+  place-items: center;
+  position: relative;
+}
+.kingdom-guild-master {
+  position: absolute;
+  bottom: 0;
+  right: -15px;
+  color: #9ad9ff;
+}
+.adventurer-glyph.crafting.develop .adventurer-avatar {
+  animation: forge-test 1.7s ease-in-out infinite;
+}
+.adventurer-glyph.crafting.develop .adventurer-role {
+  animation: forge-hammer 1.7s ease-in-out infinite;
 }
