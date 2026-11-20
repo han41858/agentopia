@@ -1,13 +1,16 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties, FormEvent, ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 import {
   Castle,
-  Crown,
+  FlaskConical,
+  Construction,
+  ClipboardCheck,
+  GitCommitHorizontal,
+  MessageCircle,
   Check,
   ChevronRight,
   Clock3,
-  Code2,
   ExternalLink,
   Flag,
   GitPullRequest,
@@ -16,12 +19,14 @@ import {
   KeyRound,
   Plus,
   RefreshCw,
+  RotateCcw,
   Rocket,
   ScrollText,
-  Sparkles,
   Swords,
+  Skull,
+  Trophy,
+  DoorOpen,
   Ticket,
-  TriangleAlert,
   Workflow,
   X,
 } from 'lucide-react';
@@ -33,6 +38,9 @@ import {
   stages,
 } from '../server/model.ts';
 import type {
+  ActivityCounts,
+  ActivityKind,
+  ActivityPage,
   PullQuest,
   Quest,
   Region,
@@ -42,11 +50,189 @@ import type {
   Source,
   Stage,
 } from '../server/model.ts';
+import {
+  AdventurerGlyph,
+  AdventurerParty,
+  agentNames,
+  MonsterGlyph,
+  partyLabel,
+} from './characters.tsx';
+import { summarizeActivity } from '../server/activity.ts';
+import type {
+  ActivityProfile,
+  Discussion,
+  PullActivity,
+} from '../server/activity.ts';
+import {
+  ActivityAura,
+  monsterGrowth,
+  ReviewOpinionBadge,
+} from './activity-effects.tsx';
+import { nextRefreshInterval, refreshDue } from './refresh.ts';
+import { facilities, FacilityGlyph } from './facility-art.tsx';
+import { facilityKind, isCurrentFacility } from './facility-kind.ts';
+import { HeritageArc, heritageBuildings } from './heritage-arc.tsx';
+import type {
+  Heritage,
+  HeritageMetric,
+  HeritageRecord,
+} from '../server/heritage.ts';
+import { GitHubUsage, publishGitHubUsage } from './github-usage.tsx';
+import { KingdomWall } from './kingdom-wall.tsx';
+import type {
+  GitHubDebugSnapshot,
+  RefreshConsumption,
+} from '../server/github-debug.ts';
 import './styles.css';
 
-type Snapshot = { report?: Report; error?: string; httpStatus?: number };
+function reportForges(report?: Report) {
+  return report?.forges ?? report?.pullQuests ?? [];
+}
 
-function getTokenStatus(hasData: boolean, snapshot?: Snapshot) {
+type Snapshot = {
+  report?: Report;
+  error?: string;
+  httpStatus?: number;
+  pulses?: Record<string, number>;
+};
+
+function partyStates(report: Report) {
+  return new Map([
+    ...report.quests.map((quest): [string, string] => [
+      `issue-${quest.number}`,
+      JSON.stringify([
+        quest.state,
+        quest.stateReason,
+        quest.stage,
+        quest.developer,
+        quest.reviewer,
+        quest.review,
+        quest.victory,
+        quest.adventurers,
+        quest.activity,
+        quest.reopened,
+        quest.workPull,
+        quest.reason,
+        quest.pulls
+          .map(({ number, status }) => [number, status])
+          .sort((a, b) => Number(a[0]) - Number(b[0])),
+      ]),
+    ]),
+    ...reportForges(report).map((pull): [string, string] => [
+      `pr-${pull.number}`,
+      JSON.stringify([
+        pull.stage,
+        pull.draft,
+        pull.cancelled,
+        pull.finishedAt,
+        pull.author,
+        pull.reviewer,
+        pull.review,
+        pull.activity,
+        pull.issues,
+        pull.quality,
+        pull.adventurers,
+      ]),
+    ]),
+  ]);
+}
+
+function reportSnapshot(report: Report, previous?: Snapshot): Snapshot {
+  if (!previous?.report) return { report };
+  const oldReport = previous.report;
+  const warnings = new Set(report.warnings);
+  const missingPulls = warnings.has('PR') || warnings.has('열린 PR');
+  const missingRuns = warnings.has('Actions') || warnings.has('AI 상태 기록');
+  const missingLinks = warnings.has('PR 이슈 연결 및 리뷰');
+  const missingDeployments = warnings.has('배포') || warnings.has('배포 상태');
+  const prior = new Map(
+    previous.report.quests.map((quest) => [quest.number, quest]),
+  );
+  report = {
+    ...report,
+    releases:
+      missingDeployments && !report.releases.length
+        ? oldReport.releases
+        : report.releases,
+    forges: missingPulls
+      ? [
+          ...reportForges(report),
+          ...reportForges(oldReport)
+            .filter(
+              (pull) =>
+                !reportForges(report).some(
+                  (fresh) => fresh.number === pull.number,
+                ),
+            )
+            .map((pull) => ({
+              ...pull,
+              adventurers: pull.adventurers?.map(
+                ({ active: _, ...member }) => member,
+              ),
+              stage: activeStages.has(pull.stage)
+                ? ('idle' as const)
+                : pull.stage,
+              quality: pull.quality === 'ci' ? undefined : pull.quality,
+            })),
+        ]
+      : reportForges(report),
+    quests: report.quests.map((quest) => {
+      const old = prior.get(quest.number);
+      if (old && (missingPulls || missingRuns || missingLinks)) {
+        const knownStage = quest.stage !== 'idle' && quest.stage !== 'returned';
+        const sameState = quest.state === old.state;
+        const adventurers = quest.adventurers?.length
+          ? quest.adventurers
+          : old.adventurers?.map(({ active: _, ...member }) => member);
+        const oldPulls =
+          missingPulls || missingLinks
+            ? old.pulls.filter(
+                (pull) =>
+                  !quest.pulls.some((fresh) => fresh.number === pull.number),
+              )
+            : [];
+        quest = {
+          ...quest,
+          pulls: [...quest.pulls, ...oldPulls],
+          victory:
+            quest.victory || ((missingPulls || missingLinks) && old.victory),
+          activity:
+            (missingPulls || missingLinks) && old.activity
+              ? { ...old.activity, issueComments: quest.issueComments }
+              : quest.activity,
+          adventurers,
+          ...(missingRuns && !knownStage && sameState
+            ? {
+                stage: activeStages.has(old.stage) ? 'idle' : old.stage,
+                reason: old.reason,
+                evidence: old.evidence,
+                runs: old.runs,
+              }
+            : {}),
+        };
+      }
+      return quest.state === 'open' &&
+        !quest.reopened &&
+        (old?.state === 'closed' || old?.reopened)
+        ? { ...quest, reopened: true }
+        : quest;
+    }),
+  };
+  const priorStates = partyStates(previous.report);
+  const pulses: Record<string, number> = {};
+  for (const [key, state] of partyStates(report)) {
+    const pulse = previous.pulses?.[key] ?? 0;
+    const next = pulse + Number(priorStates.get(key) !== state);
+    if (next) pulses[key] = next;
+  }
+  return { report, pulses };
+}
+
+function getTokenStatus(
+  hasData: boolean,
+  hasRepositories: boolean,
+  snapshot?: Snapshot,
+) {
   if (snapshot?.error) {
     const labels: Partial<Record<number, string>> = {
       400: '토큰 형식 오류',
@@ -67,6 +253,12 @@ function getTokenStatus(hasData: boolean, snapshot?: Snapshot) {
       description: '이 토큰으로 GitHub 저장소의 이슈를 조회했습니다.',
       tone: 'verified',
     };
+  if (!hasRepositories)
+    return {
+      label: '저장소 접근 확인 전',
+      description: '저장소를 추가하면 이 토큰의 접근 권한을 확인합니다.',
+      tone: 'checking',
+    };
   return {
     label: '토큰 확인 중',
     description: 'GitHub에서 토큰의 저장소 접근을 확인하고 있습니다.',
@@ -76,18 +268,18 @@ function getTokenStatus(hasData: boolean, snapshot?: Snapshot) {
 const activeStages = new Set<Stage>([
   'queued',
   'developing',
+  'revising',
   'reviewing',
   'ci',
   'deploying',
   'merging',
 ]);
-const ciActivity = 'CI 검사 중';
 const alerts = new Set<Stage>(['failed', 'attention']);
-const defaultRegion: Region = {
-  ...repositoryRegion('han41858/agentopia'),
-  name: 'Agentopia',
-};
+const initialRepositories: Repository[] = [
+  { slug: 'han41858/agentopia', private: false },
+];
 const legacyRepositoryListKey = 'agentopia.public-repositories';
+const settingsVersion = 2;
 const settingsKey = 'agentopia.github-settings';
 type GitHubSettings = { token: string; repositories: Repository[] };
 
@@ -114,7 +306,13 @@ function readSettings(): GitHubSettings {
         : 'repositories' in settings
           ? settings.repositories
           : [];
-    const repositories = new Map<string, Repository>();
+    const needsMigration =
+      !('version' in settings) || settings.version !== settingsVersion;
+    const repositories = new Map<string, Repository>(
+      needsMigration
+        ? initialRepositories.map((repo) => [repo.slug, repo])
+        : [],
+    );
     if (Array.isArray(list)) {
       for (const item of list as unknown[]) {
         const repo = typeof item === 'object' && item !== null ? item : {};
@@ -123,177 +321,304 @@ function readSettings(): GitHubSettings {
         const slug =
           typeof candidate === 'string' ? repositorySlug(candidate) : undefined;
         const restricted = 'private' in repo && repo.private === true;
-        if (slug && slug !== defaultRegion.slug && (!restricted || token))
+        if (slug && (!restricted || token))
           repositories.set(slug, { slug, private: restricted });
       }
     }
     return { token, repositories: [...repositories.values()] };
   } catch {
-    return { token: '', repositories: [] };
+    return { token: '', repositories: initialRepositories };
   }
 }
 const glyph = {
   idle: Clock3,
   queued: Hourglass,
   developing: Swords,
+  revising: RotateCcw,
   reviewing: ScrollText,
   ci: Workflow,
   deploying: Rocket,
   merging: GitPullRequest,
-  complete: Check,
-  failed: TriangleAlert,
+  complete: Trophy,
+  returned: DoorOpen,
+  failed: Skull,
   attention: Flag,
 };
 
-const partyRoles = [
-  { name: 'GitHub Actions', Icon: Workflow, color: 'actions' },
-  { name: 'Codex', Icon: Code2, color: 'codex' },
-  { name: 'Claude', Icon: Sparkles, color: 'claude' },
-  { name: 'Release', Icon: Rocket, color: 'release' },
-] as const;
-
-function expeditionActivity(quest: Quest): {
-  role?: (typeof partyRoles)[number]['color'];
-  action: string;
-} {
-  switch (quest.stage) {
-    case 'queued':
-      return { role: 'actions', action: '워크플로 대기' };
-    case 'developing':
-      return { role: quest.developer, action: '개발 중' };
-    case 'reviewing':
-      return { role: quest.reviewer, action: '코드 리뷰 중' };
-    case 'ci':
-      return { role: 'actions', action: ciActivity };
-    case 'merging':
-      return { role: 'actions', action: 'PR 병합 중' };
-    case 'deploying':
-      return { role: 'release', action: '배포 중' };
-    default:
-      return { action: stages[quest.stage] };
-  }
+function monsterRest(quest: Quest) {
+  if (
+    quest.stage === 'returned' ||
+    quest.stage === 'complete' ||
+    quest.state === 'closed'
+  )
+    return '귀환';
+  return '대기';
 }
 
-function closedIssueLabel(quest: Quest) {
-  const completed = quest.stateReason
-    ? quest.stateReason === 'completed'
-    : quest.stage === 'complete';
-  return completed ? '완료' : '닫힘';
-}
-
-function Expedition({ quest, open }: { quest: Quest; open: () => void }) {
-  const closed = quest.state === 'closed';
-  const blocked = !closed && alerts.has(quest.stage);
-  const ci = !closed && quest.stage === 'ci';
-  const underway = !closed && activeStages.has(quest.stage);
-  const StatusIcon = closed ? Check : glyph[quest.stage];
-  const activity = expeditionActivity(quest);
-  const role = underway ? activity.role : undefined;
-  const action = closed ? closedIssueLabel(quest) : activity.action;
-  const actor = underway
-    ? (partyRoles.find(({ color }) => color === role)?.name ?? '담당 미확인')
-    : undefined;
-
-  const status = actor ? `${actor} · ${action}` : action;
+function MonsterMarker({
+  quest,
+  boss,
+  open,
+  pulse,
+  inspected,
+  related,
+  inspect,
+}: {
+  quest: Quest;
+  boss: boolean;
+  open: () => void;
+  pulse?: number;
+  inspected: boolean;
+  related: boolean;
+  inspect: (active: boolean) => void;
+}) {
+  const defeated = quest.state === 'closed';
+  const members = quest.adventurers ?? [];
+  const resting = monsterRest(quest);
+  const status = [
+    defeated
+      ? '몬스터 처치 완료'
+      : quest.reopened
+        ? '몬스터 부활'
+        : '몬스터 출현',
+    quest.stage !== 'idle' && quest.stage !== 'complete'
+      ? stages[quest.stage]
+      : undefined,
+    quest.victory ? '제작 결과 반영' : undefined,
+    quest.stage === 'failed' ? '구조 요청' : undefined,
+    ...members.map((member) => partyLabel(member, resting)),
+  ]
+    .filter(Boolean)
+    .join(' · ');
 
   return (
     <button
-      className={`expedition${blocked ? ' blocked' : ''}${underway ? ' underway' : ''}${closed ? ' closed-issue' : ''}`}
-      aria-label={`이슈 #${quest.number} 파티 · ${quest.title} · ${status}`}
-      title={
-        blocked || ci || (closed && action === '완료')
-          ? quest.title
-          : `${quest.title} · ${status}`
-      }
+      className={`expedition monster-marker${boss ? ' boss-marker' : ''}${alerts.has(quest.stage) ? ' blocked' : ''}${defeated ? ' closed-issue' : ''}`}
+      aria-label={`${boss ? '보스 몬스터' : '몬스터'} #${quest.number} · ${quest.title} · ${status}${activityEffectsLabel(quest.activity)}`}
+      title={`${quest.title} · ${status}`}
       onClick={open}
+      data-highlight={inspected ? 'selected' : related ? 'related' : undefined}
+      onPointerEnter={() => inspect(true)}
+      onPointerLeave={() => inspect(false)}
+      onFocus={() => inspect(true)}
+      onBlur={() => inspect(false)}
     >
-      <span className="expedition-party" aria-hidden="true">
-        {partyRoles.map(({ name, Icon, color }) => (
-          <span
-            className={`role-symbol ${color}${color === role ? ' current-role' : ''}`}
-            key={name}
-          >
-            <Icon size={14} />
-          </span>
-        ))}
-      </span>
-      <small className="expedition-number">
-        {!ci && <StatusIcon size={blocked ? 13 : 11} aria-hidden="true" />} #
-        {quest.number}
-      </small>
-      {closed && action !== '완료' && (
-        <small className="expedition-status-label">{action}</small>
+      {pulse !== undefined && (
+        <span key={pulse} className="party-pulse" aria-hidden="true" />
       )}
+      <ActivityAura
+        activity={
+          quest.activity && {
+            ...quest.activity,
+            reviews: undefined,
+            opinion: undefined,
+          }
+        }
+      >
+        <MonsterGlyph
+          boss={boss}
+          defeated={defeated}
+          reopened={quest.reopened}
+          growth={monsterGrowth(quest.activity?.commits)}
+        />
+      </ActivityAura>
+      <small className="expedition-number">{`#${quest.number}`}</small>
+      <AdventurerParty members={members} resting={resting} />
+      <MonsterStatusIcons quest={quest} hideCombat />
     </button>
   );
 }
 
+function MonsterStatusIcons({
+  quest,
+  hideCombat = false,
+}: {
+  quest: Quest;
+  hideCombat?: boolean;
+}) {
+  const StageIcon = glyph[quest.stage];
+  return (
+    <span className="monster-statuses" aria-hidden="true">
+      {quest.state === 'closed' && <Check size={12} />}
+      {quest.victory && <Trophy size={12} />}
+      {quest.stage !== 'idle' &&
+        quest.stage !== 'complete' &&
+        !(
+          hideCombat &&
+          (quest.stage === 'developing' || quest.stage === 'revising')
+        ) && <StageIcon size={12} />}
+    </span>
+  );
+}
+
+const activityKinds = ['commits', 'comments', 'reviews'] as const;
+const activityDisplay = {
+  commits: { Icon: GitCommitHorizontal, label: '커밋' },
+  comments: { Icon: MessageCircle, label: '댓글' },
+  reviews: { Icon: ClipboardCheck, label: '리뷰' },
+};
+
+function activityEffectsLabel(activity?: ActivityProfile) {
+  return activity?.opinion?.state === 'APPROVED'
+    ? ' · 리뷰 승인'
+    : activity?.opinion?.state === 'CHANGES_REQUESTED'
+      ? ' · 수정 요청'
+      : '';
+}
+
 function pullStatus(pull: PullQuest) {
-  if (pull.stage === 'ci') return ciActivity;
-  if (pull.stage !== 'idle') return stages[pull.stage];
+  if (pull.cancelled) return '시설 작업 취소';
+  switch (pull.stage) {
+    case 'developing':
+      return '제작 중';
+    case 'revising':
+      return '재제련 중';
+    case 'reviewing':
+      return '장비 검수 중';
+    case 'ci':
+      return '품질 시험';
+    case 'merging':
+      return '제작 결과 반영 중';
+    case 'complete':
+      return '시설 완성';
+    case 'idle':
+      break;
+    default:
+      return stages[pull.stage];
+  }
   return pull.draft ? '초안' : 'PR 열림';
 }
 
 function pullActivity(pull: PullQuest) {
-  if (pull.reviewer)
-    return `${partyRoles.find(({ color }) => color === pull.reviewer)?.name} 리뷰 기록`;
-  if (pull.author)
-    return `${partyRoles.find(({ color }) => color === pull.author)?.name} 작성`;
+  if (pull.reviewer) return `${agentNames[pull.reviewer]} 리뷰 기록`;
+  if (pull.author) return `${agentNames[pull.author]} 작성`;
   return undefined;
 }
 
-function PullMarker({ pull, open }: { pull: PullQuest; open: () => void }) {
-  const role = partyRoles.find(
-    ({ color }) =>
-      color ===
-      (pull.stage === 'ci' ? 'actions' : (pull.reviewer ?? pull.author)),
+function FacilityMarker({
+  pull,
+  open,
+  pulse,
+  inspected,
+  related,
+  inspect,
+}: {
+  pull: PullQuest;
+  open: () => void;
+  pulse?: number;
+  inspected: boolean;
+  related: boolean;
+  inspect: (active: boolean) => void;
+}) {
+  const kind = facilityKind(pull.title);
+  const { name, Tool } = facilities[kind];
+  const working = pull.stage === 'developing' || pull.stage === 'revising';
+  const reviewing = pull.stage === 'reviewing';
+  const members = pull.adventurers ?? [];
+  const activeMembers = members.filter(
+    (member) => member.active && !member.fallen,
   );
-  const Icon =
-    role?.Icon ?? (pull.draft ? GitPullRequestDraft : GitPullRequest);
-  const iconOnly = pull.stage === 'idle' || pull.stage === 'ci';
-  const label = [`PR #${pull.number}`, pull.title, pullActivity(pull)]
+  const worker =
+    (working || reviewing) && activeMembers.length === 1
+      ? activeMembers[0]
+      : undefined;
+  const quality = pull.quality === 'ci' || pull.stage === 'ci';
+  const label = [
+    `${name} PR #${pull.number}`,
+    pull.title,
+    pullActivity(pull),
+    pullStatus(pull),
+    ...activeMembers.map((member) => partyLabel(member, '대기')),
+    ...(pull.issues ?? []).map((number) => `이슈 #${number}`),
+  ]
     .filter(Boolean)
     .join(' · ');
-  const status = pullStatus(pull);
+
   return (
     <button
-      className={`expedition pull-marker${alerts.has(pull.stage) ? ' blocked' : ''}`}
-      title={
-        alerts.has(pull.stage) || iconOnly ? label : `${label} · ${status}`
-      }
-      aria-label={`${label} · ${status}`}
+      className={`expedition pull-marker facility-marker${alerts.has(pull.stage) ? ' blocked' : ''}`}
+      data-highlight={inspected ? 'selected' : related ? 'related' : undefined}
+      data-stage={pull.stage}
+      data-facility={kind}
+      title={label}
+      aria-label={`${label}${activityEffectsLabel(pull.activity)}`}
       onClick={open}
+      onPointerEnter={() => inspect(true)}
+      onPointerLeave={() => inspect(false)}
+      onFocus={() => inspect(true)}
+      onBlur={() => inspect(false)}
     >
-      <span
-        className={`role-symbol current-role${role ? ` ${role.color}` : ''}`}
-        data-draft={pull.draft}
-      >
-        <Icon size={15} aria-hidden="true" />
-      </span>
-      <small className="expedition-number">PR #{pull.number}</small>
-      {alerts.has(pull.stage) ? (
-        <Badge stage={pull.stage} />
-      ) : iconOnly ? null : (
-        <small className="expedition-status-label">{status}</small>
+      {pulse !== undefined && (
+        <span key={pulse} className="party-pulse" aria-hidden="true" />
       )}
+      <ActivityAura
+        activity={pull.activity && { ...pull.activity, opinion: undefined }}
+      >
+        <span
+          className="facility-core"
+          data-draft={pull.draft}
+          aria-hidden="true"
+        >
+          <FacilityGlyph kind={kind} />
+          <ReviewOpinionBadge opinion={pull.activity?.opinion?.state} />
+          {pull.stage === 'idle' && (
+            <Construction className="facility-build" size={13} />
+          )}
+          {worker && (
+            <span className="facility-worker">
+              <AdventurerGlyph
+                agent={worker.agent}
+                active={worker.active}
+                forge
+              />
+            </span>
+          )}
+          {!activeMembers.length && working && (
+            <Tool className="facility-tool" size={13} />
+          )}
+          {!activeMembers.length && reviewing && (
+            <ScrollText className="facility-tool" size={13} />
+          )}
+          {quality && <FlaskConical className="facility-test" size={13} />}
+          {pull.stage === 'merging' && (
+            <GitPullRequest className="facility-result" size={13} />
+          )}
+          {alerts.has(pull.stage) && (
+            <Skull className="facility-result" size={13} />
+          )}
+        </span>
+      </ActivityAura>
+      <small className="expedition-number">{`PR #${pull.number}`}</small>
+      <AdventurerParty
+        members={
+          worker ? members.filter((member) => member !== worker) : members
+        }
+        resting="대기"
+        forge
+      />
     </button>
   );
 }
 
-function GuildQuests({
+function KingdomMonsters({
   quests,
-  pulls,
+  pulses,
   label,
   openQuest,
-  openPull,
+  highlight,
+  related,
+  inspect,
 }: {
   quests: Quest[];
-  pulls: PullQuest[];
+  pulses?: Record<string, number>;
   label: string;
   openQuest: (quest: Quest) => void;
-  openPull: (pull: PullQuest) => void;
+  highlight?: number;
+  related: ReadonlySet<number>;
+  inspect: (number: number, active: boolean) => void;
 }) {
-  const byNumber = new Map(quests.map((quest) => [quest.number, quest]));
+  const openQuests = quests.filter((quest) => quest.state === 'open');
+  const visible = new Set(openQuests.map(({ number }) => number));
   const childrenByParent = new Map<number, Quest[]>();
   for (const quest of quests) {
     if (quest.parent === undefined) continue;
@@ -302,58 +627,38 @@ function GuildQuests({
     childrenByParent.set(quest.parent, siblings);
   }
 
-  const descendants = new Set<number>();
-  function includeDescendants(quest: Quest) {
-    if (descendants.has(quest.number)) return;
-    descendants.add(quest.number);
-    childrenByParent.get(quest.number)?.forEach(includeDescendants);
-  }
-
-  const visible = new Set<number>();
-  for (const quest of quests) {
-    if (quest.state !== 'open') continue;
-    includeDescendants(quest);
-    let current: Quest | undefined = quest;
-    while (current && !visible.has(current.number)) {
-      visible.add(current.number);
-      current =
-        current.parent === undefined ? undefined : byNumber.get(current.parent);
-    }
-  }
-  for (const number of descendants) visible.add(number);
-  const roots = quests.filter(
-    ({ number, parent }) =>
-      visible.has(number) && (parent === undefined || !visible.has(parent)),
-  );
+  const priority = (quest: Quest) =>
+    alerts.has(quest.stage) ? 2 : activeStages.has(quest.stage) ? 1 : 0;
+  const comparePriority = (a: Quest, b: Quest) => priority(b) - priority(a);
+  const roots = openQuests
+    .filter(({ parent }) => parent === undefined || !visible.has(parent))
+    .sort(comparePriority);
 
   function render(quest: Quest) {
     const children = (childrenByParent.get(quest.number) ?? []).filter(
       ({ number }) => visible.has(number),
     );
-    const guildLeader = children.length > 0 || Boolean(quest.subIssueCount);
+    children.sort(comparePriority);
+    const boss =
+      childrenByParent.has(quest.number) || Boolean(quest.subIssueCount);
     return (
       <li
         key={quest.number}
-        className={guildLeader ? 'guild-branch' : undefined}
+        className={children.length ? 'guild-branch' : undefined}
       >
-        {guildLeader ? (
-          <button
-            className="guild-leader"
-            title={quest.title}
-            aria-label={`길드장 #${quest.number} · ${quest.title}`}
-            onClick={() => openQuest(quest)}
-          >
-            <span>
-              <Crown size={17} aria-hidden="true" /> #{quest.number}
-            </span>
-          </button>
-        ) : (
-          <Expedition quest={quest} open={() => openQuest(quest)} />
-        )}
+        <MonsterMarker
+          quest={quest}
+          boss={boss}
+          open={() => openQuest(quest)}
+          pulse={pulses?.[`issue-${quest.number}`]}
+          inspected={highlight === quest.number}
+          related={related.has(quest.number)}
+          inspect={(active) => inspect(quest.number, active)}
+        />
         {children.length > 0 && (
           <ul
             className="guild-parties"
-            aria-label={`길드장 #${quest.number}의 하위 이슈`}
+            aria-label={`보스 몬스터 #${quest.number}의 하위 몬스터`}
           >
             {children.map(render)}
           </ul>
@@ -362,15 +667,13 @@ function GuildQuests({
     );
   }
 
+  if (!roots.length) return null;
   return (
-    <ul className="expeditions" aria-label={label}>
-      {roots.map(render)}
-      {pulls.map((pull) => (
-        <li key={`pr-${pull.number}`}>
-          <PullMarker pull={pull} open={() => openPull(pull)} />
-        </li>
-      ))}
-    </ul>
+    <div className="kingdom-fields">
+      <ul className="expeditions" aria-label={label}>
+        {roots.map(render)}
+      </ul>
+    </div>
   );
 }
 
@@ -387,11 +690,25 @@ async function request<T>(
   params: URLSearchParams,
   token: string,
   signal: AbortSignal,
+  onUsage?: (usage?: RefreshConsumption) => void,
 ): Promise<T> {
   const response = await fetch(`/api/github?${params}`, {
     signal,
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   });
+  const header = response.headers.get('X-Agentopia-GitHub-Usage');
+  let snapshot: GitHubDebugSnapshot | undefined;
+  if (header) {
+    try {
+      snapshot = JSON.parse(header) as GitHubDebugSnapshot;
+    } catch {
+      // Invalid diagnostics should not interrupt repository updates.
+    }
+  }
+  if (!signal.aborted) {
+    publishGitHubUsage(token, snapshot);
+    onUsage?.(snapshot?.refresh);
+  }
   const body = await response.json();
   if (!response.ok)
     throw new RequestError(
@@ -401,17 +718,21 @@ async function request<T>(
   return body as T;
 }
 
-function Badge({ stage }: { stage: Stage }) {
+function requestHeritage(slug: string, token: string, signal: AbortSignal) {
+  return request<Heritage>(
+    new URLSearchParams({ repo: slug, heritage: '1' }),
+    token,
+    signal,
+  );
+}
+
+function Badge({ stage, label }: { stage: Stage; label?: string }) {
   const Icon = glyph[stage];
+  const description =
+    label ?? (stage === 'ci' ? `GitHub Actions · ${stages.ci}` : stages[stage]);
   if (alerts.has(stage) || stage === 'complete' || stage === 'ci') {
     return (
-      <span
-        className={`badge ${stage}`}
-        role="img"
-        aria-label={
-          stage === 'ci' ? `GitHub Actions · ${ciActivity}` : stages[stage]
-        }
-      >
+      <span className={`badge ${stage}`} role="img" aria-label={description}>
         <Icon size={14} aria-hidden="true" />
       </span>
     );
@@ -419,20 +740,31 @@ function Badge({ stage }: { stage: Stage }) {
   return (
     <span className={`badge ${stage}`}>
       <Icon size={14} aria-hidden="true" />
-      {stages[stage]}
+      {description}
     </span>
   );
 }
 
 function IssueBadge({ quest }: { quest: Quest }) {
-  if (quest.state !== 'closed') return <Badge stage={quest.stage} />;
-  if (closedIssueLabel(quest) === '완료')
-    return (
-      <span className="badge complete" role="img" aria-label="완료">
-        <Check size={14} aria-hidden="true" />
-      </span>
-    );
-  return <span className="badge">닫힘</span>;
+  return (
+    <span className="monster-statuses">
+      {quest.state === 'closed' && (
+        <span
+          className="badge complete"
+          role="img"
+          aria-label="몬스터 처치 완료"
+        >
+          <Check size={14} aria-hidden="true" />
+        </span>
+      )}
+      {quest.victory && <Badge stage="complete" label="제작 결과 반영" />}
+      {quest.stage !== 'idle' && quest.stage !== 'complete' ? (
+        <Badge stage={quest.stage} />
+      ) : quest.state === 'open' && !quest.victory ? (
+        <span className="badge idle">몬스터 출현</span>
+      ) : null}
+    </span>
+  );
 }
 
 function OutLink({ item }: { item: Source }) {
@@ -447,18 +779,55 @@ function OutLink({ item }: { item: Source }) {
   );
 }
 
+function ResultLink({ item }: { item: Source }) {
+  return (
+    <a
+      className="source result-link"
+      title={item.title}
+      href={item.url}
+      target="_blank"
+      rel="noreferrer"
+    >
+      <span>{item.title}</span>
+      {item.status && <small>{item.status}</small>}
+      <ExternalLink size={14} aria-hidden="true" />
+    </a>
+  );
+}
+
 function Dialog({
   title,
+  titleHref,
   className,
   children,
   close,
 }: {
   title: string;
+  titleHref?: string;
   className?: string;
   children: ReactNode;
   close: () => void;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
+  const pressedBackdrop = useRef<number | null>(null);
+  const releasedBackdrop = useRef(false);
+
+  function isBackdrop(event: {
+    currentTarget: HTMLDialogElement;
+    target: EventTarget;
+    clientX: number;
+    clientY: number;
+  }) {
+    const box = event.currentTarget.getBoundingClientRect();
+    return (
+      event.target === event.currentTarget &&
+      (event.clientX < box.left ||
+        event.clientX >= box.right ||
+        event.clientY < box.top ||
+        event.clientY >= box.bottom)
+    );
+  }
+
   useEffect(() => {
     ref.current?.showModal();
   }, []);
@@ -468,9 +837,44 @@ function Dialog({
       className={className ? `panel dialog ${className}` : 'panel dialog'}
       aria-label={title}
       onCancel={close}
+      onPointerDown={(event) => {
+        if (!event.isPrimary || event.button !== 0) return;
+        pressedBackdrop.current = isBackdrop(event) ? event.pointerId : null;
+        releasedBackdrop.current = false;
+      }}
+      onPointerUp={(event) => {
+        if (event.isPrimary)
+          releasedBackdrop.current =
+            pressedBackdrop.current === event.pointerId && isBackdrop(event);
+      }}
+      onPointerCancel={(event) => {
+        if (event.isPrimary) {
+          pressedBackdrop.current = null;
+          releasedBackdrop.current = false;
+        }
+      }}
+      onClick={(event) => {
+        const dismiss = releasedBackdrop.current && isBackdrop(event);
+        pressedBackdrop.current = null;
+        releasedBackdrop.current = false;
+        if (dismiss) close();
+      }}
     >
       <div className="dialog-heading">
-        <h2>{title}</h2>
+        <h2>
+          {titleHref ? (
+            <a
+              className="dialog-title-link"
+              href={titleHref}
+              target="_blank"
+              rel="noreferrer"
+            >
+              {title} <ExternalLink size={15} aria-hidden="true" />
+            </a>
+          ) : (
+            title
+          )}
+        </h2>
         <button className="icon-button" aria-label="닫기" onClick={close}>
           <X size={20} />
         </button>
@@ -480,122 +884,228 @@ function Dialog({
   );
 }
 
-function Reviews({
+function ActivityBrowser({
   region,
-  pull,
+  number,
   token,
+  kinds = activityKinds,
+  counts,
 }: {
   region: string;
-  pull: number;
+  number: number;
   token: string;
+  kinds?: readonly ActivityKind[];
+  counts?: ActivityCounts;
 }) {
-  const [reviews, setReviews] = useState<Source[]>();
-  const [error, setError] = useState('');
-  useEffect(() => {
-    const controller = new AbortController();
-    request<Source[]>(
-      new URLSearchParams({ repo: region, reviews: String(pull) }),
-      token,
-      controller.signal,
-    ).then(setReviews, (cause: Error) => {
-      if (!controller.signal.aborted) setError(cause.message);
-    });
-    return () => controller.abort();
-  }, [region, pull, token]);
-  if (error) return <p className="fetch-error">{error}</p>;
-  if (!reviews) return <p>리뷰 조회 중…</p>;
-  return reviews.length ? (
-    reviews.map((item, index) => <OutLink key={index} item={item} />)
-  ) : (
-    <p>GitHub PR 리뷰 기록이 없습니다.</p>
-  );
-}
-
-function Party({ quest }: { quest: Quest }) {
-  const activeRole =
-    quest.state === 'open' ? expeditionActivity(quest).role : undefined;
-  const roles = [
-    {
-      name: '파티장',
-      sprite: 'guild',
-      duty: 'GitHub Actions',
-      running: activeRole === 'actions',
-    },
-    {
-      name: '마법공학자',
-      sprite: 'codex',
-      duty: quest.developer === 'codex' ? 'Codex · 개발' : 'Codex · 리뷰',
-      visible: quest.developer === 'codex' || quest.reviewer === 'codex',
-      running: activeRole === 'codex',
-    },
-    {
-      name: '현자',
-      sprite: 'claude',
-      duty: quest.developer === 'claude' ? 'Claude · 개발' : 'Claude · 리뷰',
-      visible: quest.developer === 'claude' || quest.reviewer === 'claude',
-      running: activeRole === 'claude',
-    },
-    {
-      name: '수호 골렘',
-      sprite: 'golem',
-      duty: 'CI',
-      visible: quest.runs.some((item) => item.title === 'CI'),
-      running: quest.state === 'open' && quest.stage === 'ci',
-    },
-    {
-      name: '포탈 관리자',
-      sprite: 'portal',
-      duty:
-        activeRole === 'release' ? 'Release · 배포 중' : 'Release · 배포 담당',
-      running: activeRole === 'release',
-    },
-  ];
-  const members = roles.filter(({ visible }) => visible !== false);
+  const [selected, setSelected] = useState<ActivityKind>();
+  const [visited, setVisited] = useState<ActivityKind[]>([]);
   return (
-    <div className="party">
-      {members.map(({ name, sprite, duty, running }) => (
-        <div key={name}>
-          <span
-            className={`sprite ${sprite} ${running ? 'working' : ''}`}
-            aria-hidden="true"
+    <div className="activity-browser">
+      <div className="activity-counters">
+        {kinds.map((kind) => {
+          const { Icon, label } = activityDisplay[kind];
+          return (
+            <button
+              key={kind}
+              type="button"
+              className="text-button activity-counter"
+              title={label}
+              aria-label={
+                counts?.[kind] === undefined
+                  ? label
+                  : `${label} ${counts[kind]}개`
+              }
+              aria-expanded={selected === kind}
+              onClick={() => {
+                if (!visited.includes(kind)) setVisited([...visited, kind]);
+                setSelected(selected === kind ? undefined : kind);
+              }}
+            >
+              <Icon size={16} aria-hidden="true" />
+              {counts?.[kind]}
+            </button>
+          );
+        })}
+      </div>
+      {visited.map((kind) => (
+        <div key={kind} hidden={selected !== kind}>
+          <ActivityEntries
+            region={region}
+            number={number}
+            kind={kind}
+            token={token}
           />
-          <span>
-            <strong>{name}</strong>
-            <small>{duty}</small>
-          </span>
         </div>
       ))}
     </div>
   );
 }
 
-function PartyPreview({ quest }: { quest: Quest }) {
-  const cast = [quest.developer, quest.reviewer].filter(
-    (agent) => agent !== undefined,
-  );
-  if (quest.stage === 'ci')
-    return <span className="sprite golem working" aria-hidden="true" />;
-  if (quest.stage === 'deploying')
-    return <span className="sprite portal working" aria-hidden="true" />;
-  if (!cast.length)
-    return quest.runs.length ? (
-      <span className="sprite guild" aria-hidden="true" />
-    ) : null;
-  const current =
-    quest.stage === 'developing'
-      ? quest.developer
-      : quest.stage === 'reviewing'
-        ? quest.reviewer
-        : undefined;
+function ActivityEntries({
+  region,
+  number,
+  kind,
+  token,
+}: {
+  region: string;
+  number: number;
+  kind: ActivityKind;
+  token: string;
+}) {
+  const [page, setPage] = useState(1);
+  const [result, setResult] = useState<ActivityPage>();
+  const [error, setError] = useState('');
+  useEffect(() => {
+    const controller = new AbortController();
+    request<ActivityPage>(
+      new URLSearchParams({
+        repo: region,
+        activity: kind,
+        number: String(number),
+        page: String(page),
+      }),
+      token,
+      controller.signal,
+    ).then(
+      (data) => {
+        if (!controller.signal.aborted) {
+          setResult((previous) => ({
+            entries:
+              page === 1
+                ? data.entries
+                : [...(previous?.entries ?? []), ...data.entries],
+            next: data.next,
+          }));
+        }
+      },
+      (cause: Error) => {
+        if (!controller.signal.aborted) setError(cause.message);
+      },
+    );
+    return () => controller.abort();
+  }, [region, number, kind, page, token]);
+  if (error) return <p className="fetch-error">{error}</p>;
+  if (!result) return <p role="status">GitHub 기록 조회 중…</p>;
   return (
-    <span className="party-preview" aria-hidden="true">
-      {cast.map((agent) => (
-        <span
-          key={agent}
-          className={`sprite ${agent} ${agent === current ? 'working' : ''}`}
-        />
+    <div className="activity-entries">
+      {!result.entries.length && <p>GitHub 기록이 없습니다.</p>}
+      {result.entries.map((item) => (
+        <div className="activity-entry" key={item.url}>
+          <OutLink item={item} />
+          {(item.author || item.at) && (
+            <small>
+              {[
+                item.author,
+                item.at && new Date(item.at).toLocaleString('ko-KR'),
+              ]
+                .filter(Boolean)
+                .join(' · ')}
+            </small>
+          )}
+          {item.body && <p>{item.body}</p>}
+        </div>
       ))}
-    </span>
+      {result.next && (
+        <button
+          type="button"
+          className="text-button"
+          disabled={page === result.next}
+          onClick={() => setPage(result.next ?? page)}
+        >
+          더 보기
+        </button>
+      )}
+    </div>
+  );
+}
+
+function ActivityTotals({
+  region,
+  token,
+  issue,
+  pulls,
+  initial,
+}: {
+  region: string;
+  token: string;
+  issue?: number;
+  pulls: string;
+  initial?: ActivityProfile;
+}) {
+  const [loaded, setLoaded] = useState<ActivityProfile>();
+  const [failed, setFailed] = useState(false);
+  const needsDetails =
+    !initial ||
+    initial.partialCommits ||
+    initial.commits === undefined ||
+    initial.pullComments === undefined ||
+    initial.reviews === undefined ||
+    (issue !== undefined && initial.issueComments === undefined);
+  useEffect(() => {
+    if (!needsDetails) return;
+    const controller = new AbortController();
+    const get = <T,>(summary: string, number: string) =>
+      request<T>(
+        new URLSearchParams({ repo: region, summary, number }),
+        token,
+        controller.signal,
+      );
+    async function load() {
+      const issueRecord =
+        issue === undefined
+          ? undefined
+          : await get<Discussion>('issue', String(issue));
+      const numbers = pulls ? pulls.split(',') : [];
+      const records: PullActivity[] = [];
+      for (let offset = 0; offset < numbers.length; offset += 3) {
+        records.push(
+          ...(await Promise.all(
+            numbers
+              .slice(offset, offset + 3)
+              .map((number) => get<PullActivity>('pull', number)),
+          )),
+        );
+      }
+      if (!controller.signal.aborted)
+        setLoaded(summarizeActivity(issueRecord, records));
+    }
+    void load().catch(() => {
+      if (!controller.signal.aborted) setFailed(true);
+    });
+    return () => controller.abort();
+  }, [region, token, issue, pulls, needsDetails]);
+  const activity = loaded ?? initial;
+  const rows = [
+    ['고유 커밋', activity?.commits, activity?.partialCommits],
+    ...(issue === undefined
+      ? []
+      : ([['이슈 댓글', activity?.issueComments, false]] as const)),
+    ['PR 댓글', activity?.pullComments, false],
+    ['리뷰', activity?.reviews, false],
+  ] as const;
+  return (
+    <section className="activity-totals">
+      <h4>GitHub 활동량</h4>
+      <dl>
+        {rows.map(([label, count, partial]) => (
+          <div key={label}>
+            <dt>{label}</dt>
+            <dd>
+              {typeof count === 'number'
+                ? `${count.toLocaleString('ko-KR')}${partial ? ' 이상' : ''}`
+                : '미확인'}
+            </dd>
+          </div>
+        ))}
+      </dl>
+      {needsDetails && !loaded && (
+        <small role="status">
+          {failed
+            ? '일부 활동을 조회하지 못했습니다.'
+            : 'GitHub 활동 집계 확인 중…'}
+        </small>
+      )}
+    </section>
   );
 }
 
@@ -610,11 +1120,59 @@ function QuestDetail({
   token: string;
   close: () => void;
 }) {
-  const [reviewPull, setReviewPull] = useState<number>();
+  const [activityPull, setActivityPull] = useState<number>();
+  const [visitedPulls, setVisitedPulls] = useState<number[]>([]);
   return (
-    <Dialog title={`Quest #${quest.number}`} close={close}>
+    <Dialog title={`이슈 #${quest.number}`} titleHref={quest.url} close={close}>
       <h3>{quest.title}</h3>
+      <div className="battle-scene">
+        {(['codex', 'claude'] as const).map((agent) => {
+          const member = quest.adventurers?.find(
+            (item) => item.agent === agent,
+          );
+          return (
+            member && (
+              <div
+                className={`battle-adventurer ${agent}`}
+                key={agent}
+                title={partyLabel(member, monsterRest(quest))}
+                aria-label={partyLabel(member, monsterRest(quest))}
+              >
+                <AdventurerGlyph
+                  agent={agent}
+                  active={member.active}
+                  fallen={member.fallen}
+                />
+              </div>
+            )
+          );
+        })}
+        <div className="battle-monster">
+          <ActivityAura activity={quest.activity}>
+            <MonsterGlyph
+              boss={Boolean(quest.subIssueCount)}
+              defeated={quest.state === 'closed'}
+              reopened={quest.reopened}
+              growth={monsterGrowth(quest.activity?.commits)}
+            />
+          </ActivityAura>
+          <small className="expedition-number">{`#${quest.number}`}</small>
+          <MonsterStatusIcons quest={quest} />
+        </div>
+      </div>
+      <ActivityTotals
+        key={`${region.slug}:${quest.number}:${quest.pulls.map(({ number }) => number).join(',')}`}
+        region={region.slug}
+        token={token}
+        issue={quest.number}
+        pulls={quest.pulls.map(({ number }) => number).join(',')}
+        initial={quest.activity}
+      />
       <IssueBadge quest={quest} />
+      {quest.stateReason === 'not_planned' && (
+        <p>GitHub 종료 사유 · 작업하지 않기로 함</p>
+      )}
+      {quest.stateReason === 'duplicate' && <p>GitHub 종료 사유 · 중복</p>}
       {(quest.reason || quest.detail) && (
         <div className={`reason ${alerts.has(quest.stage) ? 'danger' : ''}`}>
           <p>{quest.reason}</p>
@@ -622,41 +1180,70 @@ function QuestDetail({
         </div>
       )}
       {quest.evidence && <OutLink item={quest.evidence} />}
-      <h4>개발 파티</h4>
-      <Party quest={quest} />
+      {Boolean(quest.adventurers?.length) && (
+        <>
+          <h4>모험가 파티</h4>
+          <AdventurerParty
+            members={quest.adventurers ?? []}
+            resting={monsterRest(quest)}
+            detailed
+          />
+        </>
+      )}
       {quest.review && (
         <p>
           현재 커밋의 AI 리뷰 결과 <strong>{quest.review}</strong>
         </p>
       )}
-      <h4>GitHub 기록</h4>
-      <OutLink item={{ title: `Issue #${quest.number}`, url: quest.url }} />
+      <ActivityBrowser
+        region={region.slug}
+        number={quest.number}
+        token={token}
+        kinds={['comments']}
+        counts={{ comments: quest.issueComments }}
+      />
+      {(quest.pulls.length > 0 || quest.commit) && <h4>공략 결과</h4>}
+      {quest.commit && <ResultLink item={quest.commit} />}
       {quest.pulls.map((item) => (
-        <div className="pull-detail" key={item.number}>
-          <OutLink
-            item={{ ...item, title: `PR #${item.number} · ${item.title}` }}
-          />
-          <button
-            className="text-button"
-            onClick={() =>
-              setReviewPull(
-                reviewPull === item.number ? undefined : item.number,
-              )
-            }
-          >
-            <GitPullRequest size={14} />{' '}
-            {reviewPull === item.number ? '리뷰 접기' : 'PR 리뷰 조회'}
-          </button>
-          {reviewPull === item.number && (
-            <Reviews
-              key={item.number}
-              region={region.slug}
-              pull={item.number}
-              token={token}
+        <div key={item.number}>
+          <div className="result-row">
+            <ResultLink
+              item={{ ...item, title: `PR #${item.number} · ${item.title}` }}
             />
+            <button
+              className="text-button result-review"
+              title={
+                activityPull === item.number ? 'PR 활동 접기' : 'PR 활동 보기'
+              }
+              aria-label={
+                activityPull === item.number ? 'PR 활동 접기' : 'PR 활동 보기'
+              }
+              aria-expanded={activityPull === item.number}
+              onClick={() => {
+                if (!visitedPulls.includes(item.number))
+                  setVisitedPulls([...visitedPulls, item.number]);
+                setActivityPull(
+                  activityPull === item.number ? undefined : item.number,
+                );
+              }}
+            >
+              <GitPullRequest size={16} aria-hidden="true" />
+            </button>
+          </div>
+          {visitedPulls.includes(item.number) && (
+            <div hidden={activityPull !== item.number}>
+              <ActivityBrowser
+                key={item.number}
+                region={region.slug}
+                number={item.number}
+                counts={item.activities}
+                token={token}
+              />
+            </div>
           )}
         </div>
       ))}
+      {quest.runs.length > 0 && <h4>GitHub Actions</h4>}
       {quest.runs.map((item) => (
         <OutLink key={item.url} item={item} />
       ))}
@@ -669,36 +1256,74 @@ function PullDetail({
   region,
   token,
   close,
+  openIssue,
 }: {
   pull: PullQuest;
   region: Region;
   token: string;
   close: () => void;
+  openIssue: (number: number) => boolean;
 }) {
-  const [showReviews, setShowReviews] = useState(false);
-  const author = partyRoles.find(({ color }) => color === pull.author);
-  const reviewer = partyRoles.find(({ color }) => color === pull.reviewer);
+  const kind = facilityKind(pull.title);
+  const author = pull.author && agentNames[pull.author];
+  const reviewer = pull.reviewer && agentNames[pull.reviewer];
   return (
-    <Dialog title={`PR #${pull.number}`} close={close}>
+    <Dialog title={`PR #${pull.number}`} titleHref={pull.url} close={close}>
       <h3>{pull.title}</h3>
-      <PullStatus pull={pull} />
-      {author && <p>작성 · {author.name}</p>}
+      <div className="facility-detail">
+        <FacilityGlyph kind={kind} />
+        <strong>{facilities[kind].name}</strong>
+        <PullStatus pull={pull} />
+      </div>
+      <AdventurerParty
+        members={pull.adventurers ?? []}
+        resting="대기"
+        detailed
+        forge
+      />
+      {!!pull.issues?.length && (
+        <ul className="facility-issues" aria-label="연결된 이슈">
+          {pull.issues.map((number) => (
+            <li key={number}>
+              <a
+                className="text-button"
+                href={`https://github.com/${region.slug}/issues/${number}`}
+                onClick={(event) => {
+                  if (
+                    !event.metaKey &&
+                    !event.ctrlKey &&
+                    !event.shiftKey &&
+                    !event.altKey &&
+                    openIssue(number)
+                  )
+                    event.preventDefault();
+                }}
+              >
+                이슈 #{number}
+              </a>
+            </li>
+          ))}
+        </ul>
+      )}
+      {author && <p>작성 · {author}</p>}
       {reviewer && (
         <p>
-          리뷰 기록 · {reviewer.name} {pull.review}
+          리뷰 기록 · {reviewer} {pull.review}
         </p>
       )}
-      <OutLink item={{ title: `GitHub PR #${pull.number}`, url: pull.url }} />
-      <button
-        className="text-button"
-        onClick={() => setShowReviews(!showReviews)}
-      >
-        <GitPullRequest size={14} aria-hidden="true" />{' '}
-        {showReviews ? '리뷰 접기' : 'PR 리뷰 조회'}
-      </button>
-      {showReviews && (
-        <Reviews region={region.slug} pull={pull.number} token={token} />
-      )}
+      <ActivityTotals
+        key={`${region.slug}:${pull.number}`}
+        region={region.slug}
+        token={token}
+        pulls={String(pull.number)}
+        initial={pull.activity}
+      />
+      <ActivityBrowser
+        region={region.slug}
+        number={pull.number}
+        token={token}
+        counts={pull.activities}
+      />
       {pull.runs.map((run) => (
         <OutLink key={run.url} item={run} />
       ))}
@@ -707,6 +1332,12 @@ function PullDetail({
 }
 
 function PullStatus({ pull }: { pull: PullQuest }) {
+  if (pull.cancelled)
+    return (
+      <span className="badge idle">
+        <X size={14} aria-hidden="true" /> 작업 취소
+      </span>
+    );
   if (pull.stage === 'idle') {
     const Icon = pull.draft ? GitPullRequestDraft : GitPullRequest;
     return (
@@ -715,8 +1346,10 @@ function PullStatus({ pull }: { pull: PullQuest }) {
       </span>
     );
   }
-  return alerts.has(pull.stage) || pull.stage === 'ci' ? (
-    <Badge stage={pull.stage} />
+  return alerts.has(pull.stage) ||
+    pull.stage === 'ci' ||
+    pull.stage === 'complete' ? (
+    <Badge stage={pull.stage} label={pullStatus(pull)} />
   ) : (
     <span className={`badge ${pull.stage}`}>{pullStatus(pull)}</span>
   );
@@ -726,16 +1359,25 @@ function RegionDetail({
   region,
   snapshot,
   openQuest,
+  openPull,
   remove,
   close,
 }: {
   region: Region;
   snapshot?: Snapshot;
   openQuest: (quest: Quest) => void;
-  remove?: () => void;
+  openPull: (pull: PullQuest) => void;
+  remove: () => void;
   close: () => void;
 }) {
   const quests = snapshot?.report?.quests ?? [];
+  const pulls = reportForges(snapshot?.report);
+  const currentFacilities = pulls.filter(isCurrentFacility);
+  const facilityHistory = pulls
+    .filter((pull) => !isCurrentFacility(pull))
+    .sort((left, right) =>
+      (right.finishedAt ?? '').localeCompare(left.finishedAt ?? ''),
+    );
   const known = new Set(quests.map((quest) => quest.number));
   const roots = quests.filter(
     (quest) => !quest.parent || !known.has(quest.parent),
@@ -757,21 +1399,16 @@ function RegionDetail({
           <span>
             <small>
               {children.length || quest.subIssueCount
-                ? '길드장'
-                : quest.parent
-                  ? '하위 이슈 파티'
-                  : '퀘스트'}{' '}
+                ? '보스 몬스터'
+                : '몬스터'}{' '}
               #{quest.number}
             </small>
             <strong>{quest.title}</strong>
-            {quest.developer && (
-              <small>
-                {quest.developer} · 개발
-                {quest.reviewer && ` / ${quest.reviewer} · 리뷰`}
-              </small>
-            )}
           </span>
-          <PartyPreview quest={quest} />
+          <AdventurerParty
+            members={quest.adventurers ?? []}
+            resting={monsterRest(quest)}
+          />
           <IssueBadge quest={quest} />
           <ChevronRight size={16} />
         </button>
@@ -785,22 +1422,43 @@ function RegionDetail({
       </li>
     );
   }
+  function facilityRows(entries: PullQuest[]) {
+    return (
+      <ul className="quest-tree">
+        {entries.map((pull) => {
+          const kind = facilityKind(pull.title);
+          return (
+            <li key={pull.number}>
+              <button className="quest-row" onClick={() => openPull(pull)}>
+                <FacilityGlyph kind={kind} />
+                <span>
+                  <small>
+                    {facilities[kind].name} · PR #{pull.number}
+                  </small>
+                  <strong>{pull.title}</strong>
+                </span>
+                <PullStatus pull={pull} />
+                <ChevronRight size={16} aria-hidden="true" />
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+    );
+  }
+
   return (
     <Dialog title={region.name} close={close}>
-      <p>{region.description}</p>
       <OutLink
         item={{
-          title: 'GitHub 저장소',
+          title: region.slug,
           url: `https://github.com/${region.slug}`,
         }}
       />
-      {remove && (
-        <button className="text-button" onClick={remove}>
-          월드맵에서 제거
-        </button>
-      )}
+      <button className="text-button" onClick={remove}>
+        월드맵에서 제거
+      </button>
       {snapshot?.error && <p className="fetch-error">{snapshot.error}</p>}
-      {!snapshot && <p>왕국 기록을 불러오는 중…</p>}
       {snapshot?.report?.warnings.length ? (
         <p className="fetch-error">
           일부 기록을 확인하지 못했습니다 ·{' '}
@@ -815,13 +1473,34 @@ function RegionDetail({
         ) : (
           <p>조회 범위에 퀘스트가 없습니다.</p>
         ))}
+      {currentFacilities.length > 0 && (
+        <>
+          <h4>왕국 시설</h4>
+          {facilityRows(currentFacilities)}
+        </>
+      )}
+      {facilityHistory.length > 0 && (
+        <details className="facility-history">
+          <summary>시설 이력</summary>
+          {facilityRows(facilityHistory)}
+          <OutLink
+            item={{
+              title: 'GitHub에서 종료된 PR 보기',
+              url: `https://github.com/${region.slug}/pulls?q=is%3Apr+is%3Aclosed`,
+            }}
+          />
+        </details>
+      )}
       {!!snapshot?.report?.releases.length && (
         <>
           <h4>왕국 배포 기록</h4>
           {snapshot.report.releases.map((release, index) => (
             <div className="release" key={index}>
               <OutLink item={release} />
-              <Badge stage={release.stage} />
+              <Badge
+                stage={release.stage}
+                label={release.stage === 'complete' ? '배포 완료' : undefined}
+              />
             </div>
           ))}
         </>
@@ -855,9 +1534,8 @@ function TokenDialog({
   return (
     <Dialog title="GitHub 연결" close={close}>
       <p>
-        비공개 지역을 탐험하거나 내 API 사용 한도로 조회하려면 읽기 전용 GitHub
-        토큰을 연결하세요. 이 브라우저에 저장되며 티켓에서 연결을 해제할 수
-        있습니다.
+        비공개 지역을 탐험하거나 GitHub API 사용 한도를 높이려면 GitHub 토큰을
+        연결하세요.
       </p>
       {token && (
         <div className="token-result" role="status">
@@ -868,9 +1546,9 @@ function TokenDialog({
         </div>
       )}
       <form className="token-form" onSubmit={submit}>
-        <label htmlFor="github-token">Fine-grained personal access token</label>
         <input
           id="github-token"
+          aria-label="GitHub 토큰"
           type="password"
           autoComplete="off"
           required
@@ -1012,10 +1690,10 @@ function RepositoryDialog({
 
   return (
     <Dialog title="저장소 추가" className="repository-dialog" close={close}>
-      <form className="token-form" onSubmit={submit}>
-        <label htmlFor="github-repository">GitHub 계정 또는 저장소</label>
+      <form className="token-form" onSubmit={submit} aria-busy={pending}>
         <input
           id="github-repository"
+          aria-label="GitHub 계정 또는 저장소"
           placeholder="owner 또는 owner/repo"
           autoCapitalize="none"
           autoComplete="off"
@@ -1034,12 +1712,14 @@ function RepositoryDialog({
           {owner ? '목록 보기' : '추가'}
         </button>
       </form>
-      {pending && <p role="status">GitHub 확인 중…</p>}
       {page && (
         <>
           {page.repositories.length ? (
-            <fieldset className="repository-options" disabled={pending}>
-              <legend>저장소 선택</legend>
+            <fieldset
+              className="repository-options"
+              disabled={pending}
+              aria-label="저장소 선택"
+            >
               {page.repositories.map((repo) => (
                 <label key={repo.slug}>
                   <input
@@ -1101,109 +1781,98 @@ function RepositoryDialog({
   );
 }
 
-function QuestLog({
-  regions,
-  snapshots,
-  loading,
-  openQuest,
-  openPull,
-}: {
-  regions: Region[];
-  snapshots: Record<string, Snapshot>;
-  loading: boolean;
-  openQuest: (region: Region, quest: Quest) => void;
-  openPull: (region: Region, pull: PullQuest) => void;
-}) {
-  const entries = regions
-    .flatMap((region) => {
-      const report = snapshots[region.id]?.report;
-      const items: (Quest | PullQuest)[] = [
-        ...(report?.quests ?? []),
-        ...(report?.pullQuests ?? []),
-      ];
-      return items.map((item) => ({ region, item }));
-    })
-    .sort(
-      (a, b) =>
-        Number('state' in a.item && a.item.state === 'closed') -
-          Number('state' in b.item && b.item.state === 'closed') ||
-        b.item.number - a.item.number ||
-        a.region.slug.localeCompare(b.region.slug),
-    );
-  const hasReport = regions.some(({ id }) => snapshots[id]?.report);
+type HeritageSelection = {
+  region: Region;
+  metric: HeritageMetric;
+  record?: HeritageRecord;
+};
 
+function HeritageDetail({
+  selection,
+  close,
+}: {
+  selection: HeritageSelection;
+  close: () => void;
+}) {
+  const { region, metric, record } = selection;
+  const { title, label, kind } = heritageBuildings[metric];
   return (
-    <section className="panel quest-log" aria-labelledby="quest-log-title">
-      <h2 id="quest-log-title">
-        <ScrollText size={15} aria-hidden="true" /> 퀘스트
-      </h2>
-      {entries.length ? (
-        <ul className="quest-log-list">
-          {entries.map(({ region, item }) => {
-            const issue = 'state' in item;
-            return (
-              <li
-                key={`${region.slug}:${issue ? 'issue' : 'pr'}:${item.number}`}
-              >
-                <button
-                  className="quest-log-row"
-                  onClick={() =>
-                    issue ? openQuest(region, item) : openPull(region, item)
-                  }
-                >
-                  <small>
-                    {region.name} · {issue ? '' : 'PR '}#{item.number}
-                  </small>
-                  <strong>{item.title}</strong>
-                  {issue ? (
-                    <IssueBadge quest={item} />
-                  ) : (
-                    <PullStatus pull={item} />
-                  )}
-                </button>
-              </li>
-            );
-          })}
-        </ul>
-      ) : (
-        <p>
-          {hasReport
-            ? '조회된 이슈·PR 없음'
-            : loading
-              ? '이슈·PR 불러오는 중'
-              : '이슈·PR 조회 필요'}
-        </p>
+    <Dialog title={title} close={close}>
+      <div className="facility-detail">
+        <FacilityGlyph kind={kind} />
+        <span>{region.name}</span>
+      </div>
+      <dl className="heritage-total">
+        <dt>{label}</dt>
+        <dd>{record ? record.count.toLocaleString('ko-KR') : '미확인'}</dd>
+      </dl>
+      {!record && <p>현재 조회 범위에서 전체 합계를 확인하지 못했습니다.</p>}
+      {record?.source === 'search' && (
+        <p>GitHub 검색 인덱스 기준이며 최근 변경 반영이 늦을 수 있습니다.</p>
       )}
-    </section>
+      {metric === 'comments' && record && (
+        <p>이슈·PR 대화 댓글과 PR 코드 리뷰 댓글을 합산합니다.</p>
+      )}
+    </Dialog>
   );
 }
+
+type MapEntry = { region: Region; number: number; kind?: 'pull' };
 
 function App() {
   const [settings, setSettings] = useState(readSettings);
   const { token, repositories } = settings;
   const worldRegions = useMemo(
-    () => [
-      defaultRegion,
-      ...repositories.map(({ slug }) => repositoryRegion(slug)),
-    ],
+    () => repositories.map(({ slug }) => repositoryRegion(slug)),
     [repositories],
   );
   const [snapshots, setSnapshots] = useState<Record<string, Snapshot>>({});
   const [selected, setSelected] = useState<Region>();
-  const [selectedQuest, setSelectedQuest] = useState<{
-    region: Region;
-    number: number;
-    kind?: 'pull';
+  const [selectedQuest, setSelectedQuest] = useState<MapEntry>();
+  const [refreshUsage, setRefreshUsage] = useState<{
+    token: string;
+    usage: RefreshConsumption;
   }>();
+  const [selectedHeritage, setSelectedHeritage] = useState<HeritageSelection>();
+  const [inspected, setInspected] = useState<MapEntry>();
+  const updateSelectedHeritage = useCallback((slug: string, data: Heritage) => {
+    setSelectedHeritage((current) => {
+      if (!current || current.region.slug !== slug) return current;
+      const record = data[current.metric];
+      return record ? { ...current, record } : current;
+    });
+  }, []);
+  function inspect(entry: MapEntry, active: boolean) {
+    setInspected((current) =>
+      active
+        ? entry
+        : current?.region.slug === entry.region.slug &&
+            current.number === entry.number &&
+            current.kind === entry.kind
+          ? undefined
+          : current,
+    );
+  }
   const refresh = useRef<(() => void) | null>(null);
   const [loading, setLoading] = useState(true);
   const refreshInterval = token ? 20_000 : 60_000;
+  const [progress, setProgress] = useState({
+    duration: refreshInterval,
+    key: 0,
+  });
+  const refreshJobs = useRef<{
+    token: string;
+    jobs: Map<string, { last: number; interval: number; report?: Report }>;
+  }>({ token, jobs: new Map() });
   const [showConnect, setShowConnect] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
 
   useEffect(() => {
     try {
-      localStorage.setItem(settingsKey, JSON.stringify(settings));
+      localStorage.setItem(
+        settingsKey,
+        JSON.stringify({ version: settingsVersion, ...settings }),
+      );
       localStorage.removeItem(legacyRepositoryListKey);
     } catch {
       // The current tab can still use the settings when storage is unavailable.
@@ -1218,6 +1887,8 @@ function App() {
       )
         return;
       const next = readSettings();
+      refreshJobs.current.jobs.clear();
+      setSelectedHeritage(undefined);
       setSettings(next);
       setSnapshots({});
       setSelected(undefined);
@@ -1232,60 +1903,143 @@ function App() {
 
   useEffect(() => {
     const controller = new AbortController();
-    let syncing = false;
+    if (refreshJobs.current.token !== token)
+      refreshJobs.current = { token, jobs: new Map() };
+    const jobs = refreshJobs.current.jobs;
+    const slugs = new Set(worldRegions.map(({ slug }) => slug));
+    for (const slug of jobs.keys()) if (!slugs.has(slug)) jobs.delete(slug);
+    const pending = new Set<string>();
+    let forceRequested = false;
+    let nextBatch = 0;
+    let publishedBatch = 0;
     let timer: number | undefined;
-    async function sync(force = false) {
-      if (syncing || controller.signal.aborted) return;
+
+    function schedule() {
       window.clearTimeout(timer);
-      syncing = true;
-      setLoading(true);
-      await Promise.all(
-        worldRegions.map(async (region) => {
-          try {
-            const params = new URLSearchParams({ repo: region.slug });
-            if (force) params.set('refresh', '1');
-            const report = await request<Report>(
-              params,
-              token,
-              controller.signal,
-            );
-            if (!controller.signal.aborted)
-              setSnapshots((current) => ({
-                ...current,
-                [region.id]: { report },
-              }));
-          } catch (error) {
-            if (!controller.signal.aborted)
-              setSnapshots((current) => ({
-                ...current,
-                [region.id]: {
-                  ...current[region.id],
-                  error: (error as Error).message,
-                  httpStatus:
-                    error instanceof RequestError ? error.status : undefined,
-                },
-              }));
-          }
-        }),
-      );
-      syncing = false;
       if (controller.signal.aborted) return;
-      setLoading(false);
-      if (document.visibilityState === 'visible')
-        timer = window.setTimeout(syncVisible, refreshInterval);
+      setLoading(pending.size > 0);
+      const now = Date.now();
+      const hidden = document.visibilityState !== 'visible';
+      let next = Infinity;
+      if (forceRequested) {
+        if (pending.size) return;
+        forceRequested = false;
+        void syncBatch([...slugs], true);
+      } else {
+        const dueSlugs: string[] = [];
+        for (const slug of slugs) {
+          if (pending.has(slug)) continue;
+          const job = jobs.get(slug);
+          const due = job ? refreshDue(job.last, job.interval, hidden) : now;
+          if (due <= now) dueSlugs.push(slug);
+          else next = Math.min(next, due);
+        }
+        if (dueSlugs.length) void syncBatch(dueSlugs, false);
+      }
+      setLoading(pending.size > 0);
+      if (Number.isFinite(next)) {
+        const duration = Math.max(1, next - now);
+        timer = window.setTimeout(schedule, duration);
+        setProgress((previous) => ({ duration, key: previous.key + 1 }));
+      }
     }
 
-    function syncVisible() {
-      if (document.visibilityState === 'visible') void sync();
-      else window.clearTimeout(timer);
+    async function syncBatch(batch: string[], force: boolean) {
+      if (!batch.length) return;
+      const id = ++nextBatch;
+      const usages = await Promise.all(batch.map((slug) => sync(slug, force)));
+      if (controller.signal.aborted || id < publishedBatch) return;
+      publishedBatch = id;
+      const limits = new Set(
+        usages.flatMap((usage) =>
+          usage?.limit === undefined ? [] : [usage.limit],
+        ),
+      );
+      const consumed =
+        limits.size <= 1 &&
+        usages.every((usage) => usage?.consumed !== undefined)
+          ? usages.reduce((sum, usage) => sum + (usage?.consumed ?? 0), 0)
+          : undefined;
+      setRefreshUsage({
+        token,
+        usage: {
+          consumed,
+          limit: limits.size === 1 ? limits.values().next().value : undefined,
+        },
+      });
     }
 
-    refresh.current = () => void sync(true);
-    void sync();
-    document.addEventListener('visibilitychange', syncVisible);
+    async function sync(slug: string, force: boolean) {
+      pending.add(slug);
+      const previous = jobs.get(slug);
+      let usage: RefreshConsumption | undefined;
+      try {
+        const params = new URLSearchParams({ repo: slug, measure: 'refresh' });
+        if (force) params.set('refresh', '1');
+        const report = await request<Report>(
+          params,
+          token,
+          controller.signal,
+          (measured) => {
+            usage = measured;
+          },
+        );
+        if (controller.signal.aborted) return;
+        const prior = previous?.report && partyStates(previous.report);
+        const current = partyStates(report);
+        const changed =
+          !prior ||
+          prior.size !== current.size ||
+          [...current].some(([key, value]) => prior.get(key) !== value) ||
+          JSON.stringify(previous?.report?.releases) !==
+            JSON.stringify(report.releases);
+        const active =
+          report.quests.some(({ stage }) => activeStages.has(stage)) ||
+          reportForges(report).some(({ stage }) => activeStages.has(stage)) ||
+          report.releases.some(({ stage }) => activeStages.has(stage));
+        const interval = nextRefreshInterval(
+          refreshInterval,
+          previous?.interval ?? refreshInterval,
+          Boolean(active) || report.warnings.length > 0,
+          changed,
+        );
+        jobs.set(slug, { last: Date.now(), report, interval });
+        setSnapshots((current) => ({
+          ...current,
+          [slug]: reportSnapshot(report, current[slug]),
+        }));
+      } catch (error) {
+        if (controller.signal.aborted) return;
+        jobs.set(slug, {
+          last: Date.now(),
+          interval: refreshInterval,
+          report: previous?.report,
+        });
+        setSnapshots((current) => ({
+          ...current,
+          [slug]: {
+            ...current[slug],
+            error: (error as Error).message,
+            httpStatus:
+              error instanceof RequestError ? error.status : undefined,
+          },
+        }));
+      } finally {
+        pending.delete(slug);
+        schedule();
+      }
+      return usage;
+    }
+
+    refresh.current = () => {
+      forceRequested = true;
+      schedule();
+    };
+    schedule();
+    document.addEventListener('visibilitychange', schedule);
     return () => {
       refresh.current = null;
-      document.removeEventListener('visibilitychange', syncVisible);
+      document.removeEventListener('visibilitychange', schedule);
       window.clearTimeout(timer);
       controller.abort();
     };
@@ -1300,6 +2054,7 @@ function App() {
     setSelected(undefined);
     setSnapshots({});
     setSelectedQuest(undefined);
+    setSelectedHeritage(undefined);
     setLoading(true);
   }
 
@@ -1317,33 +2072,34 @@ function App() {
     }));
     setSnapshots((current) => {
       const remaining = { ...current };
-      delete remaining[region.id];
+      delete remaining[region.slug];
       return remaining;
     });
     setSelected(undefined);
     setSelectedQuest(undefined);
   }
 
-  const hasData = worldRegions.some(({ id }) => snapshots[id]?.report);
+  const hasData = worldRegions.some(({ slug }) => snapshots[slug]?.report);
   const tokenStatus = getTokenStatus(
     hasData,
+    worldRegions.length > 0,
     Object.values(snapshots).find(({ error }) => error),
   );
   const partial = worldRegions.some(
-    ({ id }) =>
-      !snapshots[id]?.report ||
-      snapshots[id].error ||
-      snapshots[id].report?.warnings.length,
+    ({ slug }) =>
+      !snapshots[slug]?.report ||
+      snapshots[slug].error ||
+      snapshots[slug].report?.warnings.length,
   );
   const quest =
     selectedQuest &&
     selectedQuest.kind !== 'pull' &&
-    snapshots[selectedQuest.region.id]?.report?.quests.find(
+    snapshots[selectedQuest.region.slug]?.report?.quests.find(
       ({ number }) => number === selectedQuest.number,
     );
   const pull =
     selectedQuest?.kind === 'pull'
-      ? snapshots[selectedQuest.region.id]?.report?.pullQuests?.find(
+      ? reportForges(snapshots[selectedQuest.region.slug]?.report).find(
           ({ number }) => number === selectedQuest.number,
         )
       : undefined;
@@ -1360,10 +2116,9 @@ function App() {
             <span className="crest" aria-hidden="true">
               <Castle size={22} />
             </span>
-            <div>
-              <p className="brand">Agentopia</p>
-              <h1 id="world-title">월드맵</h1>
-            </div>
+            <h1 id="world-title" className="brand">
+              Agentopia
+            </h1>
           </div>
           <div className="world-controls">
             <button
@@ -1384,115 +2139,195 @@ function App() {
             >
               <Ticket size={19} aria-hidden="true" />
             </button>
-            <button
-              className="refresh-button"
-              aria-label="새로 고침"
-              aria-busy={loading}
-              data-warning={!loading && partial}
-              title={
-                !loading && partial
-                  ? '일부 GitHub 기록을 확인하지 못했습니다.'
-                  : `자동 갱신 ${refreshInterval / 1000}초 간격`
-              }
-              disabled={loading}
-              onClick={() => refresh.current?.()}
-            >
-              {!loading && (
-                <span
-                  className="refresh-fill"
-                  style={{ animationDuration: `${refreshInterval}ms` }}
+            <div className="refresh-control">
+              <button
+                className="refresh-button"
+                aria-label="새로 고침"
+                aria-busy={loading}
+                data-warning={!loading && partial}
+                title={
+                  !loading && partial
+                    ? '일부 GitHub 기록을 확인하지 못했습니다.'
+                    : `다음 자동 갱신까지 약 ${Math.ceil(progress.duration / 1000)}초`
+                }
+                disabled={!worldRegions.length}
+                onClick={() => refresh.current?.()}
+              >
+                {!loading && (
+                  <span
+                    key={progress.key}
+                    className="refresh-fill"
+                    style={{ animationDuration: `${progress.duration}ms` }}
+                    aria-hidden="true"
+                  />
+                )}
+                <RefreshCw
+                  size={16}
+                  className={loading ? 'rotate' : ''}
                   aria-hidden="true"
                 />
-              )}
-              <RefreshCw
-                size={16}
-                className={loading ? 'rotate' : ''}
-                aria-hidden="true"
+              </button>
+              <GitHubUsage
+                token={token}
+                refresh={
+                  refreshUsage?.token === token ? refreshUsage.usage : undefined
+                }
               />
-            </button>
+            </div>
           </div>
         </header>
 
         <section className="map-viewport" aria-label="저장소 왕국">
           <div className="kingdoms">
             {worldRegions.map((region) => {
-              const report = snapshots[region.id]?.report;
+              const snapshot = snapshots[region.slug];
+              const report = snapshot?.report;
+              const forges = reportForges(report);
+              const focus = selectedQuest ?? inspected;
+              const localFocus =
+                focus?.region.slug === region.slug ? focus : undefined;
+              const related = new Set(
+                localFocus?.kind === 'pull'
+                  ? forges.find(({ number }) => number === localFocus.number)
+                      ?.issues
+                  : [],
+              );
+              const visibleFacilities = forges.filter(isCurrentFacility);
               return (
-                <div
-                  className="kingdom-area"
-                  key={region.id}
+                <section
+                  className="kingdom-region"
+                  aria-label={region.name}
+                  key={region.slug}
                   style={
                     {
                       '--kingdom-hue': kingdomHue(region.slug),
                     } as CSSProperties
                   }
                 >
-                  <button className="kingdom" onClick={() => select(region)}>
-                    <Castle
-                      className="kingdom-crest"
-                      size={34}
-                      strokeWidth={1.5}
-                      aria-hidden="true"
+                  <div className="kingdom-area">
+                    <KingdomWall />
+                    <HeritageArc
+                      slug={region.slug}
+                      name={region.name}
+                      token={token}
+                      load={requestHeritage}
+                      onLoad={updateSelectedHeritage}
+                      open={(metric, record) =>
+                        setSelectedHeritage({ region, metric, record })
+                      }
                     />
-                    <span className="kingdom-label">
-                      <strong>{region.name}</strong>
-                    </span>
-                  </button>
-                  {report &&
-                  (report.quests.some(({ state }) => state === 'open') ||
-                    report.pullQuests?.length) ? (
-                    <GuildQuests
+                    <button className="kingdom" onClick={() => select(region)}>
+                      <span className="kingdom-guild">
+                        <Castle
+                          className="kingdom-crest"
+                          size={34}
+                          strokeWidth={1.5}
+                          aria-hidden="true"
+                        />
+                        {(forges.some((forge) => forge.runs.length) ||
+                          report?.quests.some(
+                            (quest) => quest.runs.length,
+                          )) && (
+                          <span
+                            className="kingdom-guild-master"
+                            role="img"
+                            aria-label="GitHub Actions · 길드 마스터"
+                            title="GitHub Actions · 길드 마스터"
+                          >
+                            <Workflow size={14} aria-hidden="true" />
+                          </span>
+                        )}
+                      </span>
+                      <span className="kingdom-label">
+                        <strong>{region.name}</strong>
+                      </span>
+                    </button>
+                    {visibleFacilities.length > 0 && (
+                      <ul
+                        className="expeditions kingdom-workshops"
+                        aria-label={`${region.name} 왕국 내부`}
+                      >
+                        {visibleFacilities.map((item) => (
+                          <li key={item.number}>
+                            <FacilityMarker
+                              pull={item}
+                              open={() => openPull(region, item)}
+                              pulse={snapshot?.pulses?.[`pr-${item.number}`]}
+                              inspected={
+                                localFocus?.kind === 'pull' &&
+                                localFocus.number === item.number
+                              }
+                              related={
+                                localFocus !== undefined &&
+                                localFocus.kind !== 'pull' &&
+                                Boolean(
+                                  item.issues?.includes(localFocus.number),
+                                )
+                              }
+                              inspect={(active) =>
+                                inspect(
+                                  { region, number: item.number, kind: 'pull' },
+                                  active,
+                                )
+                              }
+                            />
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                  {report && (
+                    <KingdomMonsters
                       quests={report.quests}
-                      pulls={report.pullQuests ?? []}
-                      openPull={(item) => openPull(region, item)}
-                      label={`${region.name} 이슈`}
+                      pulses={snapshot?.pulses}
+                      label={`${region.name} 왕국 외부 몬스터`}
+                      highlight={
+                        localFocus?.kind === undefined
+                          ? localFocus?.number
+                          : undefined
+                      }
+                      related={related}
+                      inspect={(number, active) =>
+                        inspect({ region, number }, active)
+                      }
                       openQuest={(item) =>
                         setSelectedQuest({ region, number: item.number })
                       }
                     />
-                  ) : !report ? (
-                    <p className="expedition-status">
-                      {loading ? '기록 확인 중' : '기록 확인 필요'}
-                    </p>
-                  ) : null}
-                </div>
+                  )}
+                </section>
               );
             })}
           </div>
         </section>
 
         <footer className="world-footer">
-          <QuestLog
-            regions={worldRegions}
-            snapshots={snapshots}
-            loading={loading}
-            openPull={openPull}
-            openQuest={(region, item) =>
-              setSelectedQuest({ region, number: item.number })
-            }
-          />
           <ul className="expedition-legend" aria-label="기본 파티 구성">
-            {partyRoles.map(({ name, Icon, color }) => (
-              <li className={color} key={name}>
-                <Icon size={14} aria-hidden="true" /> {name}
-              </li>
-            ))}
+            <li className="actions">
+              <Workflow size={14} aria-hidden="true" /> 길드 마스터
+            </li>
+            <li className="codex">
+              <AdventurerGlyph agent="codex" /> Codex
+            </li>
+            <li className="claude">
+              <AdventurerGlyph agent="claude" /> Claude
+            </li>
+            <li className="release">
+              <Rocket size={14} aria-hidden="true" /> 포탈 관리자
+            </li>
           </ul>
         </footer>
       </main>
       {selected && (
         <RegionDetail
-          key={selected.id}
+          key={selected.slug}
           region={selected}
-          snapshot={snapshots[selected.id]}
+          snapshot={snapshots[selected.slug]}
+          openPull={(item) => openPull(selected, item)}
           openQuest={(item) =>
             setSelectedQuest({ region: selected, number: item.number })
           }
-          remove={
-            selected.slug === defaultRegion.slug
-              ? undefined
-              : () => removeRegion(selected)
-          }
+          remove={() => removeRegion(selected)}
           close={() => setSelected(undefined)}
         />
       )}
@@ -1519,18 +2354,35 @@ function App() {
           close={() => setShowConnect(false)}
         />
       )}
+      {selectedHeritage && (
+        <HeritageDetail
+          selection={selectedHeritage}
+          close={() => setSelectedHeritage(undefined)}
+        />
+      )}
       {selectedQuest && pull && (
         <PullDetail
-          key={`${selectedQuest.region.id}-pr-${pull.number}`}
+          key={`${selectedQuest.region.slug}-pr-${pull.number}`}
           pull={pull}
           region={selectedQuest.region}
           token={token}
+          openIssue={(number) => {
+            const region = selectedQuest.region;
+            if (
+              !snapshots[region.slug]?.report?.quests.some(
+                (item) => item.number === number,
+              )
+            )
+              return false;
+            setSelectedQuest({ region, number });
+            return true;
+          }}
           close={() => setSelectedQuest(undefined)}
         />
       )}
       {selectedQuest && quest && (
         <QuestDetail
-          key={`${selectedQuest.region.id}-${quest.number}`}
+          key={`${selectedQuest.region.slug}-${quest.number}`}
           quest={quest}
           region={selectedQuest.region}
           token={token}

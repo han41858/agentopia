@@ -1,9 +1,13 @@
+import { onePerPageCount, verifiedCount } from './heritage.ts';
+import type { Heritage, HeritageMetric } from './heritage.ts';
+import { credentialScope, githubGet, observeGitHub } from './github-query.ts';
+import { latestOpinion, reviewOpinion } from './activity.ts';
+import type { Discussion, PullActivity } from './activity.ts';
 import {
   linkedPullIssues,
-  makePullQuests,
+  makeForges,
   makeQuests,
   pullActor,
-  regions,
   repositoryOwner,
   repositoryRegion,
   repositorySlug,
@@ -11,6 +15,9 @@ import {
   runStage,
 } from './model.ts';
 import type {
+  ActivityEntry,
+  ActivityKind,
+  ActivityPage,
   Comment,
   Issue,
   Pull,
@@ -26,7 +33,6 @@ import type {
 } from './model.ts';
 
 const publicReportTtl = 60_000;
-const manualRefreshCooldown = 15_000;
 const publicReports = new Map<
   string,
   { requestedAt: number; pending: boolean; value: Promise<Report> }
@@ -35,55 +41,82 @@ let publicRateLimit: { until: number; error: GitHubError } | undefined;
 
 class GitHubError extends Error {
   status: number;
+  readonly rateLimited: boolean;
 
-  constructor(status: number) {
+  constructor(status: number, rateLimited = status === 429) {
     super(`GitHub API · HTTP ${status}`);
     this.status = status;
+    this.rateLimited = rateLimited;
   }
 }
 
-function client(region?: Region, token?: string) {
+function client(
+  region?: Region,
+  token?: string,
+  force = false,
+  scope = region?.slug ?? '(account)',
+) {
   const root = region
     ? `https://api.github.com/repos/${region.slug}`
     : 'https://api.github.com';
-  return async function get<T>(path: string): Promise<T> {
+  return async function get<T>(
+    path: string,
+    pagination?: (hasNext: boolean, link: string | null) => void,
+    ttl = 0,
+  ): Promise<T> {
     const headers: Record<string, string> = {
       Accept: 'application/vnd.github+json',
       'X-GitHub-Api-Version': '2022-11-28',
       'User-Agent': 'Agentopia/0.1',
     };
     if (token) headers.Authorization = token;
-    const response = await fetch(root + path, {
+    const result = await githubGet(
+      root + path,
+      scope,
+      token,
       headers,
-      redirect: 'error',
-      signal: AbortSignal.timeout(9000),
-    });
-    if (!response.ok) {
-      const error = new GitHubError(response.status);
-      if (!token && (response.status === 429 || response.status === 403)) {
+      force ? 0 : ttl,
+      async (response) => {
+        if (response.ok) return;
         const retryAfter = Number(response.headers.get('retry-after'));
-        const reset =
-          response.headers.get('x-ratelimit-remaining') === '0'
+        const exhausted = response.headers.get('x-ratelimit-remaining') === '0';
+        let rateLimited = response.status === 429;
+        if (response.status === 403) {
+          const payload = (await response.json().catch(() => undefined)) as
+            { message?: string } | undefined;
+          rateLimited =
+            exhausted ||
+            retryAfter > 0 ||
+            /rate limit/i.test(payload?.message ?? '');
+        }
+        const error = new GitHubError(response.status, rateLimited);
+        if (
+          !token &&
+          rateLimited &&
+          !path.startsWith('/search/') &&
+          (response.headers.get('x-ratelimit-resource') ?? 'core') === 'core'
+        ) {
+          const reset = exhausted
             ? Number(response.headers.get('x-ratelimit-reset')) * 1000
             : 0;
-        const now = Date.now();
-        const until = Math.max(
-          reset,
-          retryAfter > 0 ? now + retryAfter * 1000 : 0,
-          response.status === 429 ? now + publicReportTtl : 0,
-        );
-        if (until > now && until > (publicRateLimit?.until ?? 0))
-          publicRateLimit = { until, error };
-      }
-      throw error;
-    }
-    return response.json() as Promise<T>;
+          const now = Date.now();
+          const until = Math.max(
+            reset,
+            now + (retryAfter > 0 ? retryAfter * 1000 : publicReportTtl),
+          );
+          if (until > (publicRateLimit?.until ?? 0))
+            publicRateLimit = { until, error };
+        }
+        throw error;
+      },
+    );
+    pagination?.(result.next, result.link);
+    return result.body as T;
   };
 }
 
 type Deployment = { id: number; environment: string; sha: string };
 type DeploymentStatus = { state: string; description?: string };
-type Job = Pick<Run, 'name' | 'status' | 'conclusion' | 'html_url'>;
 const releaseStages: Record<string, Stage> = {
   queued: 'queued',
   pending: 'queued',
@@ -95,11 +128,48 @@ const releaseStages: Record<string, Stage> = {
 const pageSize = 50;
 const recent = `?per_page=${pageSize}`;
 
+const pendingGraphql = new Map<string, Promise<unknown>>();
+
 async function githubGraphql<T>(
   query: string,
   variables: Record<string, string | null>,
   token: string,
+  operation = variables.name ? 'pull-activity' : 'repositories',
 ) {
+  const repo =
+    variables.owner && variables.name
+      ? `${variables.owner}/${variables.name}`
+      : '(account)';
+  const endpoint = `graphql/${operation}`;
+  const key = JSON.stringify([credentialScope(token), query, variables]);
+  const pending = pendingGraphql.get(key);
+  if (pending) {
+    observeGitHub(repo, endpoint, 'coalesced');
+    return pending as Promise<T>;
+  }
+  const work = fetchGraphql<T>(query, variables, token, repo, endpoint);
+  pendingGraphql.set(key, work);
+  try {
+    return await work;
+  } finally {
+    if (pendingGraphql.get(key) === work) pendingGraphql.delete(key);
+  }
+}
+
+async function fetchGraphql<T>(
+  query: string,
+  variables: Record<string, string | null>,
+  token: string,
+  repo: string,
+  endpoint: string,
+) {
+  observeGitHub(
+    repo,
+    endpoint,
+    'request',
+    undefined,
+    Boolean(variables.cursor),
+  );
   const response = await fetch('https://api.github.com/graphql', {
     method: 'POST',
     headers: {
@@ -111,6 +181,7 @@ async function githubGraphql<T>(
     redirect: 'error',
     signal: AbortSignal.timeout(9000),
   });
+  observeGitHub(repo, endpoint, 'response', response.status);
   if (!response.ok) throw new GitHubError(response.status);
   const body = (await response.json()) as {
     errors?: { type?: string }[];
@@ -119,6 +190,7 @@ async function githubGraphql<T>(
   if (body.errors?.length)
     throw new GitHubError(
       body.errors.some(({ type }) => type === 'NOT_FOUND') ? 404 : 403,
+      body.errors.some(({ type }) => type === 'RATE_LIMITED'),
     );
   if (!body.data) throw new GitHubError(502);
   return body.data;
@@ -214,8 +286,24 @@ async function listRepositories(
   };
 }
 
+type Login = { login: string };
+type NativeDiscussion = {
+  totalCount?: number;
+  nodes?: { author: Login | null }[];
+};
+type NativeReview = {
+  author: Login | null;
+  state: string;
+  submittedAt: string | null;
+};
+
 type NativePull = {
   number: number;
+  author?: Login | null;
+  commits?: { totalCount?: number; nodes?: { commit: { oid: string } }[] };
+  comments?: NativeDiscussion;
+  reviews?: NativeDiscussion;
+  latestOpinionatedReviews?: { nodes: NativeReview[] };
   closingIssuesReferences: {
     nodes: { number: number; repository: { nameWithOwner: string } }[];
   };
@@ -231,29 +319,92 @@ type NativePull = {
 
 async function nativePullLinks(region: Region, token: string, pulls: Pull[]) {
   const [owner, name] = region.slug.split('/');
+  const candidates = pulls
+    .filter(
+      ({ number, state, merged_at }) =>
+        Number.isSafeInteger(number) &&
+        number > 0 &&
+        (state === 'open' || merged_at),
+    )
+    .sort((left, right) => {
+      const priority = (pull: Pull) =>
+        Number(pull.state === 'open') * 2 +
+        Number(linkedPullIssues(pull, region).length > 0);
+      return priority(right) - priority(left);
+    })
+    .slice(0, 12);
+  const samples = candidates
+    .map(
+      ({ number }) =>
+        `sample${number}: pullRequest(number: ${number}) { ...ActivitySample }`,
+    )
+    .join(' ');
   const query = `
     query($owner: String!, $name: String!) {
       repository(owner: $owner, name: $name) {
         pullRequests(first: 50, states: OPEN, orderBy: {field: UPDATED_AT, direction: DESC}) {
+          nodes { ...PullActivity }
+        }
+        merged: pullRequests(first: 50, states: MERGED, orderBy: {field: UPDATED_AT, direction: DESC}) {
+          nodes { ...PullActivity }
+        }
+        ${samples}
+        issues(first: 50, orderBy: {field: UPDATED_AT, direction: DESC}) {
           nodes {
             number
-            closingIssuesReferences(first: 20) { nodes { number repository { nameWithOwner } } }
-            latestReviews(first: 10) { nodes { author { login __typename } state submittedAt commit { oid } } }
+            timelineItems(last: 1, itemTypes: [REOPENED_EVENT, CLOSED_EVENT]) { nodes { __typename } }
           }
         }
       }
+    }
+    fragment PullActivity on PullRequest {
+      number
+      author { login }
+      commits { totalCount }
+      comments { totalCount }
+      reviews(states: [APPROVED, CHANGES_REQUESTED, COMMENTED, DISMISSED]) { totalCount }
+      latestOpinionatedReviews(last: 10) { nodes { state submittedAt } }
+      closingIssuesReferences(first: 20) { nodes { number repository { nameWithOwner } } }
+      latestReviews(first: 10) { nodes { author { login __typename } state submittedAt commit { oid } } }
+    }
+    ${
+      samples
+        ? `fragment ActivitySample on PullRequest {
+      commits(first: 35) { nodes { commit { oid } } }
+      comments(last: 25) { nodes { author { login } } }
+      reviews(last: 25, states: [APPROVED, CHANGES_REQUESTED, COMMENTED, DISMISSED]) { nodes { author { login } } }
+    }`
+        : ''
     }`;
   const data = await githubGraphql<{
-    repository?: { pullRequests: { nodes: NativePull[] } };
+    repository?: Partial<
+      Record<
+        `sample${number}`,
+        Partial<Pick<NativePull, 'commits' | 'comments' | 'reviews'>>
+      >
+    > & {
+      pullRequests: { nodes: NativePull[] };
+      merged?: { nodes: NativePull[] };
+      issues?: {
+        nodes: {
+          number: number;
+          timelineItems: { nodes: { __typename: string }[] };
+        }[];
+      };
+    };
   }>(query, { owner, name }, token);
-  const nodes = data.repository?.pullRequests.nodes;
-  if (!nodes) throw new GitHubError(404);
+  if (!data.repository) throw new GitHubError(404);
+  const nodes = [
+    ...data.repository.pullRequests.nodes,
+    ...(data.repository.merged?.nodes ?? []),
+  ];
 
   const headByNumber = new Map(
     pulls.map((pull) => [pull.number, pull.head.sha]),
   );
   const links = new Map<number, PullLinks>();
   for (const pull of nodes) {
+    if (!headByNumber.has(pull.number)) continue;
     const issues = pull.closingIssuesReferences.nodes
       .filter(
         (issue) => issue.repository.nameWithOwner.toLowerCase() === region.slug,
@@ -273,17 +424,73 @@ async function nativePullLinks(region: Region, token: string, pulls: Pull[]) {
       latest?.author?.login,
       latest?.author?.__typename,
     );
+    const sample = data.repository[`sample${pull.number}`];
+    const commenters = sample?.comments?.nodes ?? [];
+    const reviewers = sample?.reviews?.nodes ?? [];
+    const opinions = pull.latestOpinionatedReviews?.nodes ?? [];
+    const activity: PullActivity = {
+      shas: sample?.commits?.nodes?.map(({ commit }) => commit.oid) ?? [],
+      commits: pull.commits?.totalCount,
+      comments: pull.comments?.totalCount,
+      reviews: pull.reviews?.totalCount,
+      people: [
+        pull.author?.login,
+        ...[...commenters, ...reviewers].map(({ author }) => author?.login),
+      ].filter((login): login is string => Boolean(login)),
+      complete:
+        pull.comments?.totalCount === commenters.length &&
+        pull.reviews?.totalCount === reviewers.length,
+      opinion: latestOpinion(
+        opinions.flatMap(({ state, submittedAt }) => {
+          const opinion = reviewOpinion(state, submittedAt);
+          return opinion ? [opinion] : [];
+        }),
+      ),
+    };
     links.set(pull.number, {
       issues,
+      activity,
+      activities: {
+        commits: pull.commits?.totalCount,
+        comments: pull.comments?.totalCount,
+        reviews: pull.reviews?.totalCount,
+      },
       reviewer,
       review: reviewer ? latest.state : undefined,
     });
   }
-  return links;
+  const reopened = new Set(
+    (data.repository.issues?.nodes ?? [])
+      .filter(
+        ({ timelineItems }) =>
+          timelineItems.nodes[0]?.__typename === 'ReopenedEvent',
+      )
+      .map(({ number }) => number),
+  );
+  return { links, reopened };
 }
 
-async function getReport(region: Region, token?: string): Promise<Report> {
-  const get = client(region, token);
+async function publicCommitSample(pull: Pull, get: ReturnType<typeof client>) {
+  let complete = false;
+  const commits = await get<{ sha: string }[]>(
+    `/pulls/${pull.number}/commits?per_page=35`,
+    (next) => {
+      complete = !next;
+    },
+    10 * 60_000,
+  );
+  return {
+    shas: commits.map(({ sha }) => sha),
+    commits: complete ? commits.length : undefined,
+  };
+}
+
+async function getReport(
+  region: Region,
+  token?: string,
+  force = false,
+): Promise<Report> {
+  const get = client(region, token, force);
   const warnings = new Set<string>();
   async function optional<T>(label: string, load: Promise<T>, fallback: T) {
     try {
@@ -294,36 +501,31 @@ async function getReport(region: Region, token?: string): Promise<Report> {
     }
   }
 
-  const [issuePage, pullPage, workflow, comments, deployments] =
-    await Promise.all([
-      get<Issue[]>(
-        `/issues${recent}&state=all&sort=updated&direction=desc`,
-      ).catch((error) => {
-        if (!(error instanceof GitHubError) || error.status !== 410)
-          throw error;
-        warnings.add('이슈 비활성화');
-        return [];
-      }),
-      optional(
-        'PR',
-        get<Pull[]>(`/pulls${recent}&state=all&sort=updated&direction=desc`),
-        [],
-      ),
-      optional(
-        'Actions',
-        get<{ workflow_runs: Run[] }>('/actions/runs?per_page=100'),
-        { workflow_runs: [] },
-      ),
-      optional(
-        'AI 상태 기록',
-        get<Comment[]>(
-          '/issues/comments?per_page=100&sort=updated&direction=desc',
-        ),
-        [],
-      ),
-      optional('배포', get<Deployment[]>('/deployments?per_page=5'), []),
-    ]);
-  const runs = workflow.workflow_runs.sort((a, b) => b.id - a.id);
+  const [issuePage, pullPage, workflow, deployments] = await Promise.all([
+    get<Issue[]>(
+      `/issues${recent}&state=all&sort=updated&direction=desc`,
+    ).catch((error) => {
+      if (!(error instanceof GitHubError) || error.status !== 410) throw error;
+      warnings.add('이슈 비활성화');
+      return [];
+    }),
+    optional(
+      'PR',
+      get<Pull[]>(`/pulls${recent}&state=all&sort=updated&direction=desc`),
+      [],
+    ),
+    optional(
+      'Actions',
+      get<{ workflow_runs: Run[] }>('/actions/runs?per_page=100'),
+      { workflow_runs: [] },
+    ),
+    optional(
+      '배포',
+      get<Deployment[]>('/deployments?per_page=5', undefined, 45_000),
+      [],
+    ),
+  ]);
+  const runs = [...workflow.workflow_runs].sort((a, b) => b.id - a.id);
   const issues = new Map(
     issuePage
       .filter((issue) => !issue.pull_request)
@@ -334,20 +536,60 @@ async function getReport(region: Region, token?: string): Promise<Report> {
     const seen = new Set(pullPage.map(({ number }) => number));
     const open = await optional(
       '열린 PR',
-      get<Pull[]>(`/pulls${recent}&state=open&sort=updated&direction=desc`),
+      get<Pull[]>(
+        `/pulls${recent}&state=open&sort=updated&direction=desc`,
+        undefined,
+        45_000,
+      ),
       [],
     );
     pulls.push(...open.filter(({ number }) => !seen.has(number)));
     pulls.sort((a, b) => b.updated_at.localeCompare(a.updated_at));
   }
-  const pullLinks =
-    token && pulls.some(({ state }) => state === 'open')
+  const { links: pullLinks, reopened } =
+    token && pulls.some(({ state, merged_at }) => state === 'open' || merged_at)
       ? await optional(
           'PR 이슈 연결 및 리뷰',
           nativePullLinks(region, token, pulls),
-          new Map<number, PullLinks>(),
+          { links: new Map<number, PullLinks>(), reopened: new Set<number>() },
         )
-      : new Map<number, PullLinks>();
+      : { links: new Map<number, PullLinks>(), reopened: new Set<number>() };
+  if (!token) {
+    const commentsByPull = new Map(
+      issuePage
+        .filter((issue) => issue.pull_request)
+        .map((issue) => [issue.number, issue.comments]),
+    );
+    const samples = pulls
+      .filter((pull) => pull.state === 'open' || pull.merged_at)
+      .slice(0, 2);
+    await Promise.all(
+      samples.map(async (pull) => {
+        const sample = await optional(
+          'PR 커밋 일부',
+          publicCommitSample(pull, get),
+          undefined,
+        );
+        if (!sample) return;
+        pullLinks.set(pull.number, {
+          issues: [],
+          activity: {
+            ...sample,
+            comments: commentsByPull.get(pull.number),
+            people: [],
+            complete: false,
+          },
+        });
+      }),
+    );
+    for (const [number, count] of commentsByPull) {
+      if (!pullLinks.has(number))
+        pullLinks.set(number, {
+          issues: [],
+          activity: { shas: [], comments: count, people: [], complete: false },
+        });
+    }
+  }
   const linked = [
     ...new Set([
       ...runs.map(runIssue),
@@ -359,6 +601,18 @@ async function getReport(region: Region, token?: string): Promise<Report> {
   const missing = linked.filter(
     (number): number is number => number !== undefined && !issues.has(number),
   );
+  const commentsTask =
+    missing.length ||
+    issuePage.some((issue) => issue.comments !== 0) ||
+    runs.some((run) => runIssue(run) !== undefined)
+      ? optional(
+          'AI 상태 기록',
+          get<Comment[]>(
+            '/issues/comments?per_page=100&sort=updated&direction=desc',
+          ),
+          [],
+        )
+      : Promise.resolve([]);
   const parentCandidates = [...issues.values()].filter(
     (issue) => issue.sub_issues_summary?.total,
   );
@@ -369,7 +623,11 @@ async function getReport(region: Region, token?: string): Promise<Report> {
   const subIssueTasks = parentCandidates.slice(0, 8).map(async (parent) => {
     const children = await optional(
       '하위 Issue',
-      get<Issue[]>(`/issues/${parent.number}/sub_issues?per_page=100`),
+      get<Issue[]>(
+        `/issues/${parent.number}/sub_issues?per_page=100`,
+        undefined,
+        120_000,
+      ),
       [],
     );
     if ((parent.sub_issues_summary?.total ?? 0) > children.length)
@@ -390,7 +648,7 @@ async function getReport(region: Region, token?: string): Promise<Report> {
   const issueTasks = missing.slice(0, 12).map(async (number) => {
     const issue = await optional(
       '연결 Issue',
-      get<Issue | null>(`/issues/${number}`),
+      get<Issue | null>(`/issues/${number}`, undefined, 60_000),
       null,
     );
     if (issue && !issue.pull_request) issues.set(issue.number, issue);
@@ -401,6 +659,8 @@ async function getReport(region: Region, token?: string): Promise<Report> {
         '배포 상태',
         get<DeploymentStatus[]>(
           `/deployments/${deployment.id}/statuses?per_page=1`,
+          undefined,
+          120_000,
         ),
         [],
       );
@@ -417,51 +677,18 @@ async function getReport(region: Region, token?: string): Promise<Report> {
       };
     },
   );
-  const publishTasks =
-    region.slug === 'han41858/videx'
-      ? runs
-          .filter(
-            (run) =>
-              run.path.split('@')[0] ===
-                '.github/workflows/windows-tauri.yml' &&
-              run.head_branch === 'main' &&
-              run.event !== 'pull_request',
-          )
-          .slice(0, 2)
-          .map(async (run): Promise<Release | undefined> => {
-            const result = await optional(
-              'Windows 릴리스',
-              get<{ jobs: Job[] }>(
-                `/actions/runs/${run.id}/attempts/${run.run_attempt}/jobs?per_page=50`,
-              ),
-              { jobs: [] },
-            );
-            const publish = result.jobs.find(
-              ({ name }) => name === 'Publish GitHub release',
-            );
-            if (!publish || publish.conclusion === 'skipped') return;
-            const outcome = runStage(publish);
-            return {
-              title: publish.name,
-              url: publish.html_url,
-              status: publish.conclusion ?? publish.status,
-              stage: outcome === 'developing' ? 'deploying' : outcome,
-              sha: run.head_sha,
-            };
-          })
-      : [];
-  const [, , repoDeployments, publishJobs] = await Promise.all([
+  const [, , repoDeployments, comments] = await Promise.all([
     Promise.all(subIssueTasks),
     Promise.all(issueTasks),
     Promise.all(deploymentTasks),
-    Promise.all(publishTasks),
+    commentsTask,
   ]);
   const releaseRuns = runs.filter(
     (run) =>
       run.path.split('@')[0] === '.github/workflows/production-release.yml' ||
       run.path.split('@')[0] === '.github/workflows/release.yml',
   );
-  const releases: Release[] = [...repoDeployments, ...publishJobs].filter(
+  const releases: Release[] = repoDeployments.filter(
     (entry) => entry !== undefined,
   );
   // Recovery workflows execute against the automation ref. Only deployment records identify a deployed commit.
@@ -485,15 +712,14 @@ async function getReport(region: Region, token?: string): Promise<Report> {
     releases,
     pullLinks,
   );
+  const forges = makeForges(region, pulls, runs, pullLinks, quests);
   return {
-    quests,
-    pullQuests: makePullQuests(
-      region,
-      pulls,
-      runs,
-      new Set(issues.keys()),
-      pullLinks,
+    quests: quests.map((quest) =>
+      quest.state === 'open' && reopened.has(quest.number)
+        ? { ...quest, reopened: true }
+        : quest,
     ),
+    forges,
     releases: releases.map(({ title, url, status, stage }) => ({
       title,
       url,
@@ -506,7 +732,7 @@ async function getReport(region: Region, token?: string): Promise<Report> {
 }
 
 export function regionReport(region: Region, token?: string, force = false) {
-  if (token) return getReport(region, token);
+  if (token) return getReport(region, token, force);
   const cached = publicReports.get(region.slug);
   const now = Date.now();
   if (publicRateLimit && publicRateLimit.until > now) {
@@ -516,14 +742,22 @@ export function regionReport(region: Region, token?: string, force = false) {
       warnings: [...report.warnings, 'GitHub API 사용 한도'],
     }));
   }
-  const maxAge = force ? manualRefreshCooldown : publicReportTtl;
-  if (cached && (cached.pending || now - cached.requestedAt < maxAge))
+  if (
+    cached &&
+    (cached.pending || (!force && now - cached.requestedAt < publicReportTtl))
+  ) {
+    observeGitHub(
+      region.slug,
+      '(report)',
+      cached.pending ? 'coalesced' : 'hit',
+    );
     return cached.value;
+  }
 
   const entry = {
     requestedAt: now,
     pending: true,
-    value: getReport(region),
+    value: getReport(region, undefined, force),
   };
   if (!cached && publicReports.size >= 32) {
     const oldest = publicReports.keys().next().value;
@@ -582,6 +816,279 @@ async function pullReviews(
   }));
 }
 
+async function activityPage(
+  region: Region,
+  kind: ActivityKind,
+  number: string,
+  page: number,
+  token?: string,
+): Promise<ActivityPage> {
+  const get = client(region, token);
+  const query = `?per_page=30&page=${page}`;
+  let entries: ActivityEntry[];
+  let hasNext = false;
+  const pagination = (next: boolean) => {
+    hasNext = next;
+  };
+  if (kind === 'commits') {
+    const result = await get<
+      {
+        sha: string;
+        html_url: string;
+        author?: { login: string } | null;
+        commit: { message: string; author?: { date?: string; name?: string } };
+      }[]
+    >(`/pulls/${number}/commits${query}`, pagination, 30_000);
+    entries = result.map((item) => ({
+      title: item.sha.slice(0, 7),
+      url: item.html_url,
+      author: item.author?.login ?? item.commit.author?.name,
+      body: item.commit.message,
+      at: item.commit.author?.date,
+    }));
+  } else {
+    const resource =
+      kind === 'comments'
+        ? `/issues/${number}/comments`
+        : `/pulls/${number}/reviews`;
+    const result = await get<
+      {
+        user?: { login: string } | null;
+        state?: string;
+        html_url: string;
+        body?: string | null;
+        created_at?: string;
+        submitted_at?: string;
+      }[]
+    >(resource + query, pagination, 30_000);
+    entries = result
+      .filter((item) => kind !== 'reviews' || item.state !== 'PENDING')
+      .map((item) => ({
+        title: item.user?.login ?? 'GitHub',
+        url: item.html_url,
+        status: item.state,
+        body: item.body?.replace(/<!--[\s\S]*?-->/g, '').trim() || undefined,
+        at: item.submitted_at ?? item.created_at,
+      }));
+  }
+  return { entries, next: hasNext ? page + 1 : undefined };
+}
+
+async function activitySummary(
+  region: Region,
+  scope: 'issue' | 'pull',
+  number: string,
+  token?: string,
+) {
+  const get = client(region, token);
+  async function collect<T>(path: string, maxPages: number) {
+    const entries: T[] = [];
+    let hasNext = true;
+    for (let page = 1; hasNext && page <= maxPages; page++) {
+      const batch = await get<T[]>(
+        `${path}?per_page=100&page=${page}`,
+        (next) => {
+          hasNext = next;
+        },
+        30_000,
+      );
+      entries.push(...batch);
+    }
+    return { entries, complete: !hasNext };
+  }
+
+  const comments = collect<{ user?: Login | null }>(
+    `/issues/${number}/comments`,
+    5,
+  );
+  if (scope === 'issue') {
+    const [issue, discussion] = await Promise.all([
+      get<{ user?: Login | null; comments: number; pull_request?: unknown }>(
+        `/issues/${number}`,
+        undefined,
+        30_000,
+      ),
+      comments,
+    ]);
+    if (issue.pull_request) throw new GitHubError(404);
+    return {
+      comments: issue.comments,
+      people: [
+        issue.user,
+        ...discussion.entries.map(({ user }) => user),
+      ].flatMap((user) => (user ? [user.login] : [])),
+      complete:
+        discussion.complete && discussion.entries.length === issue.comments,
+    } satisfies Discussion;
+  }
+
+  const [pull, discussion, commits, reviews] = await Promise.all([
+    get<{ user?: Login | null; comments: number; commits: number }>(
+      `/pulls/${number}`,
+      undefined,
+      30_000,
+    ),
+    comments,
+    collect<{ sha: string }>(`/pulls/${number}/commits`, 3),
+    collect<{ user?: Login | null; state: string; submitted_at?: string }>(
+      `/pulls/${number}/reviews`,
+      5,
+    ),
+  ]);
+  const published = reviews.entries.filter(({ state }) => state !== 'PENDING');
+  const effective = new Map<string, (typeof published)[number]>();
+  for (const review of published) {
+    const login = review.user?.login.toLowerCase();
+    if (
+      !login ||
+      !review.submitted_at ||
+      !['APPROVED', 'CHANGES_REQUESTED', 'DISMISSED'].includes(review.state)
+    )
+      continue;
+    if (review.submitted_at >= (effective.get(login)?.submitted_at ?? ''))
+      effective.set(login, review);
+  }
+  return {
+    shas: commits.entries.map(({ sha }) => sha),
+    commits: pull.commits,
+    comments: pull.comments,
+    reviews: reviews.complete ? published.length : undefined,
+    people: [
+      pull.user,
+      ...discussion.entries.map(({ user }) => user),
+      ...published.map(({ user }) => user),
+    ].flatMap((user) => (user ? [user.login] : [])),
+    complete:
+      discussion.complete &&
+      discussion.entries.length === pull.comments &&
+      reviews.complete,
+    opinion: reviews.complete
+      ? latestOpinion(
+          [...effective.values()].flatMap(({ state, submitted_at }) => {
+            const opinion = reviewOpinion(state, submitted_at);
+            return opinion ? [opinion] : [];
+          }),
+        )
+      : undefined,
+  } satisfies PullActivity;
+}
+
+const heritageTtl = 30 * 60_000;
+
+async function repositoryHeritage(
+  region: Region,
+  token?: string,
+): Promise<Heritage> {
+  const data: Heritage = {};
+  const get = client(region, token);
+  const search = client(undefined, token, false, region.slug);
+  function record(
+    key: HeritageMetric,
+    value: unknown,
+    source: 'github' | 'search',
+  ) {
+    const count = verifiedCount(value);
+    if (count !== undefined) data[key] = { count, source };
+  }
+
+  async function readIndexed(
+    key: 'resolvedIssues' | 'mergedPulls',
+    qualifiers: string,
+  ) {
+    const params = new URLSearchParams({
+      q: `repo:${region.slug} ${qualifiers}`,
+      per_page: '1',
+    });
+    const result = await search<{
+      total_count: number;
+      incomplete_results: boolean;
+      items: { state?: string; state_reason?: string }[];
+    }>(`/search/issues?${params}`, undefined, heritageTtl);
+    if (
+      result.incomplete_results !== false ||
+      (key === 'resolvedIssues' &&
+        result.total_count > 0 &&
+        (result.items[0]?.state !== 'closed' ||
+          result.items[0]?.state_reason !== 'completed'))
+    )
+      return;
+    record(key, result.total_count, 'search');
+  }
+
+  async function readPullCounts() {
+    if (!token) return readIndexed('mergedPulls', 'is:pr is:merged');
+
+    const [owner, name] = region.slug.split('/');
+    const result = await githubGraphql<{
+      repository?: {
+        mergedPulls: { totalCount: number };
+        pulls: {
+          totalCount: number;
+          nodes: { reviews: { totalCount: number } }[];
+        };
+      };
+    }>(
+      `query($owner: String!, $name: String!) {
+        repository(owner: $owner, name: $name) {
+          mergedPulls: pullRequests(states: MERGED) { totalCount }
+          pulls: pullRequests(first: 50) {
+            totalCount
+            nodes {
+              reviews(states: [APPROVED, CHANGES_REQUESTED, COMMENTED, DISMISSED]) { totalCount }
+            }
+          }
+        }
+      }`,
+      { owner, name },
+      token,
+      'heritage',
+    );
+    record('mergedPulls', result.repository?.mergedPulls?.totalCount, 'github');
+    const pulls = result.repository?.pulls;
+    if (!pulls || pulls.totalCount !== pulls.nodes.length) return;
+    const counts = pulls.nodes.map((pull) =>
+      verifiedCount(pull.reviews?.totalCount),
+    );
+    if (counts.every((count) => count !== undefined))
+      record(
+        'reviews',
+        counts.reduce((sum, count) => sum + count, 0),
+        'github',
+      );
+  }
+
+  async function countComments(path: string) {
+    let next = false;
+    let link: string | null = null;
+    const first = await get<unknown[]>(
+      `${path}?per_page=1`,
+      (more, header) => {
+        next = more;
+        link = header;
+      },
+      heritageTtl,
+    );
+    return onePerPageCount(first.length, next, link);
+  }
+
+  async function readComments() {
+    const [discussion, inline] = await Promise.all([
+      countComments('/issues/comments'),
+      countComments('/pulls/comments'),
+    ]);
+    // GitHub truncates repository conversation pagination at 30,000 entries.
+    if (discussion !== undefined && inline !== undefined && discussion < 30_000)
+      record('comments', discussion + inline, 'github');
+  }
+
+  await Promise.allSettled([
+    readIndexed('resolvedIssues', 'is:issue is:closed reason:completed'),
+    readPullCounts(),
+    readComments(),
+  ]);
+  return data;
+}
+
 export async function githubResponse(
   url: URL,
   method: string | undefined,
@@ -607,14 +1114,47 @@ export async function githubResponse(
         return reply(400, { error: 'GitHub 계정 이름을 확인해 주세요.' });
       return reply(200, await listRepositories(owner, cursor, authorization));
     }
-    const repo = url.searchParams.get('repo');
-    const slug = repo === null ? undefined : repositorySlug(repo);
-    const region =
-      repo === null
-        ? regions.find(({ id }) => id === url.searchParams.get('region'))
-        : slug && repositoryRegion(slug);
-    if (!region)
-      return reply(400, { error: '지원하는 저장소를 선택해 주세요.' });
+    const slug = repositorySlug(url.searchParams.get('repo') ?? '');
+    if (!slug) return reply(400, { error: '지원하는 저장소를 선택해 주세요.' });
+    const region = repositoryRegion(slug);
+    if (url.searchParams.get('heritage') === '1')
+      return reply(200, await repositoryHeritage(region, authorization));
+    const summary = url.searchParams.get('summary');
+    if (summary !== null) {
+      const number = url.searchParams.get('number') ?? '';
+      if (
+        (summary !== 'issue' && summary !== 'pull') ||
+        !/^[1-9]\d{0,11}$/.test(number)
+      )
+        return reply(400, { error: '조회할 GitHub 활동을 확인해 주세요.' });
+      return reply(
+        200,
+        await activitySummary(region, summary, number, authorization),
+      );
+    }
+    const activity = url.searchParams.get('activity');
+    if (activity !== null) {
+      const number = url.searchParams.get('number') ?? '';
+      const page = url.searchParams.get('page') ?? '1';
+      if (
+        (activity !== 'commits' &&
+          activity !== 'comments' &&
+          activity !== 'reviews') ||
+        !/^[1-9]\d{0,11}$/.test(number) ||
+        !/^[1-9]\d{0,3}$/.test(page)
+      )
+        return reply(400, { error: '조회할 GitHub 활동을 확인해 주세요.' });
+      return reply(
+        200,
+        await activityPage(
+          region,
+          activity,
+          number,
+          Number(page),
+          authorization,
+        ),
+      );
+    }
     const pull = url.searchParams.get('reviews');
     if (pull !== null && !/^[1-9]\d{0,11}$/.test(pull))
       return reply(400, { error: 'PR 번호를 확인해 주세요.' });
@@ -631,10 +1171,14 @@ export async function githubResponse(
     return reply(200, result);
   } catch (error) {
     if (error instanceof GitHubError) {
+      if (error.rateLimited)
+        return reply(error.status, {
+          error: 'GitHub API 사용 한도에 도달했습니다.',
+        });
       const message =
         {
           401: 'GitHub 인증에 실패했습니다. 읽기 전용 토큰을 확인해 주세요.',
-          403: 'GitHub에서 요청을 거부했습니다. 권한 또는 API 사용 한도를 확인해 주세요.',
+          403: 'GitHub에서 요청을 거부했습니다. 저장소와 토큰 권한을 확인해 주세요.',
           404: url.searchParams.has('owner')
             ? 'GitHub 계정을 찾을 수 없습니다.'
             : '저장소 또는 PR을 찾을 수 없습니다. 비공개 저장소라면 읽기 전용 토큰이 필요합니다.',

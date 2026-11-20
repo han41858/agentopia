@@ -2,18 +2,20 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
   linkedPullIssues,
+  makeForges,
   makePullQuests,
   makeQuests,
   readState,
-  regions,
   repositoryInput,
   repositoryRegion,
   runIssue,
 } from './model.ts';
 import type { Comment, Issue, Pull, Run } from './model.ts';
 import { githubResponse } from './github.ts';
+import { facilityKind, isCurrentFacility } from '../src/facility-kind.ts';
 
-const [commitTrail, videx] = regions;
+const commitTrail = repositoryRegion('han41858/commit-trail');
+const videx = repositoryRegion('han41858/videx');
 const sha = 'a'.repeat(40);
 const mergeSha = 'b'.repeat(40);
 const stamp = '2026-11-19T10:00:00Z';
@@ -59,7 +61,7 @@ const comment = (
   number: number,
   status: string,
   extras: Record<string, unknown> = {},
-  region: string = commitTrail.id,
+  region: string = 'commit-trail',
 ): Comment => ({
   body: `<!-- ${region}-ai-state:${Buffer.from(
     JSON.stringify({
@@ -86,7 +88,7 @@ test('independent parties retain hierarchy and reflect actual developer and revi
     [run(3), run(2), run(1)],
     [
       comment(1, 'developing', { developer: 'codex' }),
-      comment(2, 'reviewing'),
+      comment(2, 'reviewing', { reviewer: 'codex' }),
       comment(3, 'failed', { reason: 'verification failed' }),
     ],
     new Map([[2, 1]]),
@@ -100,13 +102,126 @@ test('independent parties retain hierarchy and reflect actual developer and revi
       parent,
     ]),
     [
-      ['developing', 'codex', 'claude', undefined],
+      ['developing', 'codex', undefined, undefined],
       ['reviewing', 'claude', 'codex', 1],
-      ['failed', 'claude', 'codex', undefined],
+      ['failed', 'claude', undefined, undefined],
     ],
   );
   assert.equal(quests[2].reason, 'verification failed');
   assert.equal(quests[1].pulls[0].number, 20);
+});
+
+test('monster lifecycle and adventurer activity are independent and use matching workflow attempts', () => {
+  const work = makeQuests(
+    commitTrail,
+    [issue(1), issue(2), issue(3), issue(4), issue(5), issue(6), issue(7)],
+    [],
+    [
+      run(1),
+      run(2),
+      run(3, { status: 'completed', conclusion: 'success' }),
+      run(4, { status: 'queued' }),
+      run(5, { run_attempt: 2 }),
+      run(7),
+    ],
+    [
+      comment(1, 'developing', { developer: 'claude' }),
+      comment(2, 'reviewing', {
+        developer: 'claude',
+        reviewer: 'codex',
+        reviewInProgress: sha,
+      }),
+      comment(3, 'developing', { developer: 'claude' }),
+      comment(4, 'queued', { developer: 'codex' }),
+      comment(5, 'developing', { developer: 'codex', attempt: 1 }),
+      comment(7, 'revising', { developer: 'codex' }),
+    ],
+    new Map([[2, 1]]),
+    [],
+  );
+  assert.deepEqual(
+    work.map(({ stage }) => stage),
+    [
+      'developing',
+      'reviewing',
+      'returned',
+      'queued',
+      'developing',
+      'idle',
+      'revising',
+    ],
+  );
+  assert.deepEqual(
+    work.map(({ adventurers }) =>
+      adventurers?.map(({ agent, active }) => [agent, active]),
+    ),
+    [
+      [['claude', 'develop']],
+      [
+        ['claude', undefined],
+        ['codex', 'review'],
+      ],
+      [['claude', undefined]],
+      [],
+      [],
+      [],
+      [['codex', 'develop']],
+    ],
+  );
+  assert.equal(work[1].parent, 1);
+});
+
+test('a merged PR is a victory independently of whether its monster has been defeated', () => {
+  const merged = {
+    ...pull,
+    state: 'closed',
+    merged_at: stamp,
+    merge_commit_sha: mergeSha,
+  };
+  const [open, closed] = makeQuests(
+    commitTrail,
+    [issue(2), { ...issue(8), state: 'closed', state_reason: 'completed' }],
+    [merged],
+    [],
+    [],
+    new Map(),
+    [],
+  );
+  assert.equal(open.state, 'open');
+  assert.equal(open.victory, true);
+  assert.equal(open.pulls[0].status, 'merged');
+  assert.equal(closed.state, 'closed');
+  assert.equal(closed.stage, 'idle');
+  assert.equal(closed.victory, false);
+  const [independent] = makePullQuests(
+    commitTrail,
+    [{ ...merged, head: { ...pull.head, ref: 'independent' } }],
+    [],
+    new Set([2, 8]),
+    new Map(),
+  );
+  assert.equal(independent.merged, true);
+  assert.equal(independent.stage, 'complete');
+});
+
+test('uses a verified non-base commit as an issue result when a PR does not exist', () => {
+  const [withCommit, onBase] = makeQuests(
+    commitTrail,
+    [issue(1), issue(2)],
+    [],
+    [run(1), run(2)],
+    [
+      comment(1, 'developing', { base: mergeSha }),
+      comment(2, 'developing', { base: sha }),
+    ],
+    new Map(),
+    [],
+  );
+  assert.deepEqual(withCommit.commit, {
+    title: `커밋 ${sha.slice(0, 7)}`,
+    url: `https://github.com/${commitTrail.slug}/commit/${sha}`,
+  });
+  assert.equal(onBase.commit, undefined);
 });
 
 test('a new attempt suppresses old state, and unauthored or unrelated state is ignored', () => {
@@ -160,7 +275,14 @@ test('failed CI requires matching HEAD and deployment requires matching merge SH
   const [quest] = makeQuests(
     commitTrail,
     [issue(2)],
-    [{ ...pull, state: 'closed', merge_commit_sha: mergeSha }],
+    [
+      {
+        ...pull,
+        state: 'closed',
+        merge_commit_sha: mergeSha,
+        merged_at: stamp,
+      },
+    ],
     [],
     [comment(2, 'merged')],
     new Map(),
@@ -198,13 +320,13 @@ test('API rejects mutations and unknown repositories before contacting GitHub', 
   const fetch = context.mock.method(globalThis, 'fetch', () => {
     throw new Error('unexpected fetch');
   });
-  const url = new URL('http://localhost/api/github?region=videx');
+  const url = new URL('http://localhost/api/github?repo=han41858%2Fvidex');
   assert.equal((await githubResponse(url, 'POST')).status, 405);
   assert.equal(
     (await githubResponse(url, 'GET', 'Basic anything')).status,
     400,
   );
-  url.searchParams.set('region', 'unexpected');
+  url.searchParams.set('repo', 'unexpected');
   assert.equal((await githubResponse(url, 'GET')).status, 400);
   assert.equal(fetch.mock.callCount(), 0);
 });
@@ -227,7 +349,7 @@ test('API gets only the allowed repository and keeps authenticated reports out o
       return Response.json([]);
     },
   );
-  const url = new URL('http://localhost/api/github?region=videx');
+  const url = new URL('http://localhost/api/github?repo=han41858%2Fvidex');
   const authenticated = await githubResponse(url, 'GET', 'Bearer test_token');
   const publicReport = await githubResponse(url, 'GET');
   assert.equal(authenticated.status, 200);
@@ -512,13 +634,14 @@ test('public refresh reuses recent reports, refreshes on demand, and honors rate
       return Response.json({ workflow_runs: [] });
     return Response.json([]);
   });
-  const url = new URL('http://localhost/api/github?region=commit-trail');
+  const url = new URL(
+    'http://localhost/api/github?repo=han41858%2Fcommit-trail',
+  );
   await githubResponse(url, 'GET');
-  url.searchParams.set('refresh', '1');
   now += 10_000;
   await githubResponse(url, 'GET');
   assert.equal(issueRequests, 1);
-  now += 5_000;
+  url.searchParams.set('refresh', '1');
   await githubResponse(url, 'GET');
   assert.equal(issueRequests, 2);
   url.searchParams.delete('refresh');
@@ -539,4 +662,256 @@ test('public refresh reuses recent reports, refreshes on demand, and honors rate
   now += 70_000;
   await githubResponse(url, 'GET');
   assert.equal(issueRequests, 4);
+});
+
+test('activity counts follow verified links and failed actors follow the matching run attempt', () => {
+  const linked = { ...pull, number: 21, body: 'Closes #2' };
+  const unknown = {
+    ...pull,
+    number: 22,
+    body: 'Closes #3',
+    head: { ...pull.head, ref: 'feature/without-counts' },
+  };
+  const [knownQuest, unknownQuest] = makeQuests(
+    commitTrail,
+    [
+      { ...issue(2), comments: 3 },
+      { ...issue(3), comments: 0 },
+    ],
+    [pull, linked, unknown],
+    [
+      run(2, { status: 'completed', conclusion: 'failure' }),
+      run(3, { run_attempt: 2, status: 'completed', conclusion: 'failure' }),
+    ],
+    [comment(2, 'developing'), comment(3, 'developing')],
+    new Map(),
+    [],
+    new Map([
+      [
+        20,
+        {
+          issues: [2],
+          activity: {
+            shas: [sha, mergeSha],
+            commits: 2,
+            comments: 1,
+            reviews: 0,
+            people: ['Alice'],
+            complete: true,
+            opinion: { state: 'APPROVED', at: '2026-11-19T00:00:00Z' },
+          },
+        },
+      ],
+      [
+        21,
+        {
+          issues: [2],
+          activities: { commits: 2, comments: 2, reviews: 3 },
+          activity: {
+            shas: [sha, 'c'.repeat(40)],
+            commits: 2,
+            comments: 2,
+            reviews: 3,
+            people: ['alice', 'Bob'],
+            complete: true,
+            opinion: { state: 'CHANGES_REQUESTED', at: '2026-11-20T00:00:00Z' },
+          },
+        },
+      ],
+    ]),
+  );
+  assert.equal(knownQuest.activity?.commits, 3);
+  assert.equal(knownQuest.activity?.partialCommits, false);
+  assert.equal(knownQuest.activity?.issueComments, 3);
+  assert.equal(knownQuest.activity?.pullComments, 3);
+  assert.equal(knownQuest.activity?.reviews, 3);
+  assert.equal(knownQuest.activity?.participants, 3);
+  assert.equal(knownQuest.activity?.partialParticipants, true);
+  assert.equal(knownQuest.activity?.opinion?.state, 'CHANGES_REQUESTED');
+  assert.deepEqual(knownQuest.pulls[1].activities, {
+    commits: 2,
+    comments: 2,
+    reviews: 3,
+  });
+  assert.equal(knownQuest.adventurers?.[0].fallen, true);
+  assert.equal(knownQuest.adventurers?.[0].active, undefined);
+  assert.equal(unknownQuest.activities?.commits, undefined);
+  assert.equal(unknownQuest.activities?.comments, 0);
+  assert.equal(unknownQuest.adventurers?.[0]?.fallen, undefined);
+});
+
+test('activity detail requests stay on the validated GitHub resource and omit unpublished reviews', async (context) => {
+  const link = 'https://github.com/example/project/pull/23#pullrequestreview-1';
+  const get = context.mock.method(
+    globalThis,
+    'fetch',
+    async (input: string, options: RequestInit) => {
+      const url = new URL(input);
+      assert.equal(url.origin, 'https://api.github.com');
+      assert.equal(
+        new Headers(options.headers).get('authorization'),
+        'Bearer activity_token',
+      );
+      assert.equal(url.searchParams.get('per_page'), '30');
+      assert.equal(url.searchParams.get('page'), '2');
+      switch (url.pathname) {
+        case '/repos/example/project/pulls/23/reviews':
+          return Response.json([
+            {
+              user: { login: 'agent' },
+              html_url: link,
+              state: 'APPROVED',
+              body: 'Looks good\n<!-- hidden -->',
+              submitted_at: stamp,
+            },
+            { state: 'PENDING', body: 'Unpublished' },
+          ]);
+        case '/repos/example/project/pulls/23/commits':
+          return Response.json([
+            { sha, html_url: link, commit: { message: 'Implement change' } },
+          ]);
+        case '/repos/example/project/issues/23/comments':
+          return Response.json([
+            {
+              user: { login: 'maintainer' },
+              html_url: link,
+              body: 'Discuss change',
+              created_at: stamp,
+            },
+          ]);
+        default:
+          throw new Error('Unexpected GitHub resource');
+      }
+    },
+  );
+  const requestActivity = (kind: string, number = '23') =>
+    githubResponse(
+      new URL(
+        `https://agentopia.test/api/github?repo=example/project&activity=${kind}&number=${number}&page=2`,
+      ),
+      'GET',
+      'Bearer activity_token',
+    );
+  assert.equal((await requestActivity('reviews', '%2F23')).status, 400);
+  assert.equal(get.mock.callCount(), 0);
+  const [reviews, commits, comments] = await Promise.all(
+    ['reviews', 'commits', 'comments'].map((kind) => requestActivity(kind)),
+  );
+  assert.deepEqual(JSON.parse(reviews.body), {
+    entries: [
+      {
+        title: 'agent',
+        url: link,
+        status: 'APPROVED',
+        body: 'Looks good',
+        at: stamp,
+      },
+    ],
+  });
+  assert.equal(JSON.parse(commits.body).entries[0].body, 'Implement change');
+  assert.equal(JSON.parse(comments.body).entries[0].body, 'Discuss change');
+});
+
+test('forges represent many-to-many links and activate only the uniquely matched PR head', () => {
+  const second = {
+    ...pull,
+    number: 21,
+    body: 'Closes #2 and closes #3',
+    head: { ...pull.head, ref: 'feature/shared', sha: mergeSha },
+  };
+  const independent = {
+    ...pull,
+    number: 24,
+    head: { ...pull.head, ref: 'feature/independent' },
+  };
+  const pulls = [pull, second, independent];
+  const workflow = run(2);
+  const records = [
+    comment(2, 'reviewing', {
+      reviewer: 'codex',
+      head: mergeSha,
+      reviewInProgress: mergeSha,
+    }),
+  ];
+  const quests = makeQuests(
+    commitTrail,
+    [issue(2), issue(3)],
+    pulls,
+    [workflow],
+    records,
+    new Map(),
+    [],
+  );
+  assert.equal(quests[0].workPull, 21);
+  const forges = makeForges(commitTrail, pulls, [workflow], new Map(), quests);
+  assert.deepEqual(
+    forges.map(({ number }) => number),
+    [20, 21, 24],
+  );
+  assert.deepEqual(forges[1].issues, [2, 3]);
+  assert.equal(forges[1].stage, 'reviewing');
+  assert.equal(forges[1].adventurers?.[0].active, 'review');
+  assert.equal(forges[0].adventurers?.length, 0);
+  assert.deepEqual(forges[2].issues, []);
+  const ambiguous = [...pulls, { ...second, number: 22 }];
+  const ambiguousQuests = makeQuests(
+    commitTrail,
+    [issue(2)],
+    ambiguous,
+    [workflow],
+    records,
+    new Map(),
+    [],
+  );
+  assert.equal(ambiguousQuests[0].workPull, undefined);
+  assert.ok(
+    makeForges(
+      commitTrail,
+      ambiguous,
+      [workflow],
+      new Map(),
+      ambiguousQuests,
+    ).every((forge) => !forge.adventurers?.length),
+  );
+});
+
+test('facility classification uses the leading GitMoji and keeps a neutral default', () => {
+  assert.deepEqual(
+    ['✨', '🐛', '💄', '📝', '✅', '⚡️', '♻️', '🔒', '🚀'].map((emoji) =>
+      facilityKind(`  ${emoji} Change`),
+    ),
+    [
+      'forge',
+      'wall',
+      'garden',
+      'library',
+      'training',
+      'machine',
+      'repair',
+      'guard',
+      'portal',
+    ],
+  );
+  assert.equal(facilityKind('✨🐛 Mixed'), 'forge');
+  assert.equal(facilityKind('🎨 Ordinary title ✨'), 'workshop');
+  assert.equal(facilityKind('Ordinary title'), 'workshop');
+  assert.equal(facilityKind(''), 'workshop');
+});
+
+test('closed facilities go to history immediately and reopened facilities return', () => {
+  const closed = { ...pull, state: 'closed', closed_at: stamp };
+  const merged = { ...closed, number: 21, merged_at: stamp };
+  const reopened = { ...closed, number: 22, state: 'open' };
+  const [cancelled, completed, current] = makeForges(
+    commitTrail,
+    [closed, merged, reopened],
+    [],
+    new Map(),
+  );
+  assert.equal(cancelled.finishedAt, stamp);
+  assert.equal(completed.finishedAt, stamp);
+  assert.deepEqual([cancelled, completed, current].filter(isCurrentFacility), [
+    current,
+  ]);
+  assert.equal(current.finishedAt, undefined);
 });

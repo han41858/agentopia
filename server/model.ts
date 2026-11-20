@@ -1,23 +1,9 @@
-export const regions = [
-  {
-    id: 'commit-trail',
-    slug: 'han41858/commit-trail',
-    name: 'Commit Trail',
-    description: '시간을 기록하는 기계와 고대의 문서가 잠든 성채.',
-  },
-  {
-    id: 'videx',
-    slug: 'han41858/videx',
-    name: 'Videx',
-    description: '별빛과 마법으로 이야기를 비추는 보랏빛 극장.',
-  },
-] as const;
+import { summarizeActivity } from './activity.ts';
+import type { ActivityProfile, PullActivity } from './activity.ts';
 
 export type Region = {
-  id: string;
   slug: string;
   name: string;
-  description: string;
 };
 
 export type Repository = { slug: string; private: boolean };
@@ -45,42 +31,55 @@ export function repositoryInput(value: string) {
 }
 
 export function repositoryRegion(slug: string): Region {
-  const known = regions.find((region) => region.slug === slug);
-  if (known) return known;
   const [, name] = slug.split('/');
-  return {
-    id: slug,
-    slug,
-    name,
-    description: slug,
-  };
+  return { slug, name };
 }
 export type Stage =
   | 'idle'
   | 'queued'
   | 'developing'
+  | 'revising'
   | 'reviewing'
   | 'ci'
   | 'deploying'
   | 'merging'
   | 'complete'
+  | 'returned'
   | 'failed'
   | 'attention';
 export const stages: Record<Stage, string> = {
   idle: '대기',
-  queued: '출정 대기',
-  developing: '제작 · 탐험',
-  reviewing: '현자의 검토',
+  queued: '출정 준비',
+  developing: '모험가 전투',
+  revising: '재전투',
+  reviewing: '모험가 검토',
   ci: '시련의 관문',
-  merging: '변경 병합 중',
+  merging: '공략 결과 병합 중',
   deploying: '포탈 개방',
-  complete: '퀘스트 클리어',
-  failed: '실패',
+  complete: '전투 승리',
+  returned: '귀환',
+  failed: '실행 실패',
   attention: '개입 필요',
 };
 
 export type Agent = 'codex' | 'claude';
+export type AdventurerRole = 'develop' | 'review';
+export type Adventurer = {
+  agent: Agent;
+  roles: AdventurerRole[];
+  active?: AdventurerRole;
+  fallen?: boolean;
+};
 export type Source = { title: string; url: string; status?: string };
+export type ActivityKind = 'commits' | 'comments' | 'reviews';
+export type ActivityCounts = Partial<Record<ActivityKind, number>>;
+export type ActivityEntry = Source & {
+  author?: string;
+  body?: string;
+  at?: string;
+};
+export type ActivityPage = { entries: ActivityEntry[]; next?: number };
+
 export type Quest = {
   number: number;
   title: string;
@@ -88,6 +87,13 @@ export type Quest = {
   stage: Stage;
   state: Issue['state'];
   stateReason?: Issue['state_reason'];
+  victory?: boolean;
+  adventurers?: Adventurer[];
+  activities?: ActivityCounts;
+  activity?: ActivityProfile;
+  reopened?: boolean;
+  workPull?: number;
+  issueComments?: number;
   subIssueCount?: number;
   parent?: number;
   reason?: string;
@@ -96,12 +102,21 @@ export type Quest = {
   developer?: Agent;
   reviewer?: Agent;
   review?: string;
-  pulls: (Source & { number: number })[];
+  pulls: (Source & { number: number; activities?: ActivityCounts })[];
+  commit?: Source;
   runs: Source[];
 };
 export type PullQuest = Source & {
   number: number;
   draft: boolean;
+  merged?: boolean;
+  cancelled?: boolean;
+  finishedAt?: string;
+  issues?: number[];
+  adventurers?: Adventurer[];
+  quality?: Stage;
+  activity?: ActivityProfile;
+  activities?: ActivityCounts;
   stage: Stage;
   author?: Agent;
   reviewer?: Agent;
@@ -110,7 +125,9 @@ export type PullQuest = Source & {
 };
 
 export type PullLinks = {
+  activity?: PullActivity;
   issues: number[];
+  activities?: ActivityCounts;
   reviewer?: Agent;
   review?: string;
 };
@@ -118,6 +135,7 @@ export type PullLinks = {
 export type Report = {
   quests: Quest[];
   pullQuests?: PullQuest[];
+  forges?: PullQuest[];
   releases: (Source & { stage: Stage })[];
   updatedAt: string;
   warnings: string[];
@@ -130,7 +148,9 @@ export type Issue = {
   state: string;
   state_reason?: string | null;
   pull_request?: unknown;
+  user?: { login: string } | null;
   labels: { name: string }[];
+  comments?: number;
   sub_issues_summary?: { total: number };
 };
 export type Pull = {
@@ -143,6 +163,8 @@ export type Pull = {
   user?: { login: string; type?: string };
   head: { ref: string; sha: string; repo?: { full_name: string } };
   merge_commit_sha?: string;
+  merged_at?: string | null;
+  closed_at?: string | null;
   updated_at: string;
 };
 export type Run = {
@@ -176,8 +198,10 @@ type AutomationState = {
   status: string;
   developer?: Agent;
   reviewer?: Agent;
+  reviewInProgress?: string;
   reason?: string;
   detail?: string;
+  base?: string;
   head?: string;
   reviews?: { head: string; result?: { status: string } }[];
 };
@@ -185,7 +209,7 @@ type AutomationState = {
 const automationStages: Record<string, Stage> = {
   queued: 'queued',
   developing: 'developing',
-  revising: 'developing',
+  revising: 'revising',
   reviewing: 'reviewing',
   ready: 'ci',
   merging: 'merging',
@@ -310,20 +334,26 @@ function runSource(run: Run): Source {
   };
 }
 
-export function makePullQuests(
+export function makeForges(
   region: Region,
   pulls: Pull[],
   runs: Run[],
-  issueNumbers: ReadonlySet<number>,
   links: ReadonlyMap<number, PullLinks>,
+  quests: Quest[] = [],
 ): PullQuest[] {
+  const work = new Map<number, Quest[]>();
+  for (const quest of quests) {
+    if (quest.workPull === undefined) continue;
+    const current = work.get(quest.workPull) ?? [];
+    current.push(quest);
+    work.set(quest.workPull, current);
+  }
   return pulls
     .filter(
       (pull) =>
-        pull.state === 'open' &&
-        !linkedPullIssues(pull, region, links.get(pull.number)).some((number) =>
-          issueNumbers.has(number),
-        ),
+        pull.state === 'open' ||
+        pull.state === 'closed' ||
+        Boolean(pull.merged_at),
     )
     .map((pull) => {
       const relatedRuns = runs.filter(
@@ -338,23 +368,112 @@ export function makePullQuests(
       );
       const outcome = ci ? runStage(ci) : 'idle';
       const review = links.get(pull.number);
+      const cancelled = pull.state === 'closed' && !pull.merged_at;
+      const relatedWork =
+        pull.merged_at || cancelled ? [] : (work.get(pull.number) ?? []);
+      const workers = new Map<Agent, Adventurer>();
+      for (const quest of relatedWork) {
+        for (const member of quest.adventurers ?? []) {
+          if (!member.active && !member.fallen) continue;
+          const previous = workers.get(member.agent);
+          workers.set(member.agent, {
+            ...member,
+            roles: [...new Set([...(previous?.roles ?? []), ...member.roles])],
+            active: member.active ?? previous?.active,
+            fallen:
+              !member.active &&
+              !previous?.active &&
+              Boolean(member.fallen || previous?.fallen),
+          });
+        }
+      }
+      const adventurers = [...workers.values()];
+      const quality =
+        outcome === 'developing' || outcome === 'queued'
+          ? 'ci'
+          : outcome === 'attention' || outcome === 'failed'
+            ? outcome
+            : undefined;
+      const stage = pull.merged_at
+        ? 'complete'
+        : cancelled
+          ? 'idle'
+          : quality === 'failed' || quality === 'attention'
+            ? quality
+            : adventurers.some((member) => member.fallen)
+              ? 'failed'
+              : adventurers.some((member) => member.active === 'review')
+                ? 'reviewing'
+                : adventurers.some((member) => member.active === 'develop')
+                  ? relatedWork.some((quest) => quest.stage === 'revising')
+                    ? 'revising'
+                    : 'developing'
+                  : (quality ??
+                    (relatedWork.some((quest) => quest.stage === 'merging')
+                      ? 'merging'
+                      : 'idle'));
       return {
         number: pull.number,
         title: pull.title,
         url: pull.html_url,
         draft: pull.draft,
-        stage:
-          outcome === 'developing' || outcome === 'queued'
-            ? 'ci'
-            : outcome === 'attention' || outcome === 'failed'
-              ? outcome
-              : 'idle',
+        merged: Boolean(pull.merged_at),
+        cancelled,
+        finishedAt:
+          pull.merged_at ||
+          (cancelled ? (pull.closed_at ?? pull.updated_at) : undefined),
+        issues: linkedPullIssues(pull, region, review),
+        adventurers,
+        quality: pull.merged_at || cancelled ? undefined : quality,
+        activity: summarizeActivity(undefined, [
+          pullDiscussion(pull, review?.activity),
+        ]),
+        activities: review?.activities,
+        stage,
         author: pullActor(pull.user?.login, pull.user?.type),
         reviewer: review?.reviewer,
         review: review?.review,
-        runs: relatedRuns.slice(0, 8).map(runSource),
+        runs: [
+          ...new Map(
+            [
+              ...relatedWork.flatMap((quest) => quest.runs),
+              ...relatedRuns.map(runSource),
+            ].map((run) => [run.url, run]),
+          ).values(),
+        ].slice(0, 8),
       };
     });
+}
+
+export function makePullQuests(
+  region: Region,
+  pulls: Pull[],
+  runs: Run[],
+  issueNumbers: ReadonlySet<number>,
+  links: ReadonlyMap<number, PullLinks>,
+) {
+  return makeForges(region, pulls, runs, links).filter(
+    (pull) =>
+      !pull.cancelled &&
+      !pull.issues?.some((number) => issueNumbers.has(number)),
+  );
+}
+
+function pullDiscussion(
+  pull: Pull,
+  known?: PullActivity,
+  commenters: string[] = [],
+): PullActivity {
+  return {
+    shas: [],
+    ...known,
+    complete: known?.complete ?? false,
+    people: [
+      pull.user?.login ?? '',
+      ...(known?.people ?? []),
+      ...commenters,
+    ].filter(Boolean),
+  };
 }
 
 export function makeQuests(
@@ -396,6 +515,18 @@ export function makeQuests(
       pullsByIssue.set(number, entries);
     }
   }
+  const childrenByIssue = new Map<number, number>();
+  for (const parent of parents.values())
+    childrenByIssue.set(parent, (childrenByIssue.get(parent) ?? 0) + 1);
+
+  const discussion = new Map<number, Map<string, string>>();
+  for (const entry of comments) {
+    const number = Number(entry.issue_url.split('/').pop());
+    const conversation = discussion.get(number) ?? new Map<string, string>();
+    conversation.set(entry.html_url, entry.user?.login ?? '');
+    discussion.set(number, conversation);
+  }
+
   return issues.map((issue) => {
     const issuePulls = pullsByIssue.get(issue.number) ?? [];
     const automation = runs.filter((run) => runIssue(run) === issue.number);
@@ -409,7 +540,21 @@ export function makeQuests(
           (record.state.attempt ?? 1) >= run.run_attempt))
         ? record.state
         : undefined;
-    const pull = issuePulls[0];
+    const runPulls = issuePulls.filter(
+      (item) =>
+        item.state === 'open' &&
+        run?.pull_requests.some(({ number }) => number === item.number),
+    );
+    const headPulls = issuePulls.filter(
+      (item) => item.state === 'open' && item.head.sha === state?.head,
+    );
+    const workPull =
+      runPulls.length === 1
+        ? runPulls[0]
+        : headPulls.length === 1
+          ? headPulls[0]
+          : undefined;
+    const pull = workPull ?? issuePulls[0];
     const ci = runs.find(
       (candidate) =>
         candidate.path.split('@')[0] === '.github/workflows/ci.yml' &&
@@ -422,12 +567,11 @@ export function makeQuests(
     const deployment = releases.find((release) =>
       issuePulls.some(
         (pr) =>
-          pr.state === 'closed' &&
+          pr.merged_at &&
           pr.merge_commit_sha &&
           pr.merge_commit_sha === release.sha,
       ),
     );
-    let reviewer: Agent | undefined;
     const branch =
       pull && pullIssue(pull, region) === issue.number ? pull.head.ref : '';
     const developer =
@@ -438,13 +582,10 @@ export function makeQuests(
           : branch.endsWith('-claude')
             ? 'claude'
             : undefined;
-    if (state?.reviewer === 'codex' || state?.reviewer === 'claude') {
-      reviewer = state.reviewer;
-    } else if (developer && region.slug === 'han41858/videx') {
-      reviewer = 'claude';
-    } else if (developer && region.slug === 'han41858/commit-trail') {
-      reviewer = developer === 'codex' ? 'claude' : 'codex';
-    }
+    const reviewer =
+      state?.reviewer === 'codex' || state?.reviewer === 'claude'
+        ? state.reviewer
+        : pull && pullLinks.get(pull.number)?.reviewer;
     let stage: Stage = state ? automationStages[state.status] : 'idle';
     let evidence: Source | undefined =
       state && record
@@ -496,16 +637,28 @@ export function makeQuests(
         reason = `CI · ${evidence.status}`;
       }
     }
-    if (
-      stage === 'idle' &&
-      issue.state === 'closed' &&
-      issue.state_reason === 'completed'
-    )
-      stage = 'complete';
-    if (deployment && stage === 'complete') {
+    const victory =
+      issuePulls.some((item) => item.merged_at) || state?.status === 'merged';
+    if (deployment && victory && (stage === 'complete' || stage === 'idle')) {
       ({ stage } = deployment);
       evidence = deployment;
       reason = deployment.status;
+    } else if (stage === 'idle' && victory) {
+      stage = 'complete';
+    }
+    if (
+      run?.status === 'completed' &&
+      (!state ||
+        (state.runId === run.id && (state.attempt ?? 1) === run.run_attempt)) &&
+      ((stage === 'idle' && outcome === 'complete') ||
+        stage === 'queued' ||
+        stage === 'developing' ||
+        stage === 'revising' ||
+        stage === 'reviewing' ||
+        stage === 'merging')
+    ) {
+      stage = 'returned';
+      evidence = runSource(run);
     }
     if (
       issue.labels.some(({ name }) => name === 'ai:stop') &&
@@ -521,6 +674,102 @@ export function makeQuests(
       detail = undefined;
     }
 
+    const adventurers = new Map<Agent, Adventurer>();
+    const matchingRun = Boolean(
+      run &&
+      state &&
+      run.id === state.runId &&
+      run.run_attempt === (state.attempt ?? 1),
+    );
+    const running = matchingRun && run?.status === 'in_progress';
+    const addAdventurer = (
+      agent: Agent,
+      role: AdventurerRole,
+      active: boolean,
+      fallen = false,
+    ) => {
+      const member = adventurers.get(agent) ?? { agent, roles: [] };
+      if (!member.roles.includes(role)) member.roles.push(role);
+      if (active) member.active = role;
+      if (fallen) member.fallen = true;
+      adventurers.set(agent, member);
+    };
+    const developmentRecorded = Boolean(
+      branch ||
+      (state &&
+        [
+          'developing',
+          'revising',
+          'reviewing',
+          'ready',
+          'merging',
+          'merged',
+        ].includes(state.status)),
+    );
+    if (developer && developmentRecorded)
+      addAdventurer(
+        developer,
+        'develop',
+        running && (stage === 'developing' || stage === 'revising'),
+        matchingRun &&
+          outcome === 'failed' &&
+          (state?.status === 'developing' || state?.status === 'revising'),
+      );
+    const submittedReviewer = pull && pullLinks.get(pull.number)?.reviewer;
+    if (submittedReviewer) addAdventurer(submittedReviewer, 'review', false);
+    const reviewRecorded = Boolean(
+      state?.reviewInProgress || state?.reviews?.length,
+    );
+    if (
+      state?.reviewer &&
+      (state.reviewer === 'codex' || state.reviewer === 'claude') &&
+      reviewRecorded
+    ) {
+      const reviewingHead =
+        Boolean(state.reviewInProgress) &&
+        state.reviewInProgress === (pull?.head.sha ?? state.head);
+      const active = running && stage === 'reviewing' && reviewingHead;
+      const fallen = matchingRun && outcome === 'failed' && reviewingHead;
+      if (state.reviewer !== submittedReviewer || active || fallen)
+        addAdventurer(state.reviewer, 'review', active, fallen);
+    }
+
+    const commit =
+      !issuePulls.length &&
+      state?.base &&
+      state.head &&
+      state.head !== state.base &&
+      /^[a-f0-9]{40}$/i.test(state.head)
+        ? {
+            title: `커밋 ${state.head.slice(0, 7)}`,
+            url: `https://github.com/${region.slug}/commit/${state.head}`,
+          }
+        : undefined;
+
+    const issueDiscussion = discussion.get(issue.number);
+    const activity = summarizeActivity(
+      {
+        comments: issue.comments,
+        people: [
+          issue.user?.login ?? '',
+          ...(issueDiscussion?.values() ?? []),
+        ].filter(Boolean),
+        complete:
+          issue.comments !== undefined &&
+          issue.comments === (issueDiscussion?.size ?? 0),
+      },
+      issuePulls.map((pull) =>
+        pullDiscussion(pull, pullLinks.get(pull.number)?.activity, [
+          ...(discussion.get(pull.number)?.values() ?? []),
+        ]),
+      ),
+    );
+    const activities = {
+      commits: activity.commits,
+      comments: activity.issueComments,
+      reviews: activity.reviews,
+    };
+
     return {
       number: issue.number,
       title: issue.title,
@@ -528,7 +777,22 @@ export function makeQuests(
       stage,
       state: issue.state,
       stateReason: issue.state_reason,
-      subIssueCount: issue.sub_issues_summary?.total,
+      reopened:
+        issue.state === 'open' && issue.state_reason === 'reopened'
+          ? true
+          : undefined,
+      victory,
+      workPull:
+        matchingRun && issue.state === 'open' ? workPull?.number : undefined,
+      adventurers: [...adventurers.values()],
+      activities,
+      activity,
+      issueComments: issue.comments,
+      subIssueCount:
+        Math.max(
+          issue.sub_issues_summary?.total ?? 0,
+          childrenByIssue.get(issue.number) ?? 0,
+        ) || undefined,
       parent: parents.get(issue.number),
       reason,
       detail,
@@ -536,11 +800,17 @@ export function makeQuests(
       developer,
       reviewer,
       review,
+      commit,
       pulls: issuePulls.map((item) => ({
         number: item.number,
         title: item.title,
         url: item.html_url,
-        status: item.draft && item.state === 'open' ? 'draft' : item.state,
+        activities: pullLinks.get(item.number)?.activities,
+        status: item.merged_at
+          ? 'merged'
+          : item.draft && item.state === 'open'
+            ? 'draft'
+            : item.state,
       })),
       runs: [...automation, ...(ci ? [ci] : [])].slice(0, 8).map(runSource),
     };
