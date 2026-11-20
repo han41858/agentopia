@@ -181,6 +181,7 @@ svg {
   margin-top: 4px;
 }
 .map-viewport {
+  grid-template-columns: minmax(0, 1fr);
   display: grid;
   grid-auto-rows: max-content;
   align-content: center;
@@ -189,23 +190,11 @@ svg {
 .kingdoms {
   width: min(100%, 1160px);
   margin-inline: auto;
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
-  align-items: start;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: center;
   gap: clamp(12px, 2vw, 24px);
-}
-.kingdoms:has(> .kingdom-area:only-child) {
-  max-width: 230px;
-}
-.kingdoms:has(
-  > .kingdom-area:only-child :is(.expeditions, .guild-parties) > li:nth-child(4)
-) {
-  max-width: 340px;
-}
-.kingdoms:has(
-  > .kingdom-area:only-child :is(.expeditions, .guild-parties) > li:nth-child(7)
-) {
-  max-width: 560px;
 }
 .kingdom-area {
   --land: oklch(66% 0.09 var(--kingdom-hue));
@@ -236,23 +225,10 @@ svg {
   );
   position: relative;
   isolation: isolate;
+  width: max-content;
   min-width: 0;
-  padding: 38px max(16px, 9%) 42px;
-}
-.kingdom-area:not(:has(> .expeditions)) {
-  width: 100%;
-  max-width: 185px;
-  padding-inline: 16px;
-  justify-self: center;
-}
-@media (min-width: 900px) {
-  .kingdoms:has(> .kingdom-area:nth-child(2))
-    > .kingdom-area:has(
-      > .expeditions > li:nth-child(13),
-      .guild-parties > li:nth-child(13)
-    ) {
-    grid-column: span 2;
-  }
+  max-width: min(100%, 720px);
+  padding: 38px clamp(17px, 2.7vw, 33px) 42px;
 }
 .kingdom-area:nth-child(even) {
   --territory-shape: polygon(
@@ -322,15 +298,22 @@ svg {
 }
 .expeditions,
 .guild-parties {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(53px, 100%), 1fr));
+  display: flex;
+  flex-wrap: wrap;
   gap: 3px;
   padding: 0;
   margin: 7px 0 0;
   list-style: none;
 }
-.guild-branch {
-  grid-column: 1 / -1;
+.expeditions > li,
+.guild-parties > li {
+  flex: 0 0 53px;
+  min-width: 0;
+  max-width: 100%;
+}
+.expeditions > .guild-branch,
+.guild-parties > .guild-branch {
+  flex-basis: 100%;
 }
 .guild-parties {
   margin: 6px 0 0 7px;

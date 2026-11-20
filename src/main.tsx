@@ -1086,10 +1086,10 @@ function RepositoryDialog({
 
   return (
     <Dialog title="저장소 추가" className="repository-dialog" close={close}>
-      <form className="token-form" onSubmit={submit}>
-        <label htmlFor="github-repository">GitHub 계정 또는 저장소</label>
+      <form className="token-form" onSubmit={submit} aria-busy={pending}>
         <input
           id="github-repository"
+          aria-label="GitHub 계정 또는 저장소"
           placeholder="owner 또는 owner/repo"
           autoCapitalize="none"
           autoComplete="off"
@@ -1108,12 +1108,14 @@ function RepositoryDialog({
           {owner ? '목록 보기' : '추가'}
         </button>
       </form>
-      {pending && <p role="status">GitHub 확인 중…</p>}
       {page && (
         <>
           {page.repositories.length ? (
-            <fieldset className="repository-options" disabled={pending}>
-              <legend>저장소 선택</legend>
+            <fieldset
+              className="repository-options"
+              disabled={pending}
+              aria-label="저장소 선택"
+            >
               {page.repositories.map((repo) => (
                 <label key={repo.slug}>
                   <input
@@ -1468,7 +1470,7 @@ function App() {
         <footer className="world-footer">
           <ul className="expedition-legend" aria-label="기본 파티 구성">
             <li className="actions">
-              <Workflow size={14} aria-hidden="true" /> 길드 마스터
+              <Workflow size={14} aria-hidden="true" /> 파티장
             </li>
             <li className="codex">
               <AdventurerGlyph agent="codex" /> Codex
