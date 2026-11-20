@@ -2288,27 +2288,12 @@ function App() {
                       }
                       onClick={() => select(region)}
                     >
-                      <span className="kingdom-guild">
-                        <Castle
-                          className="kingdom-crest"
-                          size={34}
-                          strokeWidth={1.5}
-                          aria-hidden="true"
-                        />
-                        {(forges.some((forge) => forge.runs.length) ||
-                          report?.quests.some(
-                            (quest) => quest.runs.length,
-                          )) && (
-                          <span
-                            className="kingdom-party-leader"
-                            role="img"
-                            aria-label="GitHub Actions · 파티장"
-                            title="GitHub Actions · 파티장"
-                          >
-                            <Workflow size={14} aria-hidden="true" />
-                          </span>
-                        )}
-                      </span>
+                      <Castle
+                        className="kingdom-crest"
+                        size={34}
+                        strokeWidth={1.5}
+                        aria-hidden="true"
+                      />
                       <span className="kingdom-label">
                         <strong>{region.name}</strong>
                       </span>

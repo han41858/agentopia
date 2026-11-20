@@ -1115,17 +1115,6 @@ svg {
   padding: 0;
 }
 
-.kingdom-guild {
-  display: grid;
-  place-items: center;
-  position: relative;
-}
-.kingdom-party-leader {
-  position: absolute;
-  bottom: 0;
-  right: -15px;
-  color: #9ad9ff;
-}
 .adventurer-glyph.crafting.develop .adventurer-avatar {
   animation: forge-test 1.7s ease-in-out infinite;
 }
