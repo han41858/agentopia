@@ -879,7 +879,7 @@ function Dialog({
           <X size={20} />
         </button>
       </div>
-      {children}
+      <div className="dialog-body">{children}</div>
     </dialog>
   );
 }
