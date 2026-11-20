@@ -197,46 +197,39 @@ svg {
   gap: clamp(12px, 2vw, 24px);
 }
 .kingdom-area {
-  --mortar: color-mix(in srgb, var(--land) 28%, #17232a);
-  --stone: color-mix(in srgb, var(--land) 65%, #53616c);
+  --mortar: color-mix(in srgb, var(--land) 32%, #16242a);
+  --stone: color-mix(in srgb, var(--land) 67%, #5f6a71);
   position: relative;
   isolation: isolate;
   width: max-content;
   min-width: min(100%, 162px);
   max-width: min(100%, 720px);
-  padding: 18px clamp(10px, 3.2vw, 26px) 22px;
-  border: 8px solid var(--stone);
-  border-radius: 46% / min(45%, 60px);
-  background: color-mix(in srgb, var(--land) 15%, #142430);
-  box-shadow:
-    inset 0 0 0 2px var(--mortar),
-    0 3px 0 #16241f;
+  padding: 25px clamp(22px, 5vw, 44px) 34px;
 }
-.kingdom-area::before,
-.kingdom-area::after {
-  content: '';
+.kingdom-wall {
   position: absolute;
-  inset-inline: 42%;
-  height: 6px;
+  inset: 0;
+  z-index: -1;
+  width: 100%;
+  height: 100%;
   pointer-events: none;
-  background: repeating-linear-gradient(
-    90deg,
-    var(--stone) 0 11px,
-    var(--mortar) 11px 13px,
-    transparent 13px 20px
-  );
+  transform-origin: center top;
 }
-.kingdom-area::before {
-  top: -11px;
+.kingdom-wall-masonry {
+  fill: color-mix(in srgb, var(--land) 15%, #142430);
+  stroke: var(--mortar);
+  stroke-width: 10px;
 }
-.kingdom-area::after {
-  bottom: -8px;
-  height: 4px;
-  background: repeating-linear-gradient(
-    90deg,
-    var(--mortar) 0 2px,
-    transparent 2px 15px
-  );
+.kingdom-wall-crenels {
+  fill: none;
+  stroke: var(--stone);
+  stroke-width: 14px;
+  stroke-dasharray: 10 8;
+}
+.kingdom-wall-edge {
+  fill: none;
+  stroke: var(--stone);
+  stroke-width: 5px;
 }
 .kingdom {
   display: grid;
@@ -936,12 +929,6 @@ svg {
   grid-column: 3;
   color: #ead0ff;
 }
-.aura-crowd {
-  grid-area: 2 / 1 / 2 / -1;
-  display: flex;
-  gap: 2px;
-  color: #becdc7;
-}
 .aura-opinion {
   grid-column: 1 / -1;
   display: grid;
@@ -1160,11 +1147,12 @@ svg {
 }
 .heritage-arc {
   display: grid;
-  grid-template-columns: repeat(var(--heritage-count), minmax(0, 1fr));
-  width: min(calc(var(--heritage-count) * 44px), 100%);
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  width: min(176px, 100%);
   margin: 0 auto 2px;
 }
 .heritage-arc:empty {
+  width: 1px;
   min-height: 1px;
   margin: 0 auto;
 }
@@ -1225,11 +1213,6 @@ svg {
   margin: 4px 0 0;
   font-size: 1.45rem;
   font-variant-numeric: tabular-nums;
-}
-
-.heritage-slot[data-known='false'] .facility-sprite {
-  opacity: 0.55;
-  filter: grayscale(1);
 }
 
 .refresh-control {
