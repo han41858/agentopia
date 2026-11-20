@@ -65,8 +65,18 @@ export type Adventurer = {
   agent: Agent;
   roles: AdventurerRole[];
   active?: AdventurerRole;
+  fallen?: boolean;
 };
 export type Source = { title: string; url: string; status?: string };
+export type ActivityKind = 'commits' | 'comments' | 'reviews';
+export type ActivityCounts = Partial<Record<ActivityKind, number>>;
+export type ActivityEntry = Source & {
+  author?: string;
+  body?: string;
+  at?: string;
+};
+export type ActivityPage = { entries: ActivityEntry[]; next?: number };
+
 export type Quest = {
   number: number;
   title: string;
@@ -76,6 +86,8 @@ export type Quest = {
   stateReason?: Issue['state_reason'];
   victory?: boolean;
   adventurers?: Adventurer[];
+  activities?: ActivityCounts;
+  issueComments?: number;
   subIssueCount?: number;
   parent?: number;
   reason?: string;
@@ -84,7 +96,7 @@ export type Quest = {
   developer?: Agent;
   reviewer?: Agent;
   review?: string;
-  pulls: (Source & { number: number })[];
+  pulls: (Source & { number: number; activities?: ActivityCounts })[];
   commit?: Source;
   runs: Source[];
 };
@@ -92,6 +104,7 @@ export type PullQuest = Source & {
   number: number;
   draft: boolean;
   merged?: boolean;
+  activities?: ActivityCounts;
   stage: Stage;
   author?: Agent;
   reviewer?: Agent;
@@ -101,6 +114,7 @@ export type PullQuest = Source & {
 
 export type PullLinks = {
   issues: number[];
+  activities?: ActivityCounts;
   reviewer?: Agent;
   review?: string;
 };
@@ -121,6 +135,7 @@ export type Issue = {
   state_reason?: string | null;
   pull_request?: unknown;
   labels: { name: string }[];
+  comments?: number;
   sub_issues_summary?: { total: number };
 };
 export type Pull = {
@@ -337,6 +352,7 @@ export function makePullQuests(
         url: pull.html_url,
         draft: pull.draft,
         merged: Boolean(pull.merged_at),
+        activities: review?.activities,
         stage: pull.merged_at
           ? 'complete'
           : outcome === 'developing' || outcome === 'queued'
@@ -540,10 +556,12 @@ export function makeQuests(
       agent: Agent,
       role: AdventurerRole,
       active: boolean,
+      fallen = false,
     ) => {
       const member = adventurers.get(agent) ?? { agent, roles: [] };
       if (!member.roles.includes(role)) member.roles.push(role);
       if (active) member.active = role;
+      if (fallen) member.fallen = true;
       adventurers.set(agent, member);
     };
     const developmentRecorded = Boolean(
@@ -563,6 +581,9 @@ export function makeQuests(
         developer,
         'develop',
         running && (stage === 'developing' || stage === 'revising'),
+        matchingRun &&
+          outcome === 'failed' &&
+          (state?.status === 'developing' || state?.status === 'revising'),
       );
     const submittedReviewer = pull && pullLinks.get(pull.number)?.reviewer;
     if (submittedReviewer) addAdventurer(submittedReviewer, 'review', false);
@@ -574,13 +595,13 @@ export function makeQuests(
       (state.reviewer === 'codex' || state.reviewer === 'claude') &&
       reviewRecorded
     ) {
-      const active =
-        running &&
-        stage === 'reviewing' &&
+      const reviewingHead =
         Boolean(state.reviewInProgress) &&
         state.reviewInProgress === (pull?.head.sha ?? state.head);
-      if (state.reviewer !== submittedReviewer || active)
-        addAdventurer(state.reviewer, 'review', active);
+      const active = running && stage === 'reviewing' && reviewingHead;
+      const fallen = matchingRun && outcome === 'failed' && reviewingHead;
+      if (state.reviewer !== submittedReviewer || active || fallen)
+        addAdventurer(state.reviewer, 'review', active, fallen);
     }
 
     const commit =
@@ -595,6 +616,26 @@ export function makeQuests(
           }
         : undefined;
 
+    function pullActivityTotal(kind: ActivityKind) {
+      if (!issuePulls.length) return undefined;
+      let count = 0;
+      for (const item of issuePulls) {
+        const total = pullLinks.get(item.number)?.activities?.[kind];
+        if (total === undefined) return undefined;
+        count += total;
+      }
+      return count;
+    }
+    const pullComments = pullActivityTotal('comments');
+    const activities = {
+      comments:
+        issue.comments === undefined
+          ? pullComments
+          : issue.comments + (pullComments ?? 0),
+      commits: pullActivityTotal('commits') ?? (commit ? 1 : undefined),
+      reviews: pullActivityTotal('reviews') ?? state?.reviews?.length,
+    };
+
     return {
       number: issue.number,
       title: issue.title,
@@ -604,6 +645,8 @@ export function makeQuests(
       stateReason: issue.state_reason,
       victory,
       adventurers: [...adventurers.values()],
+      activities,
+      issueComments: issue.comments,
       subIssueCount:
         Math.max(
           issue.sub_issues_summary?.total ?? 0,
@@ -621,6 +664,7 @@ export function makeQuests(
         number: item.number,
         title: item.title,
         url: item.html_url,
+        activities: pullLinks.get(item.number)?.activities,
         status: item.merged_at
           ? 'merged'
           : item.draft && item.state === 'open'

@@ -1,4 +1,4 @@
-import { Bot, Bug, Crown, ScrollText, Swords } from 'lucide-react';
+import { Bug, Crown, ScrollText, Swords } from 'lucide-react';
 import type { Adventurer, AdventurerRole, Agent } from '../server/model.ts';
 
 export const agentNames: Record<Agent, string> = {
@@ -26,24 +26,30 @@ export function MonsterGlyph({ boss = false, defeated = false }) {
 export function AdventurerGlyph({
   agent,
   active,
+  fallen,
 }: {
   agent: Agent;
   active?: AdventurerRole;
+  fallen?: boolean;
 }) {
   const RoleIcon = active === 'develop' ? Swords : ScrollText;
   return (
     <span
-      className={`adventurer-glyph ${agent}${active ? ' active' : ''}`}
+      className={`adventurer-glyph ${agent}${active ? ` active ${active}` : ''}${fallen ? ' fallen' : ''}`}
       aria-hidden="true"
     >
-      <Bot size={16} />
+      <span className="adventurer-avatar" />
       {active && <RoleIcon className="adventurer-role" size={10} />}
     </span>
   );
 }
 
 export function partyLabel(member: Adventurer, resting: string) {
-  const task = member.active ? `${roleNames[member.active]} 중` : resting;
+  const task = member.fallen
+    ? '쓰러짐'
+    : member.active
+      ? `${roleNames[member.active]} 중`
+      : resting;
   return `${agentNames[member.agent]} · ${task}`;
 }
 
@@ -60,8 +66,16 @@ export function AdventurerParty({
   return (
     <span className={`adventurer-party${detailed ? ' detailed' : ''}`}>
       {members.map((member) => (
-        <span className="adventurer" key={member.agent}>
-          <AdventurerGlyph agent={member.agent} active={member.active} />
+        <span
+          className="adventurer"
+          key={member.agent}
+          title={partyLabel(member, resting)}
+        >
+          <AdventurerGlyph
+            agent={member.agent}
+            active={member.active}
+            fallen={member.fallen}
+          />
           {detailed && (
             <span>
               <strong>{partyLabel(member, resting)}</strong>
