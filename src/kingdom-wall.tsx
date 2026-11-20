@@ -1,13 +1,14 @@
-import { useLayoutEffect, useRef } from 'react';
+import { useId, useLayoutEffect, useRef } from 'react';
 
 export function KingdomWall() {
   const ref = useRef<SVGSVGElement>(null);
+  const exteriorMask = useId();
 
   useLayoutEffect(() => {
     const wall = ref.current;
     const area = wall?.parentElement;
     if (!wall || !area) return;
-    const shapes = wall.querySelectorAll('rect');
+    const shapes = wall.querySelectorAll('rect[x="8"]');
     const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
     let previous: { width: number; height: number } | undefined;
     let motion: Animation | undefined;
@@ -71,7 +72,25 @@ export function KingdomWall() {
       preserveAspectRatio="none"
       aria-hidden="true"
     >
-      <rect className="kingdom-wall-crenels" x="8" y="8" />
+      <defs>
+        <mask
+          id={exteriorMask}
+          x="0"
+          y="0"
+          width="100%"
+          height="100%"
+          maskUnits="userSpaceOnUse"
+        >
+          <rect width="100%" height="100%" fill="white" />
+          <rect x="8" y="8" fill="black" />
+        </mask>
+      </defs>
+      <rect
+        className="kingdom-wall-crenels"
+        x="8"
+        y="8"
+        mask={`url(#${exteriorMask})`}
+      />
       <rect className="kingdom-wall-masonry" x="8" y="8" />
       <rect className="kingdom-wall-edge" x="8" y="8" />
     </svg>
