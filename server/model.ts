@@ -35,27 +35,37 @@ export type Stage =
   | 'idle'
   | 'queued'
   | 'developing'
+  | 'revising'
   | 'reviewing'
   | 'ci'
   | 'deploying'
   | 'merging'
   | 'complete'
+  | 'returned'
   | 'failed'
   | 'attention';
 export const stages: Record<Stage, string> = {
   idle: '대기',
-  queued: '출정 대기',
-  developing: '제작 · 탐험',
-  reviewing: '현자의 검토',
+  queued: '출정 준비',
+  developing: '모험가 전투',
+  revising: '재전투',
+  reviewing: '모험가 검토',
   ci: '시련의 관문',
-  merging: '변경 병합 중',
+  merging: '공략 결과 병합 중',
   deploying: '포탈 개방',
-  complete: '퀘스트 클리어',
-  failed: '실패',
+  complete: '전투 승리',
+  returned: '귀환',
+  failed: '실행 실패',
   attention: '개입 필요',
 };
 
 export type Agent = 'codex' | 'claude';
+export type AdventurerRole = 'develop' | 'review';
+export type Adventurer = {
+  agent: Agent;
+  roles: AdventurerRole[];
+  active?: AdventurerRole;
+};
 export type Source = { title: string; url: string; status?: string };
 export type Quest = {
   number: number;
@@ -64,6 +74,8 @@ export type Quest = {
   stage: Stage;
   state: Issue['state'];
   stateReason?: Issue['state_reason'];
+  victory?: boolean;
+  adventurers?: Adventurer[];
   subIssueCount?: number;
   parent?: number;
   reason?: string;
@@ -78,6 +90,7 @@ export type Quest = {
 export type PullQuest = Source & {
   number: number;
   draft: boolean;
+  merged?: boolean;
   stage: Stage;
   author?: Agent;
   reviewer?: Agent;
@@ -119,6 +132,7 @@ export type Pull = {
   user?: { login: string; type?: string };
   head: { ref: string; sha: string; repo?: { full_name: string } };
   merge_commit_sha?: string;
+  merged_at?: string | null;
   updated_at: string;
 };
 export type Run = {
@@ -152,6 +166,7 @@ type AutomationState = {
   status: string;
   developer?: Agent;
   reviewer?: Agent;
+  reviewInProgress?: string;
   reason?: string;
   detail?: string;
   head?: string;
@@ -161,7 +176,7 @@ type AutomationState = {
 const automationStages: Record<string, Stage> = {
   queued: 'queued',
   developing: 'developing',
-  revising: 'developing',
+  revising: 'revising',
   reviewing: 'reviewing',
   ready: 'ci',
   merging: 'merging',
@@ -296,7 +311,7 @@ export function makePullQuests(
   return pulls
     .filter(
       (pull) =>
-        pull.state === 'open' &&
+        (pull.state === 'open' || Boolean(pull.merged_at)) &&
         !linkedPullIssues(pull, region, links.get(pull.number)).some((number) =>
           issueNumbers.has(number),
         ),
@@ -319,8 +334,10 @@ export function makePullQuests(
         title: pull.title,
         url: pull.html_url,
         draft: pull.draft,
-        stage:
-          outcome === 'developing' || outcome === 'queued'
+        merged: Boolean(pull.merged_at),
+        stage: pull.merged_at
+          ? 'complete'
+          : outcome === 'developing' || outcome === 'queued'
             ? 'ci'
             : outcome === 'attention' || outcome === 'failed'
               ? outcome
@@ -372,6 +389,10 @@ export function makeQuests(
       pullsByIssue.set(number, entries);
     }
   }
+  const childrenByIssue = new Map<number, number>();
+  for (const parent of parents.values())
+    childrenByIssue.set(parent, (childrenByIssue.get(parent) ?? 0) + 1);
+
   return issues.map((issue) => {
     const issuePulls = pullsByIssue.get(issue.number) ?? [];
     const automation = runs.filter((run) => runIssue(run) === issue.number);
@@ -398,7 +419,7 @@ export function makeQuests(
     const deployment = releases.find((release) =>
       issuePulls.some(
         (pr) =>
-          pr.state === 'closed' &&
+          pr.merged_at &&
           pr.merge_commit_sha &&
           pr.merge_commit_sha === release.sha,
       ),
@@ -468,16 +489,28 @@ export function makeQuests(
         reason = `CI · ${evidence.status}`;
       }
     }
-    if (
-      stage === 'idle' &&
-      issue.state === 'closed' &&
-      issue.state_reason === 'completed'
-    )
-      stage = 'complete';
-    if (deployment && stage === 'complete') {
+    const victory =
+      issuePulls.some((item) => item.merged_at) || state?.status === 'merged';
+    if (deployment && victory && (stage === 'complete' || stage === 'idle')) {
       ({ stage } = deployment);
       evidence = deployment;
       reason = deployment.status;
+    } else if (stage === 'idle' && victory) {
+      stage = 'complete';
+    }
+    if (
+      run?.status === 'completed' &&
+      (!state ||
+        (state.runId === run.id && (state.attempt ?? 1) === run.run_attempt)) &&
+      ((stage === 'idle' && outcome === 'complete') ||
+        stage === 'queued' ||
+        stage === 'developing' ||
+        stage === 'revising' ||
+        stage === 'reviewing' ||
+        stage === 'merging')
+    ) {
+      stage = 'returned';
+      evidence = runSource(run);
     }
     if (
       issue.labels.some(({ name }) => name === 'ai:stop') &&
@@ -493,6 +526,61 @@ export function makeQuests(
       detail = undefined;
     }
 
+    const adventurers = new Map<Agent, Adventurer>();
+    const matchingRun = Boolean(
+      run &&
+      state &&
+      run.id === state.runId &&
+      run.run_attempt === (state.attempt ?? 1),
+    );
+    const running = matchingRun && run?.status === 'in_progress';
+    const addAdventurer = (
+      agent: Agent,
+      role: AdventurerRole,
+      active: boolean,
+    ) => {
+      const member = adventurers.get(agent) ?? { agent, roles: [] };
+      if (!member.roles.includes(role)) member.roles.push(role);
+      if (active) member.active = role;
+      adventurers.set(agent, member);
+    };
+    const developmentRecorded = Boolean(
+      branch ||
+      (state &&
+        [
+          'developing',
+          'revising',
+          'reviewing',
+          'ready',
+          'merging',
+          'merged',
+        ].includes(state.status)),
+    );
+    if (developer && developmentRecorded)
+      addAdventurer(
+        developer,
+        'develop',
+        running && (stage === 'developing' || stage === 'revising'),
+      );
+    const submittedReviewer = pull && pullLinks.get(pull.number)?.reviewer;
+    if (submittedReviewer) addAdventurer(submittedReviewer, 'review', false);
+    const reviewRecorded = Boolean(
+      state?.reviewInProgress || state?.reviews?.length,
+    );
+    if (
+      state?.reviewer &&
+      (state.reviewer === 'codex' || state.reviewer === 'claude') &&
+      reviewRecorded
+    ) {
+      const active =
+        running &&
+        stage === 'reviewing' &&
+        Boolean(state.reviewInProgress) &&
+        state.reviewInProgress === (pull?.head.sha ?? state.head);
+      if (state.reviewer !== submittedReviewer || active)
+        addAdventurer(state.reviewer, 'review', active);
+    }
+
     return {
       number: issue.number,
       title: issue.title,
@@ -500,7 +588,13 @@ export function makeQuests(
       stage,
       state: issue.state,
       stateReason: issue.state_reason,
-      subIssueCount: issue.sub_issues_summary?.total,
+      victory,
+      adventurers: [...adventurers.values()],
+      subIssueCount:
+        Math.max(
+          issue.sub_issues_summary?.total ?? 0,
+          childrenByIssue.get(issue.number) ?? 0,
+        ) || undefined,
       parent: parents.get(issue.number),
       reason,
       detail,
@@ -512,7 +606,11 @@ export function makeQuests(
         number: item.number,
         title: item.title,
         url: item.html_url,
-        status: item.draft && item.state === 'open' ? 'draft' : item.state,
+        status: item.merged_at
+          ? 'merged'
+          : item.draft && item.state === 'open'
+            ? 'draft'
+            : item.state,
       })),
       runs: [...automation, ...(ci ? [ci] : [])].slice(0, 8).map(runSource),
     };
