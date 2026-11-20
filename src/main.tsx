@@ -510,12 +510,21 @@ function FacilityMarker({
   const { name, Tool } = facilities[kind];
   const working = pull.stage === 'developing' || pull.stage === 'revising';
   const reviewing = pull.stage === 'reviewing';
+  const members = pull.adventurers ?? [];
+  const activeMembers = members.filter(
+    (member) => member.active && !member.fallen,
+  );
+  const worker =
+    (working || reviewing) && activeMembers.length === 1
+      ? activeMembers[0]
+      : undefined;
   const quality = pull.quality === 'ci' || pull.stage === 'ci';
   const label = [
     `${name} PR #${pull.number}`,
     pull.title,
     pullActivity(pull),
     pullStatus(pull),
+    ...activeMembers.map((member) => partyLabel(member, '대기')),
     ...(pull.issues ?? []).map((number) => `이슈 #${number}`),
   ]
     .filter(Boolean)
@@ -551,8 +560,21 @@ function FacilityMarker({
           {pull.stage === 'idle' && (
             <Construction className="facility-build" size={13} />
           )}
-          {working && <Tool className="facility-tool" size={13} />}
-          {reviewing && <ScrollText className="facility-tool" size={13} />}
+          {worker && (
+            <span className="facility-worker">
+              <AdventurerGlyph
+                agent={worker.agent}
+                active={worker.active}
+                forge
+              />
+            </span>
+          )}
+          {!activeMembers.length && working && (
+            <Tool className="facility-tool" size={13} />
+          )}
+          {!activeMembers.length && reviewing && (
+            <ScrollText className="facility-tool" size={13} />
+          )}
           {quality && <FlaskConical className="facility-test" size={13} />}
           {pull.stage === 'merging' && (
             <GitPullRequest className="facility-result" size={13} />
@@ -563,7 +585,13 @@ function FacilityMarker({
         </span>
       </ActivityAura>
       <small className="expedition-number">{`PR #${pull.number}`}</small>
-      <AdventurerParty members={pull.adventurers ?? []} resting="대기" forge />
+      <AdventurerParty
+        members={
+          worker ? members.filter((member) => member !== worker) : members
+        }
+        resting="대기"
+        forge
+      />
     </button>
   );
 }

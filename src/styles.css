@@ -1038,6 +1038,23 @@ svg {
   color: #ffdc8d;
   background: #242329;
 }
+.facility-tool,
+.facility-test,
+.facility-build,
+.facility-marker .adventurer-role {
+  background: transparent;
+  filter: drop-shadow(0 1px 1px #10171c);
+}
+.facility-worker {
+  position: absolute;
+  top: -8px;
+  right: -6px;
+}
+.facility-worker .adventurer-glyph {
+  border-color: transparent;
+  background: transparent;
+  filter: drop-shadow(0 1px 1px #10171c);
+}
 .facility-test {
   right: auto;
   left: -3px;
@@ -1131,7 +1148,6 @@ svg {
   right: -3px;
   bottom: -3px;
   border-radius: 2px;
-  background: #242329;
   color: #e0cf9d;
 }
 .facility-detail {
