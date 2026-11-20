@@ -1,11 +1,8 @@
 export const heritageKeys = [
-  'issues',
-  'closedIssues',
-  'pulls',
   'mergedPulls',
-  'commits',
-  'reviews',
+  'resolvedIssues',
   'comments',
+  'reviews',
 ] as const;
 
 export type HeritageMetric = (typeof heritageKeys)[number];

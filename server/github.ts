@@ -982,12 +982,6 @@ async function repositoryHeritage(
   const data: Heritage = {};
   const get = client(region, token);
   const search = client(undefined, token, false, region.slug);
-  const basics = {
-    issues: 'is:issue',
-    closedIssues: 'is:issue is:closed',
-    pulls: 'is:pr',
-    mergedPulls: 'is:pr is:merged',
-  } as const;
   function record(
     key: HeritageMetric,
     value: unknown,
@@ -997,41 +991,70 @@ async function repositoryHeritage(
     if (count !== undefined) data[key] = { count, source };
   }
 
-  async function readBasics() {
-    if (token) {
-      const [owner, name] = region.slug.split('/');
-      type Counts = { [Key in keyof typeof basics]?: { totalCount: number } };
-      const result = await githubGraphql<{ repository?: Counts }>(
-        `query($owner: String!, $name: String!) {
-          repository(owner: $owner, name: $name) {
-            issues { totalCount }
-            closedIssues: issues(states: CLOSED) { totalCount }
-            pulls: pullRequests { totalCount }
-            mergedPulls: pullRequests(states: MERGED) { totalCount }
-          }
-        }`,
-        { owner, name },
-        token,
-        'heritage',
-      );
-      for (const key of Object.keys(basics) as (keyof typeof basics)[])
-        record(key, result.repository?.[key]?.totalCount, 'github');
+  async function readIndexed(
+    key: 'resolvedIssues' | 'mergedPulls',
+    qualifiers: string,
+  ) {
+    const params = new URLSearchParams({
+      q: `repo:${region.slug} ${qualifiers}`,
+      per_page: '1',
+    });
+    const result = await search<{
+      total_count: number;
+      incomplete_results: boolean;
+      items: { state?: string; state_reason?: string }[];
+    }>(`/search/issues?${params}`, undefined, heritageTtl);
+    if (
+      result.incomplete_results !== false ||
+      (key === 'resolvedIssues' &&
+        result.total_count > 0 &&
+        (result.items[0]?.state !== 'closed' ||
+          result.items[0]?.state_reason !== 'completed'))
+    )
       return;
-    }
-    await Promise.allSettled(
-      (Object.keys(basics) as (keyof typeof basics)[]).map(async (key) => {
-        const params = new URLSearchParams({
-          q: `repo:${region.slug} ${basics[key]}`,
-          per_page: '1',
-        });
-        const result = await search<{
-          total_count: number;
-          incomplete_results: boolean;
-        }>(`/search/issues?${params}`, undefined, heritageTtl);
-        if (result.incomplete_results === false)
-          record(key, result.total_count, 'search');
-      }),
+    record(key, result.total_count, 'search');
+  }
+
+  async function readPullCounts() {
+    if (!token) return readIndexed('mergedPulls', 'is:pr is:merged');
+
+    const [owner, name] = region.slug.split('/');
+    const result = await githubGraphql<{
+      repository?: {
+        mergedPulls: { totalCount: number };
+        pulls: {
+          totalCount: number;
+          nodes: { reviews: { totalCount: number } }[];
+        };
+      };
+    }>(
+      `query($owner: String!, $name: String!) {
+        repository(owner: $owner, name: $name) {
+          mergedPulls: pullRequests(states: MERGED) { totalCount }
+          pulls: pullRequests(first: 50) {
+            totalCount
+            nodes {
+              reviews(states: [APPROVED, CHANGES_REQUESTED, COMMENTED, DISMISSED]) { totalCount }
+            }
+          }
+        }
+      }`,
+      { owner, name },
+      token,
+      'heritage',
     );
+    record('mergedPulls', result.repository?.mergedPulls?.totalCount, 'github');
+    const pulls = result.repository?.pulls;
+    if (!pulls || pulls.totalCount !== pulls.nodes.length) return;
+    const counts = pulls.nodes.map((pull) =>
+      verifiedCount(pull.reviews?.totalCount),
+    );
+    if (counts.every((count) => count !== undefined))
+      record(
+        'reviews',
+        counts.reduce((sum, count) => sum + count, 0),
+        'github',
+      );
   }
 
   async function countComments(path: string) {
@@ -1058,7 +1081,11 @@ async function repositoryHeritage(
       record('comments', discussion + inline, 'github');
   }
 
-  await Promise.allSettled([readBasics(), readComments()]);
+  await Promise.allSettled([
+    readIndexed('resolvedIssues', 'is:issue is:closed reason:completed'),
+    readPullCounts(),
+    readComments(),
+  ]);
   return data;
 }
 

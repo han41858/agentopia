@@ -22,8 +22,8 @@ test('history distinguishes observed zero, unknown totals and capped visual grow
     ),
     999,
   );
-  assert.equal(heritageTier('issues', undefined), 0);
-  assert.equal(heritageTier('issues', 25), 2);
+  assert.equal(heritageTier('resolvedIssues', undefined), 0);
+  assert.equal(heritageTier('resolvedIssues', 25), 2);
   assert.equal(heritageTier('comments', 25), 1);
   assert.equal(heritageTier('comments', 10_000_000), 5);
 });
@@ -41,7 +41,8 @@ test('public heritage uses one-item aggregates, omits incomplete results and reu
         assert.match(q ?? '', /^repo:example\/heritage /);
         return Response.json({
           total_count: q?.endsWith('is:merged') ? 0 : 15,
-          incomplete_results: q?.endsWith('is:closed') === true,
+          incomplete_results: q?.endsWith('reason:completed') === true,
+          items: [{ state: 'closed', state_reason: 'completed' }],
         });
       }
       if (url.pathname.endsWith('/issues/comments'))
@@ -58,14 +59,12 @@ test('public heritage uses one-item aggregates, omits incomplete results and reu
     'https://agentopia.test/api/github?repo=example/heritage&heritage=1',
   );
   const exact = {
-    issues: { count: 15, source: 'search' },
-    pulls: { count: 15, source: 'search' },
     mergedPulls: { count: 0, source: 'search' },
     comments: { count: 151, source: 'github' },
   };
   assert.deepEqual(JSON.parse((await githubResponse(url, 'GET')).body), exact);
   assert.deepEqual(JSON.parse((await githubResponse(url, 'GET')).body), exact);
-  assert.equal(fetch.mock.callCount(), 6);
+  assert.equal(fetch.mock.callCount(), 4);
 });
 
 test('authenticated heritage uses repository counts and never publishes truncated conversation totals', async (context) => {
@@ -78,6 +77,17 @@ test('authenticated heritage uses repository counts and never publishes truncate
         new Headers(options.headers).get('authorization'),
         'Bearer heritage_token',
       );
+      if (url.pathname === '/search/issues') {
+        assert.equal(
+          url.searchParams.get('q'),
+          'repo:example/large is:issue is:closed reason:completed',
+        );
+        return Response.json({
+          total_count: 14,
+          incomplete_results: false,
+          items: [{ state: 'closed', state_reason: 'completed' }],
+        });
+      }
       if (url.pathname === '/graphql') {
         const query = JSON.parse(String(options.body));
         assert.deepEqual(query.variables, { owner: 'example', name: 'large' });
@@ -85,9 +95,10 @@ test('authenticated heritage uses repository counts and never publishes truncate
         return Response.json({
           data: {
             repository: {
-              issues: { totalCount: 70_800 },
-              closedIssues: { totalCount: 70_000 },
-              pulls: { totalCount: 60_000 },
+              pulls: {
+                totalCount: 60_000,
+                nodes: [{ reviews: { totalCount: 4 } }],
+              },
               mergedPulls: { totalCount: 25_000 },
             },
           },
@@ -108,10 +119,56 @@ test('authenticated heritage uses repository counts and never publishes truncate
   );
   const response = await githubResponse(url, 'GET', 'Bearer heritage_token');
   assert.deepEqual(JSON.parse(response.body), {
-    issues: { count: 70_800, source: 'github' },
-    closedIssues: { count: 70_000, source: 'github' },
-    pulls: { count: 60_000, source: 'github' },
+    resolvedIssues: { count: 14, source: 'search' },
     mergedPulls: { count: 25_000, source: 'github' },
   });
-  assert.equal(fetch.mock.callCount(), 3);
+  assert.equal(fetch.mock.callCount(), 4);
+});
+
+test('counts submitted reviews when all PRs fit and rejects a non-completed issue result', async (context) => {
+  context.mock.method(
+    globalThis,
+    'fetch',
+    async (input: string, options: RequestInit) => {
+      const url = new URL(input);
+      if (url.pathname === '/search/issues')
+        return Response.json({
+          total_count: 9,
+          incomplete_results: false,
+          items: [{ state: 'closed', state_reason: 'not_planned' }],
+        });
+      if (url.pathname === '/graphql') {
+        const { query } = JSON.parse(String(options.body));
+        assert.match(
+          query,
+          /reviews\(states: \[APPROVED, CHANGES_REQUESTED, COMMENTED, DISMISSED\]\)/,
+        );
+        return Response.json({
+          data: {
+            repository: {
+              mergedPulls: { totalCount: 1 },
+              pulls: {
+                totalCount: 2,
+                nodes: [
+                  { reviews: { totalCount: 3 } },
+                  { reviews: { totalCount: 4 } },
+                ],
+              },
+            },
+          },
+        });
+      }
+      return Response.json([]);
+    },
+  );
+  const response = await githubResponse(
+    new URL('https://agentopia.test/api/github?repo=example/small&heritage=1'),
+    'GET',
+    'Bearer heritage_token',
+  );
+  assert.deepEqual(JSON.parse(response.body), {
+    mergedPulls: { count: 1, source: 'github' },
+    reviews: { count: 7, source: 'github' },
+    comments: { count: 0, source: 'github' },
+  });
 });

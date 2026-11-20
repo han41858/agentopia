@@ -1,13 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
-import {
-  Archive,
-  BookOpen,
-  Crown,
-  Flag,
-  Landmark,
-  ScrollText,
-} from 'lucide-react';
+import { Archive, BookOpen, CircleHelp, Crown, Flag } from 'lucide-react';
 import { heritageKeys } from '../server/heritage.ts';
 import type {
   Heritage,
@@ -19,35 +12,17 @@ import type { FacilityKind } from './facility-kind.ts';
 import { heritageTier } from './heritage-scale.ts';
 
 export const heritageBuildings = {
-  issues: {
-    title: '몬스터 도감',
-    label: '전체 이슈',
-    kind: 'training',
-    Emblem: BookOpen,
-  },
-  closedIssues: {
-    title: '영웅의 전당',
-    label: '종료된 이슈',
-    kind: 'workshop',
-    Emblem: Crown,
-  },
-  pulls: {
-    title: '건축 연대기',
-    label: '전체 PR',
-    kind: 'repair',
-    Emblem: ScrollText,
-  },
   mergedPulls: {
     title: '완공 기념비',
     label: '머지된 PR',
     kind: 'guard',
     Emblem: Flag,
   },
-  commits: {
-    title: '역사의 탑',
-    label: '전체 커밋',
-    kind: 'machine',
-    Emblem: Landmark,
+  resolvedIssues: {
+    title: '영웅의 전당',
+    label: '해결된 이슈',
+    kind: 'workshop',
+    Emblem: Crown,
   },
   reviews: {
     title: '현자의 서고',
@@ -155,11 +130,8 @@ export function HeritageArc({
   }, [slug, token, load, onLoad]);
 
   const data = snapshot?.token === token ? snapshot.data : undefined;
-  const visible = heritageKeys.flatMap((metric) => {
-    const record = data?.[metric];
-    const tier = heritageTier(metric, record?.count);
-    return record && tier >= 2 ? [{ metric, record, tier }] : [];
-  });
+  const visible =
+    data && heritageKeys.some((metric) => data[metric]) ? heritageKeys : [];
   return (
     <div
       ref={element}
@@ -168,12 +140,11 @@ export function HeritageArc({
       aria-label={visible.length ? `${name}의 유산` : undefined}
       style={{ '--heritage-count': visible.length } as CSSProperties}
     >
-      {visible.map(({ metric, record, tier }, index) => {
+      {visible.map((metric, index) => {
+        const record = data?.[metric];
+        const tier = heritageTier(metric, record?.count);
         const { title, kind, Emblem } = heritageBuildings[metric];
-        const midpoint = (visible.length - 1) / 2;
-        const offset = midpoint
-          ? Math.round(18 * (Math.abs(index - midpoint) / midpoint) ** 2)
-          : 0;
+        const offset = index === 0 || index === visible.length - 1 ? 12 : 0;
         return (
           <button
             key={metric}
@@ -182,7 +153,8 @@ export function HeritageArc({
             data-metric={metric}
             data-tier={tier}
             title={title}
-            aria-label={title}
+            aria-label={record ? title : `${title} · 미확인`}
+            data-known={record !== undefined}
             style={{ '--arc-drop': `${offset}px` } as CSSProperties}
             onClick={() => open(metric, record)}
           >
@@ -193,9 +165,13 @@ export function HeritageArc({
             >
               <span className="heritage-sprite">
                 <FacilityGlyph kind={kind} />
-                <Emblem className="heritage-emblem" size={11} />
+                {record ? (
+                  <Emblem className="heritage-emblem" size={11} />
+                ) : (
+                  <CircleHelp className="heritage-emblem" size={11} />
+                )}
               </span>
-              <span className="heritage-plinth" />
+              {tier >= 2 && <span className="heritage-plinth" />}
               {tier > 3 && <span className="heritage-plinth upper" />}
             </span>
           </button>

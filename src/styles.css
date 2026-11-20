@@ -531,14 +531,8 @@ svg {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
-.expedition small,
-.expedition-status {
+.expedition small {
   font-size: 10px;
-}
-.expedition-status {
-  margin-top: 12px;
-  text-align: center;
-  color: #b7c5d2;
 }
 .expedition-legend {
   display: grid;
@@ -1231,4 +1225,9 @@ svg {
   margin: 4px 0 0;
   font-size: 1.45rem;
   font-variant-numeric: tabular-nums;
+}
+
+.heritage-slot[data-known='false'] .facility-sprite {
+  opacity: 0.55;
+  filter: grayscale(1);
 }

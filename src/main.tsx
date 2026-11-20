@@ -1400,7 +1400,6 @@ function RegionDetail({
         월드맵에서 제거
       </button>
       {snapshot?.error && <p className="fetch-error">{snapshot.error}</p>}
-      {!snapshot && <p>왕국 기록을 불러오는 중…</p>}
       {snapshot?.report?.warnings.length ? (
         <p className="fetch-error">
           일부 기록을 확인하지 못했습니다 ·{' '}
@@ -1738,12 +1737,6 @@ function HeritageDetail({
 }) {
   const { region, metric, record } = selection;
   const { title, label, kind } = heritageBuildings[metric];
-  const unavailable =
-    metric === 'commits'
-      ? 'GitHub에서 저장소 전체 커밋의 합계를 제공하지 않습니다.'
-      : metric === 'reviews'
-        ? 'GitHub에서 저장소 전체 리뷰의 합계를 제공하지 않습니다.'
-        : 'GitHub에서 이 누적 수치를 확인하지 못했습니다.';
   return (
     <Dialog title={title} closeOnBackdrop close={close}>
       <div className="facility-detail">
@@ -1754,7 +1747,7 @@ function HeritageDetail({
         <dt>{label}</dt>
         <dd>{record ? record.count.toLocaleString('ko-KR') : '미확인'}</dd>
       </dl>
-      {!record && <p>{unavailable}</p>}
+      {!record && <p>현재 조회 범위에서 전체 합계를 확인하지 못했습니다.</p>}
       {record?.source === 'search' && (
         <p>GitHub 검색 인덱스 기준이며 최근 변경 반영이 늦을 수 있습니다.</p>
       )}
@@ -2166,11 +2159,6 @@ function App() {
                           </li>
                         ))}
                       </ul>
-                    )}
-                    {!report && (
-                      <p className="expedition-status">
-                        {loading ? '기록 확인 중' : '기록 확인 필요'}
-                      </p>
                     )}
                   </div>
                   {report && (
