@@ -3,7 +3,7 @@
 :root {
   font-family: 'Noto Sans KR', system-ui, sans-serif;
   color: #eee9f7;
-  background: #100e1d;
+  background: #152b22;
   font-synthesis: none;
   color-scheme: dark;
   --gold: #eec781;
@@ -22,9 +22,6 @@ html {
 body {
   margin: 0;
   min-width: 320px;
-  background:
-    radial-gradient(ellipse 75% 34rem at 56% 7%, #281c3f 0%, transparent 75%),
-    #100e1d;
 }
 a {
   color: inherit;
@@ -60,11 +57,11 @@ svg {
   min-height: 100dvh;
   display: grid;
   grid-template-rows: auto 1fr auto;
-  background-color: #111c29;
+  background-color: #152b22;
   background-image:
-    linear-gradient(#b4c5db14 1px, transparent 1px),
-    linear-gradient(90deg, #b4c5db14 1px, transparent 1px),
-    radial-gradient(ellipse at 50% 37%, #263b48, transparent 74%);
+    linear-gradient(#a9c79813 1px, transparent 1px),
+    linear-gradient(90deg, #a9c79813 1px, transparent 1px),
+    radial-gradient(ellipse at 51% 37%, #324f39, transparent 76%);
   background-size:
     36px 36px,
     36px 36px,
@@ -188,57 +185,6 @@ svg {
   grid-auto-rows: max-content;
   align-content: center;
   padding: 18px clamp(12px, 4vw, 44px);
-}
-.world-land {
-  --world-shape: polygon(
-    45% 0,
-    63% min(2%, 13px),
-    78% min(5%, 30px),
-    89% min(9%, 48px),
-    95% min(16%, 72px),
-    98% 32%,
-    100% 53%,
-    98% 69%,
-    94% calc(100% - min(14%, 68px)),
-    85% calc(100% - min(7%, 42px)),
-    71% calc(100% - min(3%, 21px)),
-    52% 100%,
-    35% calc(100% - min(2%, 14px)),
-    20% calc(100% - min(5%, 30px)),
-    10% calc(100% - min(9%, 51px)),
-    5% calc(100% - min(15%, 72px)),
-    1% 65%,
-    0 46%,
-    2% 29%,
-    7% min(14%, 65px),
-    16% min(8%, 43px),
-    29% min(3%, 20px)
-  );
-  position: relative;
-  isolation: isolate;
-  display: grid;
-  align-items: center;
-  width: min(100%, 1320px);
-  min-height: clamp(255px, 45dvh, 465px);
-  margin-inline: auto;
-  padding: clamp(34px, 3.8vw, 58px) clamp(18px, 7vw, 100px);
-}
-.world-land::before,
-.world-land::after {
-  content: '';
-  position: absolute;
-  pointer-events: none;
-  clip-path: var(--world-shape);
-}
-.world-land::before {
-  inset: 0;
-  z-index: -2;
-  background: #507d74;
-}
-.world-land::after {
-  inset: 2px;
-  z-index: -1;
-  background: radial-gradient(ellipse at 47% 38%, #29483f, #172f32 83%);
 }
 .kingdoms {
   width: min(100%, 1160px);

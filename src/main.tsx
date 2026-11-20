@@ -1411,59 +1411,57 @@ function App() {
         </header>
 
         <section className="map-viewport" aria-label="저장소 왕국">
-          <div className="world-land">
-            <div className="kingdoms">
-              {worldRegions.map((region) => {
-                const report = snapshots[region.slug]?.report;
-                return (
-                  <div
-                    className="kingdom-area"
-                    key={region.slug}
-                    style={
-                      {
-                        '--kingdom-hue': kingdomHue(region.slug),
-                      } as CSSProperties
-                    }
-                  >
-                    <button className="kingdom" onClick={() => select(region)}>
-                      <Castle
-                        className="kingdom-crest"
-                        size={34}
-                        strokeWidth={1.5}
-                        aria-hidden="true"
-                      />
-                      <span className="kingdom-label">
-                        <strong>{region.name}</strong>
-                      </span>
-                    </button>
-                    {report &&
-                    (report.quests.some(
-                      ({ state, number }) =>
-                        state === 'open' ||
-                        snapshots[region.slug]?.changed?.has(`issue-${number}`),
-                    ) ||
-                      report.pullQuests?.some((item) => !item.merged)) ? (
-                      <KingdomMonsters
-                        quests={report.quests}
-                        pulls={report.pullQuests ?? []}
-                        pulses={snapshots[region.slug]?.pulses}
-                        changed={snapshots[region.slug]?.changed}
-                        openPull={(item) => openPull(region, item)}
-                        label={`${region.name} 몬스터와 공략 결과`}
-                        openList={() => select(region)}
-                        openQuest={(item) =>
-                          setSelectedQuest({ region, number: item.number })
-                        }
-                      />
-                    ) : !report ? (
-                      <p className="expedition-status">
-                        {loading ? '기록 확인 중' : '기록 확인 필요'}
-                      </p>
-                    ) : null}
-                  </div>
-                );
-              })}
-            </div>
+          <div className="kingdoms">
+            {worldRegions.map((region) => {
+              const report = snapshots[region.slug]?.report;
+              return (
+                <div
+                  className="kingdom-area"
+                  key={region.slug}
+                  style={
+                    {
+                      '--kingdom-hue': kingdomHue(region.slug),
+                    } as CSSProperties
+                  }
+                >
+                  <button className="kingdom" onClick={() => select(region)}>
+                    <Castle
+                      className="kingdom-crest"
+                      size={34}
+                      strokeWidth={1.5}
+                      aria-hidden="true"
+                    />
+                    <span className="kingdom-label">
+                      <strong>{region.name}</strong>
+                    </span>
+                  </button>
+                  {report &&
+                  (report.quests.some(
+                    ({ state, number }) =>
+                      state === 'open' ||
+                      snapshots[region.slug]?.changed?.has(`issue-${number}`),
+                  ) ||
+                    report.pullQuests?.some((item) => !item.merged)) ? (
+                    <KingdomMonsters
+                      quests={report.quests}
+                      pulls={report.pullQuests ?? []}
+                      pulses={snapshots[region.slug]?.pulses}
+                      changed={snapshots[region.slug]?.changed}
+                      openPull={(item) => openPull(region, item)}
+                      label={`${region.name} 몬스터와 공략 결과`}
+                      openList={() => select(region)}
+                      openQuest={(item) =>
+                        setSelectedQuest({ region, number: item.number })
+                      }
+                    />
+                  ) : !report ? (
+                    <p className="expedition-status">
+                      {loading ? '기록 확인 중' : '기록 확인 필요'}
+                    </p>
+                  ) : null}
+                </div>
+              );
+            })}
           </div>
         </section>
 
