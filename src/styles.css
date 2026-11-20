@@ -197,8 +197,7 @@ svg {
   gap: clamp(12px, 2vw, 24px);
 }
 .kingdom-area {
-  --courtyard: oklch(84% 0.045 var(--kingdom-hue));
-  --accent: oklch(30% 0.07 var(--kingdom-hue));
+  --courtyard: color-mix(in oklch, var(--land) 20%, transparent);
   --mortar: color-mix(in srgb, var(--land) 32%, #16242a);
   --stone: color-mix(in srgb, var(--land) 67%, #5f6a71);
   position: relative;
@@ -247,7 +246,7 @@ svg {
   text-align: center;
 }
 .kingdom:hover .kingdom-crest {
-  color: color-mix(in srgb, var(--accent), black 25%);
+  color: color-mix(in srgb, var(--accent), white 35%);
 }
 .kingdom-label {
   min-width: 0;
@@ -318,9 +317,6 @@ svg {
 .kingdom-area .expedition:hover,
 .kingdom-area .expedition[data-highlight='related'] {
   background: color-mix(in srgb, var(--accent) 14%, transparent);
-}
-.kingdom-area .expedition.blocked {
-  --accent: #842e24;
 }
 .expedition.closed-issue {
   --accent: #bbc8d3;
@@ -1025,12 +1021,13 @@ svg {
   place-items: center;
   width: 32px;
   height: 28px;
-  border: 1px solid color-mix(in srgb, currentColor, #142430 55%);
+  border: 1px solid transparent;
   border-radius: 4px;
-  background: #242329;
+  background: transparent;
 }
 .facility-core[data-draft='true'] {
   border-style: dashed;
+  border-color: color-mix(in srgb, currentColor, #142430 55%);
 }
 .facility-tool,
 .facility-test,
@@ -1041,6 +1038,23 @@ svg {
   border-radius: 2px;
   color: #ffdc8d;
   background: #242329;
+}
+.facility-tool,
+.facility-test,
+.facility-build,
+.facility-marker .adventurer-role {
+  background: transparent;
+  filter: drop-shadow(0 1px 1px #10171c);
+}
+.facility-worker {
+  position: absolute;
+  top: -8px;
+  right: -6px;
+}
+.facility-worker .adventurer-glyph {
+  border-color: transparent;
+  background: transparent;
+  filter: drop-shadow(0 1px 1px #10171c);
 }
 .facility-test {
   right: auto;
@@ -1135,7 +1149,6 @@ svg {
   right: -3px;
   bottom: -3px;
   border-radius: 2px;
-  background: #242329;
   color: #e0cf9d;
 }
 .facility-detail {
