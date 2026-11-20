@@ -218,7 +218,7 @@ svg {
 .kingdom-wall-masonry {
   fill: color-mix(in srgb, var(--land) 15%, #142430);
   stroke: var(--mortar);
-  stroke-width: 10px;
+  stroke-width: 6px;
 }
 .kingdom-wall-crenels {
   fill: none;
@@ -229,7 +229,7 @@ svg {
 .kingdom-wall-edge {
   fill: none;
   stroke: var(--stone);
-  stroke-width: 5px;
+  stroke-width: 2px;
 }
 .kingdom {
   display: grid;
@@ -1182,23 +1182,15 @@ svg {
   flex-direction: column;
   max-width: 100%;
 }
-.heritage-sprite {
-  position: relative;
-}
 .heritage-building .facility-sprite {
-  width: min(calc(18px + var(--heritage-tier) * 2.8px), 10vw);
-  height: calc(18px + var(--heritage-tier) * 3px);
+  width: min(calc(26px + var(--heritage-tier) * 2.4px), 11vw);
+  height: min(calc(26px + var(--heritage-tier) * 2.4px), 11vw);
   transition:
     width 250ms ease,
     height 250ms ease;
 }
-.heritage-building .heritage-emblem {
-  position: absolute;
-  right: -3px;
-  top: -3px;
-  border-radius: 2px;
-  color: currentColor;
-  background: #192d25;
+.heritage-building .facility-sprite-highlight {
+  fill: #fff0ba;
 }
 .heritage-plinth {
   width: 24px;

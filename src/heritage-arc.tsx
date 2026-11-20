@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
-import { Archive, BookOpen, Crown, Flag } from 'lucide-react';
 import { heritageKeys } from '../server/heritage.ts';
 import type {
   Heritage,
@@ -16,29 +15,25 @@ export const heritageBuildings = {
     title: '완공 기념비',
     label: '머지된 PR',
     kind: 'guard',
-    Emblem: Flag,
   },
   resolvedIssues: {
     title: '영웅의 전당',
     label: '해결된 이슈',
     kind: 'workshop',
-    Emblem: Crown,
   },
   reviews: {
     title: '현자의 서고',
     label: '전체 리뷰',
     kind: 'library',
-    Emblem: BookOpen,
   },
   comments: {
     title: '기록 보관소',
     label: '전체 댓글',
     kind: 'wall',
-    Emblem: Archive,
   },
 } satisfies Record<
   HeritageMetric,
-  { title: string; label: string; kind: FacilityKind; Emblem: typeof BookOpen }
+  { title: string; label: string; kind: FacilityKind }
 >;
 
 const historyInterval = 30 * 60_000;
@@ -143,7 +138,7 @@ export function HeritageArc({
     >
       {visible.map(({ metric, index, record }) => {
         const tier = heritageTier(metric, record.count);
-        const { title, kind, Emblem } = heritageBuildings[metric];
+        const { title, kind } = heritageBuildings[metric];
         const offset =
           index === 0 || index === heritageKeys.length - 1 ? 12 : 0;
         return (
@@ -168,10 +163,7 @@ export function HeritageArc({
               style={{ '--heritage-tier': tier } as CSSProperties}
               aria-hidden="true"
             >
-              <span className="heritage-sprite">
-                <FacilityGlyph kind={kind} />
-                <Emblem className="heritage-emblem" size={11} />
-              </span>
+              <FacilityGlyph kind={kind} />
               {tier >= 2 && <span className="heritage-plinth" />}
               {tier > 3 && <span className="heritage-plinth upper" />}
             </span>

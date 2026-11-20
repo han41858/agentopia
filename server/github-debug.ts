@@ -19,7 +19,7 @@ const windowSeconds = 60;
 const scopes = new Map<string, ScopeUsage>();
 
 export function githubDebugEnabled() {
-  return process.env.AGENTOPIA_GITHUB_DEBUG === '1';
+  return process.env.AGENTOPIA_GITHUB_DEBUG !== '0';
 }
 
 function prune(buckets: Map<number, number>, second: number) {

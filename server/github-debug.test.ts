@@ -7,7 +7,7 @@ import { githubResponse } from './github.ts';
 test('debug counts real requests, expires its rolling window, and only reports Core quota', async (context) => {
   context.mock.method(console, 'debug', () => {});
   const previous = process.env.AGENTOPIA_GITHUB_DEBUG;
-  process.env.AGENTOPIA_GITHUB_DEBUG = '1';
+  delete process.env.AGENTOPIA_GITHUB_DEBUG;
   context.after(() => {
     if (previous === undefined) delete process.env.AGENTOPIA_GITHUB_DEBUG;
     else process.env.AGENTOPIA_GITHUB_DEBUG = previous;
@@ -68,7 +68,7 @@ test('debug counts real requests, expires its rolling window, and only reports C
     requestsPerSecond: 0,
     core: undefined,
   });
-  delete process.env.AGENTOPIA_GITHUB_DEBUG;
+  process.env.AGENTOPIA_GITHUB_DEBUG = '0';
   assert.equal((await githubResponse(url, 'GET')).status, 404);
   assert.equal(fetch.mock.callCount(), 2);
 });

@@ -71,8 +71,8 @@ export function KingdomWall() {
       preserveAspectRatio="none"
       aria-hidden="true"
     >
-      <rect className="kingdom-wall-masonry" x="8" y="8" />
       <rect className="kingdom-wall-crenels" x="8" y="8" />
+      <rect className="kingdom-wall-masonry" x="8" y="8" />
       <rect className="kingdom-wall-edge" x="8" y="8" />
     </svg>
   );
