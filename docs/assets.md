@@ -1,0 +1,45 @@
+# SVG 도감
+
+월드맵과 상세 화면은 같은 SVG 원본을 사용합니다. 캐릭터의 기본 표시 크기는 48×48px입니다. 몬스터는 연결된 커밋 수에 따라 커지며, 유산은 누적 지표에 따라 성장합니다. 파일명을 누르면 원본을 열 수 있습니다.
+
+## 캐릭터와 몬스터
+
+| 미리보기                                               | 이름        | 표시 기준                  | 원본                                                                |
+| ------------------------------------------------------ | ----------- | -------------------------- | ------------------------------------------------------------------- |
+| ![파티장](../assets/characters/party-leader.svg)       | 파티장      | PR에서 CI 실행 중          | [party-leader.svg](../assets/characters/party-leader.svg)           |
+| ![Codex](../assets/characters/adventurer-codex.svg)    | Codex       | 참여가 확인된 Codex        | [adventurer-codex.svg](../assets/characters/adventurer-codex.svg)   |
+| ![Claude](../assets/characters/adventurer-claude.svg)  | Claude      | 참여가 확인된 Claude       | [adventurer-claude.svg](../assets/characters/adventurer-claude.svg) |
+| ![포탈 관리자](../assets/characters/portal-keeper.svg) | 포탈 관리자 | 배포 상태                  | [portal-keeper.svg](../assets/characters/portal-keeper.svg)         |
+| ![몬스터](../assets/characters/monster.svg)            | 몬스터      | 일반 이슈                  | [monster.svg](../assets/characters/monster.svg)                     |
+| ![보스 몬스터](../assets/characters/monster-boss.svg)  | 보스 몬스터 | 하위 이슈가 있는 상위 이슈 | [monster-boss.svg](../assets/characters/monster-boss.svg)           |
+
+## 왕궁과 유산
+
+| 미리보기                                                    | 이름        | 표시 기준                       | 원본                                                                     |
+| ----------------------------------------------------------- | ----------- | ------------------------------- | ------------------------------------------------------------------------ |
+| ![왕궁](../assets/kingdom/palace.svg)                       | 왕궁        | 저장소의 중심                   | [palace.svg](../assets/kingdom/palace.svg)                               |
+| ![완공 기념비](../assets/kingdom/legacy-monument.svg)       | 완공 기념비 | 머지된 PR                       | [legacy-monument.svg](../assets/kingdom/legacy-monument.svg)             |
+| ![영웅의 전당](../assets/kingdom/legacy-hall-of-heroes.svg) | 영웅의 전당 | completed 사유로 종료된 이슈    | [legacy-hall-of-heroes.svg](../assets/kingdom/legacy-hall-of-heroes.svg) |
+| ![기록 보관소](../assets/kingdom/legacy-archive.svg)        | 기록 보관소 | 이슈·PR 대화와 코드 인라인 댓글 | [legacy-archive.svg](../assets/kingdom/legacy-archive.svg)               |
+| ![현자의 서고](../assets/kingdom/legacy-sage-library.svg)   | 현자의 서고 | 제출된 PR 리뷰                  | [legacy-sage-library.svg](../assets/kingdom/legacy-sage-library.svg)     |
+
+## PR 시설
+
+PR 제목 맨 앞의 GitMoji가 시설을 결정합니다.
+
+| 미리보기                                                     | 이름           | 표시 기준                                                    | 원본                                                                        |
+| ------------------------------------------------------------ | -------------- | ------------------------------------------------------------ | --------------------------------------------------------------------------- |
+| ![대장간](../assets/facilities/forge.svg)                    | 대장간         | ✨ 기능 추가                                                 | [forge.svg](../assets/facilities/forge.svg)                                 |
+| ![성벽 수리 현장](../assets/facilities/wall-repair.svg)      | 성벽 수리 현장 | 🐛 버그 수정                                                 | [wall-repair.svg](../assets/facilities/wall-repair.svg)                     |
+| ![정원](../assets/facilities/garden.svg)                     | 정원           | 💄 UI·스타일                                                 | [garden.svg](../assets/facilities/garden.svg)                               |
+| ![도서관](../assets/facilities/library.svg)                  | 도서관         | 📝 문서                                                      | [library.svg](../assets/facilities/library.svg)                             |
+| ![훈련장](../assets/facilities/training-ground.svg)          | 훈련장         | ✅ 테스트                                                    | [training-ground.svg](../assets/facilities/training-ground.svg)             |
+| ![기계 공방](../assets/facilities/machine-workshop.svg)      | 기계 공방      | ⚡ 성능                                                      | [machine-workshop.svg](../assets/facilities/machine-workshop.svg)           |
+| ![건축 공방](../assets/facilities/architecture-workshop.svg) | 건축 공방      | ♻️ 리팩터링. 미분류 PR의 기본 공방도 같은 그림을 사용합니다. | [architecture-workshop.svg](../assets/facilities/architecture-workshop.svg) |
+| ![경비탑](../assets/facilities/guard-tower.svg)              | 경비탑         | 🔒 보안                                                      | [guard-tower.svg](../assets/facilities/guard-tower.svg)                     |
+| ![릴리즈 포탈](../assets/facilities/portal.svg)              | 릴리즈 포탈    | 🚀 배포                                                      | [portal.svg](../assets/facilities/portal.svg)                               |
+| ![관제탑](../assets/facilities/control-tower.svg)            | 관제탑         | 👷 💚 CI·자동화                                              | [control-tower.svg](../assets/facilities/control-tower.svg)                 |
+| ![보급소](../assets/facilities/supply-depot.svg)             | 보급소         | 🔧 📦 ⬆️ ⬇️ 설정·패키지·의존성                               | [supply-depot.svg](../assets/facilities/supply-depot.svg)                   |
+| ![관측소](../assets/facilities/observatory.svg)              | 관측소         | 📈 🔊 분석·로그                                              | [observatory.svg](../assets/facilities/observatory.svg)                     |
+
+그림과 화면의 대응 관계는 [SVG 등록 목록](../src/world-art.tsx), PR 제목 분류 규칙은 [시설 분류 코드](../src/facility-kind.ts)에서 확인할 수 있습니다.
