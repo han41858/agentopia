@@ -798,20 +798,36 @@ function ResultLink({ item }: { item: Source }) {
 function Dialog({
   title,
   titleHref,
-  closeOnBackdrop = false,
   className,
   children,
   close,
 }: {
   title: string;
   titleHref?: string;
-  closeOnBackdrop?: boolean;
   className?: string;
   children: ReactNode;
   close: () => void;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
-  const pressedBackdrop = useRef(false);
+  const pressedBackdrop = useRef<number | null>(null);
+  const releasedBackdrop = useRef(false);
+
+  function isBackdrop(event: {
+    currentTarget: HTMLDialogElement;
+    target: EventTarget;
+    clientX: number;
+    clientY: number;
+  }) {
+    const box = event.currentTarget.getBoundingClientRect();
+    return (
+      event.target === event.currentTarget &&
+      (event.clientX < box.left ||
+        event.clientX >= box.right ||
+        event.clientY < box.top ||
+        event.clientY >= box.bottom)
+    );
+  }
+
   useEffect(() => {
     ref.current?.showModal();
   }, []);
@@ -822,23 +838,26 @@ function Dialog({
       aria-label={title}
       onCancel={close}
       onPointerDown={(event) => {
-        if (!closeOnBackdrop) return;
-        const box = event.currentTarget.getBoundingClientRect();
-        pressedBackdrop.current =
-          event.target === event.currentTarget &&
-          (event.clientX < box.left ||
-            event.clientX >= box.right ||
-            event.clientY < box.top ||
-            event.clientY >= box.bottom);
+        if (!event.isPrimary || event.button !== 0) return;
+        pressedBackdrop.current = isBackdrop(event) ? event.pointerId : null;
+        releasedBackdrop.current = false;
+      }}
+      onPointerUp={(event) => {
+        if (event.isPrimary)
+          releasedBackdrop.current =
+            pressedBackdrop.current === event.pointerId && isBackdrop(event);
+      }}
+      onPointerCancel={(event) => {
+        if (event.isPrimary) {
+          pressedBackdrop.current = null;
+          releasedBackdrop.current = false;
+        }
       }}
       onClick={(event) => {
-        if (
-          closeOnBackdrop &&
-          pressedBackdrop.current &&
-          event.target === event.currentTarget
-        )
-          close();
-        pressedBackdrop.current = false;
+        const dismiss = releasedBackdrop.current && isBackdrop(event);
+        pressedBackdrop.current = null;
+        releasedBackdrop.current = false;
+        if (dismiss) close();
       }}
     >
       <div className="dialog-heading">
@@ -1104,12 +1123,7 @@ function QuestDetail({
   const [activityPull, setActivityPull] = useState<number>();
   const [visitedPulls, setVisitedPulls] = useState<number[]>([]);
   return (
-    <Dialog
-      title={`이슈 #${quest.number}`}
-      titleHref={quest.url}
-      closeOnBackdrop
-      close={close}
-    >
+    <Dialog title={`이슈 #${quest.number}`} titleHref={quest.url} close={close}>
       <h3>{quest.title}</h3>
       <div className="battle-scene">
         {(['codex', 'claude'] as const).map((agent) => {
@@ -1783,7 +1797,7 @@ function HeritageDetail({
   const { region, metric, record } = selection;
   const { title, label, kind } = heritageBuildings[metric];
   return (
-    <Dialog title={title} closeOnBackdrop close={close}>
+    <Dialog title={title} close={close}>
       <div className="facility-detail">
         <FacilityGlyph kind={kind} />
         <span>{region.name}</span>
