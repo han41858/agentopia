@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { buildBranchRoads } from './branch-roads.ts';
+import { branchCenters, buildBranchRoads } from './branch-roads.ts';
 import { githubResponse } from './github.ts';
 
 test('maps confirmed PR targets, keeps unmerged and merged routes separate from facilities, and removes deleted branches', () => {
@@ -12,14 +12,14 @@ test('maps confirmed PR targets, keeps unmerged and merged routes separate from 
   ];
   const inventory = {
     defaultBranch: 'release',
-    names: ['child', 'dev', 'feature', 'main', 'shipped'],
+    names: ['child', 'dev', 'feature', 'legacy', 'shipped'],
     partial: false,
   };
   const roads = buildBranchRoads(inventory, pulls);
   assert.equal(roads[0].name, 'release');
   assert.equal(roads[0].role, 'palace');
   assert.equal(roads[1].role, 'plaza');
-  assert.equal(roads.find(({ name }) => name === 'main')?.parent, undefined);
+  assert.equal(roads.find(({ name }) => name === 'legacy')?.parent, undefined);
   assert.equal(roads.find(({ name }) => name === 'child')?.parent, 'feature');
   assert.equal(roads.find(({ name }) => name === 'shipped')?.parent, 'release');
   assert.equal(
@@ -106,4 +106,30 @@ test('uses optional bounded inventory and only local GitHub PR refs', async (con
   assert.equal(fetch.mock.callCount(), count + 2);
   await githubResponse(url, 'GET');
   assert.equal(fetch.mock.callCount(), count + 2);
+});
+
+test('a confirmed main/dev pair uses main even if dev is GitHub default; other repositories keep their default', () => {
+  const paired = {
+    defaultBranch: 'dev',
+    names: ['main', 'topic'],
+    partial: false,
+  };
+  assert.deepEqual(branchCenters(paired, []), {
+    palace: 'main',
+    plaza: 'dev',
+    bridge: true,
+  });
+  const roads = buildBranchRoads(paired, [
+    { number: 8, head: 'topic', base: 'dev', merged: false },
+  ]);
+  assert.equal(roads[0].name, 'main');
+  assert.equal(roads.find((road) => road.name === 'dev')?.parent, undefined);
+  assert.equal(roads.find((road) => road.name === 'topic')?.parent, 'dev');
+  assert.deepEqual(
+    branchCenters(
+      { defaultBranch: 'trunk', names: ['main'], partial: false },
+      [],
+    ),
+    { palace: 'trunk', plaza: undefined, bridge: false },
+  );
 });

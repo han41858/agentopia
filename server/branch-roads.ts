@@ -18,6 +18,22 @@ export type BranchRoad = {
   pulls: BranchPull[];
 };
 
+export function branchCenters(
+  inventory: BranchInventory,
+  pulls: readonly BranchPull[],
+) {
+  const names = new Set([inventory.defaultBranch, ...inventory.names]);
+  if (names.has('main') && names.has('dev'))
+    return { palace: 'main', plaza: 'dev', bridge: true };
+  const plaza =
+    names.has('dev') &&
+    inventory.defaultBranch !== 'dev' &&
+    pulls.some((pull) => pull.base === 'dev' && names.has(pull.head))
+      ? 'dev'
+      : undefined;
+  return { palace: inventory.defaultBranch, plaza, bridge: false };
+}
+
 export function buildBranchRoads(
   inventory: BranchInventory,
   pulls: readonly BranchPull[],
@@ -31,12 +47,7 @@ export function buildBranchRoads(
       }
     }
   }
-  const plaza =
-    names.has('dev') &&
-    inventory.defaultBranch !== 'dev' &&
-    pulls.some((pull) => pull.base === 'dev' && names.has(pull.head))
-      ? 'dev'
-      : undefined;
+  const { palace, plaza } = branchCenters(inventory, pulls);
   const byHead = new Map<string, BranchPull[]>();
   for (const pull of pulls) {
     if (!names.has(pull.head)) continue;
@@ -54,17 +65,9 @@ export function buildBranchRoads(
       targets.size === 1 ? targets.values().next().value : undefined;
     return {
       name,
-      role:
-        name === inventory.defaultBranch
-          ? 'palace'
-          : name === plaza
-            ? 'plaza'
-            : 'road',
+      role: name === palace ? 'palace' : name === plaza ? 'plaza' : 'road',
       parent:
-        name !== inventory.defaultBranch &&
-        target &&
-        target !== name &&
-        names.has(target)
+        name !== palace && target && target !== name && names.has(target)
           ? target
           : undefined,
       pulls: related,
@@ -73,13 +76,16 @@ export function buildBranchRoads(
   const byName = new Map(roads.map((road) => [road.name, road]));
   const cyclic = new Set<string>();
   for (const road of roads) {
-    const visited = new Set([road.name]);
+    const visited = new Map([[road.name, 0]]);
     let parent = road.parent;
     while (parent && !visited.has(parent)) {
-      visited.add(parent);
+      visited.set(parent, visited.size);
       parent = byName.get(parent)?.parent;
     }
-    if (parent) for (const name of visited) cyclic.add(name);
+    if (parent) {
+      const start = visited.get(parent)!;
+      for (const [name, index] of visited) if (index >= start) cyclic.add(name);
+    }
   }
   for (const road of roads) if (cyclic.has(road.name)) delete road.parent;
   return roads.sort(

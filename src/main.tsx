@@ -83,6 +83,7 @@ import type {
   GitHubDebugSnapshot,
   RefreshConsumption,
 } from '../server/github-debug.ts';
+import { branchCenters } from '../server/branch-roads.ts';
 import { BranchRoadMap } from './branch-road-map.tsx';
 import type { RoadSelection } from './branch-road-map.tsx';
 import './styles.css';
@@ -2264,7 +2265,7 @@ function App() {
                       data-road-palace=""
                       title={
                         report?.branchInventory
-                          ? `왕궁 · ${report.branchInventory.defaultBranch}`
+                          ? `왕궁 · ${branchCenters(report.branchInventory, report.branchPulls ?? []).palace}`
                           : undefined
                       }
                       onClick={() => select(region)}
@@ -2442,7 +2443,7 @@ function App() {
             {selectedRoad.selection.roads.map((road) => (
               <li key={road.name}>
                 <strong>{road.name}</strong>
-                {road.role === 'palace' && <small>기본 브랜치</small>}
+                {road.role === 'palace' && <small>왕궁</small>}
                 {road.role === 'plaza' && <small>개발 광장</small>}
                 {road.parent && <small>관측된 PR 대상 · {road.parent}</small>}
                 {road.pulls.map((pull) => (

@@ -1275,11 +1275,44 @@ svg {
 }
 
 .branch-roads {
+  display: grid;
+  justify-items: center;
+  gap: 9px;
+  margin: 3px auto 14px;
+}
+.branch-plaza,
+.branch-road-tiers {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  width: 100%;
+}
+.branch-road-row {
   display: flex;
   flex-wrap: wrap;
   justify-content: center;
   gap: 6px;
-  margin: 10px auto 14px;
+}
+.branch-bridge {
+  display: grid;
+  place-items: center;
+  width: min(80px, 80%);
+  height: 10px;
+  background: linear-gradient(
+    transparent 2px,
+    #6caeaa5e 2px 8px,
+    transparent 8px
+  );
+}
+.branch-bridge > span {
+  width: 13px;
+  height: 12px;
+  border-inline: 2px solid #8e7753;
+  background: repeating-linear-gradient(#d7bd87 0 3px, #af9166 3px 4px);
+}
+.branch-road-node[data-road-role='plaza'] {
+  width: 36px;
+  border-color: #d0b987a0;
 }
 .branch-road-node {
   display: grid;

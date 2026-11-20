@@ -6,7 +6,7 @@ import {
   MoreHorizontal,
   Signpost,
 } from 'lucide-react';
-import { buildBranchRoads } from '../server/branch-roads.ts';
+import { branchCenters, buildBranchRoads } from '../server/branch-roads.ts';
 import type {
   BranchInventory,
   BranchPull,
@@ -82,6 +82,27 @@ export function BranchRoadMap({
       overflow: nonPalace.filter((road) => !visible.has(road.name)),
     };
   }, [roads]);
+  const { palace, plaza, bridge } = branchCenters(inventory, pulls);
+  const palaceRoad = roads.find((road) => road.role === 'palace');
+  const plazaRoad = visible.find((road) => road.role === 'plaza');
+  const rows = useMemo(() => {
+    const branches = new Map(
+      visible
+        .filter((road) => road.role === 'road')
+        .map((road) => [road.name, road]),
+    );
+    const levels: BranchRoad[][] = [];
+    for (const road of branches.values()) {
+      let depth = 0;
+      let parent = road.parent ? branches.get(road.parent) : undefined;
+      while (parent) {
+        depth++;
+        parent = parent.parent ? branches.get(parent.parent) : undefined;
+      }
+      (levels[depth] ??= []).push(road);
+    }
+    return levels;
+  }, [visible]);
   const row = useRef<HTMLDivElement>(null);
   const mask = useId();
   const [layout, setLayout] = useState<Layout>();
@@ -111,8 +132,8 @@ export function BranchRoadMap({
         };
       };
       const nodes = new Map<string, Point>();
-      const palace = area.querySelector('[data-road-palace]');
-      if (palace) nodes.set(inventory.defaultBranch, point(palace));
+      const palaceNode = area.querySelector('[data-road-palace]');
+      if (palaceNode) nodes.set(palace, point(palaceNode));
       for (const node of area.querySelectorAll<HTMLElement>('[data-road-node]'))
         if (node.dataset.roadNode)
           nodes.set(node.dataset.roadNode, point(node));
@@ -122,11 +143,14 @@ export function BranchRoadMap({
         ),
       );
       const paths: Path[] = [];
-      for (const road of visible) {
+      for (const road of palaceRoad ? [palaceRoad, ...visible] : visible) {
         const start = nodes.get(road.name);
         if (!start) continue;
         const parent = road.parent ? nodes.get(road.parent) : undefined;
-        if (parent)
+        if (
+          parent &&
+          !(bridge && road.name === plaza && road.parent === palace)
+        )
           paths.push({
             key: road.name,
             from: road.name,
@@ -151,7 +175,7 @@ export function BranchRoadMap({
         paths,
         obstacles: [
           ...area.querySelectorAll(
-            '.heritage-slot, .kingdom, .branch-road-node, .facility-marker',
+            '.heritage-slot, .kingdom, .branch-road-node, .branch-bridge, .facility-marker',
           ),
         ].map(box),
       };
@@ -173,9 +197,51 @@ export function BranchRoadMap({
       observer.disconnect();
       changes.disconnect();
     };
-  }, [inventory.defaultBranch, visible]);
+  }, [palace, plaza, bridge, palaceRoad, visible]);
 
-  if (!visible.length && !inventory.partial) return null;
+  const showMore = overflow.length > 0 || inventory.partial;
+  if (
+    !visible.length &&
+    !showMore &&
+    !palaceRoad?.pulls.some((pull) => !pull.merged)
+  )
+    return null;
+  function roadButton(road: BranchRoad) {
+    const Icon =
+      road.role === 'plaza'
+        ? Landmark
+        : road.parent
+          ? GitFork
+          : road.pulls.some((pull) => !pull.merged)
+            ? GitBranch
+            : Signpost;
+    return (
+      <button
+        key={road.name}
+        type="button"
+        className="branch-road-node"
+        data-road-node={road.name}
+        data-road-role={road.role}
+        aria-label={
+          road.role === 'plaza'
+            ? `개발 광장 · ${road.name}`
+            : `브랜치 ${road.name}`
+        }
+        title={road.name}
+        data-active={
+          highlightedPull !== undefined &&
+          road.pulls.some((pull) => pull.number === highlightedPull)
+        }
+        onPointerEnter={() => setActive(road.name)}
+        onPointerLeave={() => setActive(undefined)}
+        onFocus={() => setActive(road.name)}
+        onBlur={() => setActive(undefined)}
+        onClick={() => open({ roads: [road], partial: false })}
+      >
+        <Icon size={15} aria-hidden="true" />
+      </button>
+    );
+  }
   return (
     <div
       ref={row}
@@ -229,51 +295,35 @@ export function BranchRoadMap({
           </g>
         </svg>
       )}
-      {visible.map((road) => {
-        const Icon =
-          road.role === 'plaza'
-            ? Landmark
-            : road.parent
-              ? GitFork
-              : road.pulls.some((pull) => !pull.merged)
-                ? GitBranch
-                : Signpost;
-        return (
-          <button
-            key={road.name}
-            type="button"
-            className="branch-road-node"
-            data-road-node={road.name}
-            aria-label={
-              road.role === 'plaza'
-                ? `개발 광장 · ${road.name}`
-                : `브랜치 ${road.name}`
-            }
-            title={road.name}
-            data-active={
-              highlightedPull !== undefined &&
-              road.pulls.some((pull) => pull.number === highlightedPull)
-            }
-            onPointerEnter={() => setActive(road.name)}
-            onPointerLeave={() => setActive(undefined)}
-            onFocus={() => setActive(road.name)}
-            onBlur={() => setActive(undefined)}
-            onClick={() => open({ roads: [road], partial: false })}
-          >
-            <Icon size={15} aria-hidden="true" />
-          </button>
-        );
-      })}
-      {(overflow.length > 0 || inventory.partial) && (
-        <button
-          type="button"
-          className="branch-road-node"
-          aria-label="브랜치 목록"
-          title="브랜치 목록"
-          onClick={() => open({ roads, partial: inventory.partial })}
-        >
-          <MoreHorizontal size={16} aria-hidden="true" />
-        </button>
+      {plazaRoad && (
+        <div className="branch-plaza">
+          {bridge && (
+            <span className="branch-bridge" aria-hidden="true">
+              <span />
+            </span>
+          )}
+          {roadButton(plazaRoad)}
+        </div>
+      )}
+      {(rows.length > 0 || showMore) && (
+        <div className="branch-road-tiers">
+          {rows.map((roadsAtDepth, depth) => (
+            <div className="branch-road-row" key={depth}>
+              {roadsAtDepth.map(roadButton)}
+            </div>
+          ))}
+          {showMore && (
+            <button
+              type="button"
+              className="branch-road-node branch-road-more"
+              aria-label="브랜치 목록"
+              title="브랜치 목록"
+              onClick={() => open({ roads, partial: inventory.partial })}
+            >
+              <MoreHorizontal size={16} aria-hidden="true" />
+            </button>
+          )}
+        </div>
       )}
     </div>
   );
