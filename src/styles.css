@@ -197,8 +197,7 @@ svg {
   gap: clamp(12px, 2vw, 24px);
 }
 .kingdom-area {
-  --courtyard: oklch(84% 0.045 var(--kingdom-hue));
-  --accent: oklch(30% 0.07 var(--kingdom-hue));
+  --courtyard: color-mix(in oklch, var(--land) 20%, transparent);
   --mortar: color-mix(in srgb, var(--land) 32%, #16242a);
   --stone: color-mix(in srgb, var(--land) 67%, #5f6a71);
   position: relative;
@@ -247,7 +246,7 @@ svg {
   text-align: center;
 }
 .kingdom:hover .kingdom-crest {
-  color: color-mix(in srgb, var(--accent), black 25%);
+  color: color-mix(in srgb, var(--accent), white 35%);
 }
 .kingdom-label {
   min-width: 0;
@@ -318,9 +317,6 @@ svg {
 .kingdom-area .expedition:hover,
 .kingdom-area .expedition[data-highlight='related'] {
   background: color-mix(in srgb, var(--accent) 14%, transparent);
-}
-.kingdom-area .expedition.blocked {
-  --accent: #842e24;
 }
 .expedition.closed-issue {
   --accent: #bbc8d3;
