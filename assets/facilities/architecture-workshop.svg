@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48">
+  <title>건축 공방 — 리팩터링·구조 개선</title>
+  <g stroke="#231a3d" stroke-width="2" stroke-linejoin="round" stroke-linecap="round">
+    <rect x="6" y="24" width="24" height="19" fill="#e6d9bd" />
+    <path d="M6 24l12 19M30 24L18 43M18 24v19" fill="none" stroke="#8a6a45" />
+    <rect x="6" y="24" width="24" height="19" fill="none" />
+    <polygon points="18,10 33,24 18,24" fill="#e2c08a" />
+    <path d="M23 15v9M28 19.500V24" fill="none" stroke="#8a6a45" />
+    <polygon points="3,24 18,10 18,24" fill="#c9583f" />
+    <path d="M36 43l-2-25M44 43l-2-25" fill="none" stroke-width="5" />
+    <path d="M36 43l-2-25M44 43l-2-25M35.500 37h8M35 31h8M34.500 25h8" fill="none" stroke="#e2a05b" stroke-width="2" />
+  </g>
+</svg>

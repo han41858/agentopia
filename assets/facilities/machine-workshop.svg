@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48">
+  <title>기계 공방 — 성능 최적화</title>
+  <g stroke="#231a3d" stroke-width="2" stroke-linejoin="round" stroke-linecap="round">
+    <polygon points="7,22 7,11 18,22 18,11 29,22 29,11 41,22" fill="#6b6f82" />
+    <rect x="7" y="22" width="34" height="21" fill="#d9d2c5" />
+    <circle cx="24" cy="32.500" r="7.500" fill="none" stroke-width="3.500" stroke-dasharray="3 2.900" stroke-linecap="butt" />
+    <circle cx="24" cy="32.500" r="6" fill="#f2b84b" />
+    <circle cx="24" cy="32.500" r="1.800" fill="#d9d2c5" stroke-width="1.500" />
+  </g>
+</svg>

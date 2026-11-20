@@ -1,8 +1,8 @@
+import { WorldArt } from './world-art.tsx';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties, FormEvent, ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 import {
-  Castle,
   Construction,
   ClipboardCheck,
   GitCommitHorizontal,
@@ -1786,11 +1786,11 @@ function HeritageDetail({
   close: () => void;
 }) {
   const { region, metric, record } = selection;
-  const { title, label, kind } = heritageBuildings[metric];
+  const { title, label, sprite } = heritageBuildings[metric];
   return (
     <Dialog title={title} close={close}>
       <div className="facility-detail">
-        <FacilityGlyph kind={kind} />
+        <WorldArt sprite={sprite} className="facility-sprite" />
         <span>{region.name}</span>
       </div>
       <dl className="heritage-total">
@@ -2151,7 +2151,7 @@ function App() {
         <header className="world-header">
           <div className="world-heading">
             <span className="crest" aria-hidden="true">
-              <Castle size={22} />
+              <WorldArt sprite="palace" size={22} />
             </span>
             <h1 id="world-title" className="brand">
               Agentopia
@@ -2273,12 +2273,7 @@ function App() {
                       }
                       onClick={() => select(region)}
                     >
-                      <Castle
-                        className="kingdom-crest"
-                        size={34}
-                        strokeWidth={1.5}
-                        aria-hidden="true"
-                      />
+                      <WorldArt sprite="palace" className="kingdom-crest" />
                       <span className="kingdom-label">
                         <strong>{region.name}</strong>
                       </span>

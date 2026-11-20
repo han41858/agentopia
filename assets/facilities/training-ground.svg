@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48">
+  <title>훈련장 — 테스트·검증</title>
+  <g stroke="#231a3d" stroke-width="2" stroke-linejoin="round" stroke-linecap="round">
+    <path d="M10 43l6-11 6 11" fill="none" />
+    <circle cx="16" cy="21" r="12" fill="#ffffff" />
+    <circle cx="16" cy="21" r="7" fill="#d6455d" />
+    <circle cx="16" cy="21" r="2.500" fill="#ffffff" />
+    <path d="M38 43V30M32 24h12" fill="none" />
+    <rect x="34" y="19" width="8" height="12" rx="2" fill="#e2c08a" />
+    <circle cx="38" cy="13" r="4.500" fill="#e2c08a" />
+  </g>
+</svg>

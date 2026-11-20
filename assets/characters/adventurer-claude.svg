@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48">
+  <title>Claude</title>
+  <g stroke="#231a3d" stroke-width="2" stroke-linejoin="round" stroke-linecap="round">
+    <path d="M8 43V14" fill="none" />
+    <circle cx="8" cy="10" r="3.500" fill="#bfe9ff" />
+    <path d="M19 28h14l5 15H14z" fill="#e2725b" />
+    <circle cx="26" cy="21" r="8" fill="#f6d7b8" />
+    <path d="M17 16L27 3l8 13z" fill="#e2725b" />
+    <path d="M13 16h26" fill="none" />
+  </g>
+  <g fill="#231a3d">
+    <circle cx="23" cy="22" r="1.300" />
+    <circle cx="29" cy="22" r="1.300" />
+  </g>
+</svg>
