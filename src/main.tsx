@@ -44,9 +44,58 @@ import type {
 } from '../server/model.ts';
 import './styles.css';
 
-type Snapshot = { report?: Report; error?: string; httpStatus?: number };
+type Snapshot = {
+  report?: Report;
+  error?: string;
+  httpStatus?: number;
+  pulses?: Record<string, number>;
+};
 
-function getTokenStatus(hasData: boolean, snapshot?: Snapshot) {
+function partyStates(report: Report) {
+  return new Map([
+    ...report.quests.map((quest): [string, string] => [
+      `issue-${quest.number}`,
+      JSON.stringify([
+        quest.state,
+        quest.stateReason,
+        quest.stage,
+        quest.developer,
+        quest.reviewer,
+        quest.review,
+        quest.reason,
+        quest.pulls.map(({ number, status }) => [number, status]),
+      ]),
+    ]),
+    ...(report.pullQuests ?? []).map((pull): [string, string] => [
+      `pr-${pull.number}`,
+      JSON.stringify([
+        pull.stage,
+        pull.draft,
+        pull.author,
+        pull.reviewer,
+        pull.review,
+      ]),
+    ]),
+  ]);
+}
+
+function reportSnapshot(report: Report, previous?: Snapshot): Snapshot {
+  if (!previous?.report) return { report };
+  const priorStates = partyStates(previous.report);
+  const pulses: Record<string, number> = {};
+  for (const [key, state] of partyStates(report)) {
+    const pulse = previous.pulses?.[key] ?? 0;
+    const next = pulse + Number(priorStates.get(key) !== state);
+    if (next) pulses[key] = next;
+  }
+  return { report, pulses };
+}
+
+function getTokenStatus(
+  hasData: boolean,
+  hasRepositories: boolean,
+  snapshot?: Snapshot,
+) {
   if (snapshot?.error) {
     const labels: Partial<Record<number, string>> = {
       400: '토큰 형식 오류',
@@ -67,6 +116,12 @@ function getTokenStatus(hasData: boolean, snapshot?: Snapshot) {
       description: '이 토큰으로 GitHub 저장소의 이슈를 조회했습니다.',
       tone: 'verified',
     };
+  if (!hasRepositories)
+    return {
+      label: '저장소 접근 확인 전',
+      description: '저장소를 추가하면 이 토큰의 접근 권한을 확인합니다.',
+      tone: 'checking',
+    };
   return {
     label: '토큰 확인 중',
     description: 'GitHub에서 토큰의 저장소 접근을 확인하고 있습니다.',
@@ -83,11 +138,11 @@ const activeStages = new Set<Stage>([
 ]);
 const ciActivity = 'CI 검사 중';
 const alerts = new Set<Stage>(['failed', 'attention']);
-const defaultRegion: Region = {
-  ...repositoryRegion('han41858/agentopia'),
-  name: 'Agentopia',
-};
+const initialRepositories: Repository[] = [
+  { slug: 'han41858/agentopia', private: false },
+];
 const legacyRepositoryListKey = 'agentopia.public-repositories';
+const settingsVersion = 2;
 const settingsKey = 'agentopia.github-settings';
 type GitHubSettings = { token: string; repositories: Repository[] };
 
@@ -114,7 +169,13 @@ function readSettings(): GitHubSettings {
         : 'repositories' in settings
           ? settings.repositories
           : [];
-    const repositories = new Map<string, Repository>();
+    const needsMigration =
+      !('version' in settings) || settings.version !== settingsVersion;
+    const repositories = new Map<string, Repository>(
+      needsMigration
+        ? initialRepositories.map((repo) => [repo.slug, repo])
+        : [],
+    );
     if (Array.isArray(list)) {
       for (const item of list as unknown[]) {
         const repo = typeof item === 'object' && item !== null ? item : {};
@@ -123,13 +184,13 @@ function readSettings(): GitHubSettings {
         const slug =
           typeof candidate === 'string' ? repositorySlug(candidate) : undefined;
         const restricted = 'private' in repo && repo.private === true;
-        if (slug && slug !== defaultRegion.slug && (!restricted || token))
+        if (slug && (!restricted || token))
           repositories.set(slug, { slug, private: restricted });
       }
     }
     return { token, repositories: [...repositories.values()] };
   } catch {
-    return { token: '', repositories: [] };
+    return { token: '', repositories: initialRepositories };
   }
 }
 const glyph = {
@@ -181,7 +242,15 @@ function closedIssueLabel(quest: Quest) {
   return completed ? '완료' : '닫힘';
 }
 
-function Expedition({ quest, open }: { quest: Quest; open: () => void }) {
+function Expedition({
+  quest,
+  open,
+  pulse,
+}: {
+  quest: Quest;
+  open: () => void;
+  pulse?: number;
+}) {
   const closed = quest.state === 'closed';
   const blocked = !closed && alerts.has(quest.stage);
   const ci = !closed && quest.stage === 'ci';
@@ -207,6 +276,9 @@ function Expedition({ quest, open }: { quest: Quest; open: () => void }) {
       }
       onClick={open}
     >
+      {pulse !== undefined && (
+        <span key={pulse} className="party-pulse" aria-hidden="true" />
+      )}
       <span className="expedition-party" aria-hidden="true">
         {partyRoles.map(({ name, Icon, color }) => (
           <span
@@ -242,7 +314,15 @@ function pullActivity(pull: PullQuest) {
   return undefined;
 }
 
-function PullMarker({ pull, open }: { pull: PullQuest; open: () => void }) {
+function PullMarker({
+  pull,
+  open,
+  pulse,
+}: {
+  pull: PullQuest;
+  open: () => void;
+  pulse?: number;
+}) {
   const role = partyRoles.find(
     ({ color }) =>
       color ===
@@ -264,6 +344,9 @@ function PullMarker({ pull, open }: { pull: PullQuest; open: () => void }) {
       aria-label={`${label} · ${status}`}
       onClick={open}
     >
+      {pulse !== undefined && (
+        <span key={pulse} className="party-pulse" aria-hidden="true" />
+      )}
       <span
         className={`role-symbol current-role${role ? ` ${role.color}` : ''}`}
         data-draft={pull.draft}
@@ -283,12 +366,14 @@ function PullMarker({ pull, open }: { pull: PullQuest; open: () => void }) {
 function GuildQuests({
   quests,
   pulls,
+  pulses,
   label,
   openQuest,
   openPull,
 }: {
   quests: Quest[];
   pulls: PullQuest[];
+  pulses?: Record<string, number>;
   label: string;
   openQuest: (quest: Quest) => void;
   openPull: (pull: PullQuest) => void;
@@ -348,7 +433,11 @@ function GuildQuests({
             </span>
           </button>
         ) : (
-          <Expedition quest={quest} open={() => openQuest(quest)} />
+          <Expedition
+            quest={quest}
+            open={() => openQuest(quest)}
+            pulse={pulses?.[`issue-${quest.number}`]}
+          />
         )}
         {children.length > 0 && (
           <ul
@@ -367,7 +456,11 @@ function GuildQuests({
       {roots.map(render)}
       {pulls.map((pull) => (
         <li key={`pr-${pull.number}`}>
-          <PullMarker pull={pull} open={() => openPull(pull)} />
+          <PullMarker
+            pull={pull}
+            open={() => openPull(pull)}
+            pulse={pulses?.[`pr-${pull.number}`]}
+          />
         </li>
       ))}
     </ul>
@@ -732,7 +825,7 @@ function RegionDetail({
   region: Region;
   snapshot?: Snapshot;
   openQuest: (quest: Quest) => void;
-  remove?: () => void;
+  remove: () => void;
   close: () => void;
 }) {
   const quests = snapshot?.report?.quests ?? [];
@@ -787,18 +880,15 @@ function RegionDetail({
   }
   return (
     <Dialog title={region.name} close={close}>
-      <p>{region.description}</p>
       <OutLink
         item={{
-          title: 'GitHub 저장소',
+          title: region.slug,
           url: `https://github.com/${region.slug}`,
         }}
       />
-      {remove && (
-        <button className="text-button" onClick={remove}>
-          월드맵에서 제거
-        </button>
-      )}
+      <button className="text-button" onClick={remove}>
+        월드맵에서 제거
+      </button>
       {snapshot?.error && <p className="fetch-error">{snapshot.error}</p>}
       {!snapshot && <p>왕국 기록을 불러오는 중…</p>}
       {snapshot?.report?.warnings.length ? (
@@ -1116,7 +1206,7 @@ function QuestLog({
 }) {
   const entries = regions
     .flatMap((region) => {
-      const report = snapshots[region.id]?.report;
+      const report = snapshots[region.slug]?.report;
       const items: (Quest | PullQuest)[] = [
         ...(report?.quests ?? []),
         ...(report?.pullQuests ?? []),
@@ -1130,7 +1220,7 @@ function QuestLog({
         b.item.number - a.item.number ||
         a.region.slug.localeCompare(b.region.slug),
     );
-  const hasReport = regions.some(({ id }) => snapshots[id]?.report);
+  const hasReport = regions.some(({ slug }) => snapshots[slug]?.report);
 
   return (
     <section className="panel quest-log" aria-labelledby="quest-log-title">
@@ -1182,10 +1272,7 @@ function App() {
   const [settings, setSettings] = useState(readSettings);
   const { token, repositories } = settings;
   const worldRegions = useMemo(
-    () => [
-      defaultRegion,
-      ...repositories.map(({ slug }) => repositoryRegion(slug)),
-    ],
+    () => repositories.map(({ slug }) => repositoryRegion(slug)),
     [repositories],
   );
   const [snapshots, setSnapshots] = useState<Record<string, Snapshot>>({});
@@ -1203,7 +1290,10 @@ function App() {
 
   useEffect(() => {
     try {
-      localStorage.setItem(settingsKey, JSON.stringify(settings));
+      localStorage.setItem(
+        settingsKey,
+        JSON.stringify({ version: settingsVersion, ...settings }),
+      );
       localStorage.removeItem(legacyRepositoryListKey);
     } catch {
       // The current tab can still use the settings when storage is unavailable.
@@ -1252,14 +1342,14 @@ function App() {
             if (!controller.signal.aborted)
               setSnapshots((current) => ({
                 ...current,
-                [region.id]: { report },
+                [region.slug]: reportSnapshot(report, current[region.slug]),
               }));
           } catch (error) {
             if (!controller.signal.aborted)
               setSnapshots((current) => ({
                 ...current,
-                [region.id]: {
-                  ...current[region.id],
+                [region.slug]: {
+                  ...current[region.slug],
                   error: (error as Error).message,
                   httpStatus:
                     error instanceof RequestError ? error.status : undefined,
@@ -1317,33 +1407,34 @@ function App() {
     }));
     setSnapshots((current) => {
       const remaining = { ...current };
-      delete remaining[region.id];
+      delete remaining[region.slug];
       return remaining;
     });
     setSelected(undefined);
     setSelectedQuest(undefined);
   }
 
-  const hasData = worldRegions.some(({ id }) => snapshots[id]?.report);
+  const hasData = worldRegions.some(({ slug }) => snapshots[slug]?.report);
   const tokenStatus = getTokenStatus(
     hasData,
+    worldRegions.length > 0,
     Object.values(snapshots).find(({ error }) => error),
   );
   const partial = worldRegions.some(
-    ({ id }) =>
-      !snapshots[id]?.report ||
-      snapshots[id].error ||
-      snapshots[id].report?.warnings.length,
+    ({ slug }) =>
+      !snapshots[slug]?.report ||
+      snapshots[slug].error ||
+      snapshots[slug].report?.warnings.length,
   );
   const quest =
     selectedQuest &&
     selectedQuest.kind !== 'pull' &&
-    snapshots[selectedQuest.region.id]?.report?.quests.find(
+    snapshots[selectedQuest.region.slug]?.report?.quests.find(
       ({ number }) => number === selectedQuest.number,
     );
   const pull =
     selectedQuest?.kind === 'pull'
-      ? snapshots[selectedQuest.region.id]?.report?.pullQuests?.find(
+      ? snapshots[selectedQuest.region.slug]?.report?.pullQuests?.find(
           ({ number }) => number === selectedQuest.number,
         )
       : undefined;
@@ -1360,10 +1451,9 @@ function App() {
             <span className="crest" aria-hidden="true">
               <Castle size={22} />
             </span>
-            <div>
-              <p className="brand">Agentopia</p>
-              <h1 id="world-title">월드맵</h1>
-            </div>
+            <h1 id="world-title" className="brand">
+              Agentopia
+            </h1>
           </div>
           <div className="world-controls">
             <button
@@ -1414,50 +1504,53 @@ function App() {
         </header>
 
         <section className="map-viewport" aria-label="저장소 왕국">
-          <div className="kingdoms">
-            {worldRegions.map((region) => {
-              const report = snapshots[region.id]?.report;
-              return (
-                <div
-                  className="kingdom-area"
-                  key={region.id}
-                  style={
-                    {
-                      '--kingdom-hue': kingdomHue(region.slug),
-                    } as CSSProperties
-                  }
-                >
-                  <button className="kingdom" onClick={() => select(region)}>
-                    <Castle
-                      className="kingdom-crest"
-                      size={34}
-                      strokeWidth={1.5}
-                      aria-hidden="true"
-                    />
-                    <span className="kingdom-label">
-                      <strong>{region.name}</strong>
-                    </span>
-                  </button>
-                  {report &&
-                  (report.quests.some(({ state }) => state === 'open') ||
-                    report.pullQuests?.length) ? (
-                    <GuildQuests
-                      quests={report.quests}
-                      pulls={report.pullQuests ?? []}
-                      openPull={(item) => openPull(region, item)}
-                      label={`${region.name} 이슈`}
-                      openQuest={(item) =>
-                        setSelectedQuest({ region, number: item.number })
-                      }
-                    />
-                  ) : !report ? (
-                    <p className="expedition-status">
-                      {loading ? '기록 확인 중' : '기록 확인 필요'}
-                    </p>
-                  ) : null}
-                </div>
-              );
-            })}
+          <div className="world-land">
+            <div className="kingdoms">
+              {worldRegions.map((region) => {
+                const report = snapshots[region.slug]?.report;
+                return (
+                  <div
+                    className="kingdom-area"
+                    key={region.slug}
+                    style={
+                      {
+                        '--kingdom-hue': kingdomHue(region.slug),
+                      } as CSSProperties
+                    }
+                  >
+                    <button className="kingdom" onClick={() => select(region)}>
+                      <Castle
+                        className="kingdom-crest"
+                        size={34}
+                        strokeWidth={1.5}
+                        aria-hidden="true"
+                      />
+                      <span className="kingdom-label">
+                        <strong>{region.name}</strong>
+                      </span>
+                    </button>
+                    {report &&
+                    (report.quests.some(({ state }) => state === 'open') ||
+                      report.pullQuests?.length) ? (
+                      <GuildQuests
+                        quests={report.quests}
+                        pulls={report.pullQuests ?? []}
+                        pulses={snapshots[region.slug]?.pulses}
+                        openPull={(item) => openPull(region, item)}
+                        label={`${region.name} 이슈`}
+                        openQuest={(item) =>
+                          setSelectedQuest({ region, number: item.number })
+                        }
+                      />
+                    ) : !report ? (
+                      <p className="expedition-status">
+                        {loading ? '기록 확인 중' : '기록 확인 필요'}
+                      </p>
+                    ) : null}
+                  </div>
+                );
+              })}
+            </div>
           </div>
         </section>
 
@@ -1482,17 +1575,13 @@ function App() {
       </main>
       {selected && (
         <RegionDetail
-          key={selected.id}
+          key={selected.slug}
           region={selected}
-          snapshot={snapshots[selected.id]}
+          snapshot={snapshots[selected.slug]}
           openQuest={(item) =>
             setSelectedQuest({ region: selected, number: item.number })
           }
-          remove={
-            selected.slug === defaultRegion.slug
-              ? undefined
-              : () => removeRegion(selected)
-          }
+          remove={() => removeRegion(selected)}
           close={() => setSelected(undefined)}
         />
       )}
@@ -1521,7 +1610,7 @@ function App() {
       )}
       {selectedQuest && pull && (
         <PullDetail
-          key={`${selectedQuest.region.id}-pr-${pull.number}`}
+          key={`${selectedQuest.region.slug}-pr-${pull.number}`}
           pull={pull}
           region={selectedQuest.region}
           token={token}
@@ -1530,7 +1619,7 @@ function App() {
       )}
       {selectedQuest && quest && (
         <QuestDetail
-          key={`${selectedQuest.region.id}-${quest.number}`}
+          key={`${selectedQuest.region.slug}-${quest.number}`}
           quest={quest}
           region={selectedQuest.region}
           token={token}
