@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="240" height="240">
+  <title>현자의 서고 — 전체 리뷰</title>
+  <ellipse cx="60" cy="110" rx="48" ry="6" fill="#231a3d" opacity="0.15" />
+  <g stroke="#231a3d" stroke-width="3" stroke-linejoin="round" stroke-linecap="round">
+    <rect x="20" y="72" width="22" height="34" fill="#d9d2c5" />
+    <polygon points="16,72 31,56 46,72" fill="#7b5cd6" />
+    <rect x="78" y="72" width="22" height="34" fill="#d9d2c5" />
+    <polygon points="74,72 89,56 104,72" fill="#7b5cd6" />
+    <rect x="27" y="82" width="8" height="12" rx="4" fill="#ffd978" />
+    <rect x="85" y="82" width="8" height="12" rx="4" fill="#ffd978" />
+    <rect x="40" y="44" width="40" height="62" fill="#f1ece2" />
+    <polygon points="32,46 60,12 88,46" fill="#5c43b0" />
+    <circle cx="60" cy="9" r="4" fill="#f2b84b" />
+    <circle cx="60" cy="57" r="7" fill="#ffd978" />
+    <path d="M60 50v14M53 57h14" fill="none" stroke-width="2" />
+    <path d="M50 70q5-3 10 0q5-3 10 0v8q-5-3-10 0q-5-3-10 0z" fill="#fff6dc" />
+    <path d="M60 70v8" fill="none" stroke-width="2" />
+    <path d="M53 106V92a7 7 0 0 1 14 0v14z" fill="#5a3d2b" />
+    <rect x="16" y="104" width="88" height="5" rx="2" fill="#b3aa9c" />
+  </g>
+  <g fill="#b9a4f5">
+    <path d="M100 30l2 5 5 2-5 2-2 5-2-5-5-2 5-2z" />
+    <circle cx="20" cy="40" r="2" />
+  </g>
+</svg>

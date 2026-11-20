@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 140" width="320" height="280">
+  <title>왕궁 — main</title>
+  <ellipse cx="80" cy="131" rx="68" ry="6" fill="#231a3d" opacity="0.15" />
+  <g stroke="#231a3d" stroke-width="3" stroke-linejoin="round" stroke-linecap="round">
+    <rect x="22" y="58" width="26" height="70" fill="#d9d2c5" />
+    <polygon points="17,58 35,30 53,58" fill="#d6455d" />
+    <rect x="112" y="58" width="26" height="70" fill="#d9d2c5" />
+    <polygon points="107,58 125,30 143,58" fill="#d6455d" />
+    <rect x="31" y="74" width="8" height="12" rx="4" fill="#ffd978" />
+    <rect x="121" y="74" width="8" height="12" rx="4" fill="#ffd978" />
+    <rect x="44" y="65" width="8" height="9" fill="#f1ece2" />
+    <rect x="56" y="65" width="8" height="9" fill="#f1ece2" />
+    <rect x="96" y="65" width="8" height="9" fill="#f1ece2" />
+    <rect x="108" y="65" width="8" height="9" fill="#f1ece2" />
+    <rect x="44" y="73" width="72" height="55" fill="#f1ece2" />
+    <rect x="50" y="92" width="8" height="12" rx="4" fill="#ffd978" />
+    <rect x="102" y="92" width="8" height="12" rx="4" fill="#ffd978" />
+    <rect x="64" y="42" width="32" height="86" fill="#fbf7ee" />
+    <polygon points="58,42 80,16 102,42" fill="#f2b84b" />
+    <path d="M80 16V4" fill="none" />
+    <path d="M80 4l13 4.500-13 4.500z" fill="#7b5cd6" />
+    <path d="M75 72v-9a5 5 0 0 1 10 0v9z" fill="#ffd978" />
+    <path d="M73 52h14" fill="none" stroke="#f2b84b" />
+    <path d="M70 128v-24a10 10 0 0 1 20 0v24z" fill="#5a3d2b" />
+    <path d="M80 95v33" fill="none" stroke-width="2" />
+    <rect x="14" y="125" width="132" height="6" rx="2" fill="#b3aa9c" />
+  </g>
+</svg>

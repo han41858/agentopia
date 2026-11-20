@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="240" height="240">
+  <title>Claude — 리뷰 모험가(현자)</title>
+  <ellipse cx="60" cy="110" rx="30" ry="5" fill="#231a3d" opacity="0.15" />
+  <g stroke="#231a3d" stroke-width="3" stroke-linejoin="round" stroke-linecap="round">
+    <path d="M28 108V42" fill="none" stroke-width="7" />
+    <path d="M28 108V42" fill="none" stroke="#8a6a45" stroke-width="3" />
+    <circle cx="28" cy="32" r="10" fill="#bfe9ff" />
+    <path d="M23 29q2-4 6-4" fill="none" stroke="#ffffff" stroke-width="2" />
+    <path d="M44 64h32l9 43H35z" fill="#e2725b" />
+    <path d="M60 66v41" fill="none" stroke="#f6c9a8" stroke-width="2" />
+    <path d="M42 84h36" fill="none" stroke="#f2b84b" />
+    <path d="M45 66q-12 4-16 16" fill="none" stroke-width="11" />
+    <path d="M45 66q-12 4-16 16" fill="none" stroke="#e2725b" stroke-width="6" />
+    <circle cx="28" cy="84" r="5" fill="#f6d7b8" />
+    <rect x="75" y="66" width="11" height="20" rx="5.500" fill="#e2725b" />
+    <path d="M72 80q6-3 10 0q4-3 10 0v11q-6-3-10 0q-4-3-10 0z" fill="#fff6dc" />
+    <path d="M82 80v11" fill="none" stroke-width="2" />
+    <circle cx="60" cy="46" r="18" fill="#f6d7b8" />
+    <path d="M45 52q15 6 30 0q-1 16-15 21q-14-5-15-21z" fill="#ffffff" />
+    <path d="M42 34q8-18 24-30q0 14 12 30z" fill="#e2725b" />
+    <ellipse cx="60" cy="34" rx="26" ry="6" fill="#c9583f" />
+    <path d="M47 27q13 4 27 0" fill="none" stroke="#f2b84b" />
+  </g>
+  <g fill="#231a3d">
+    <circle cx="53" cy="46" r="2.300" />
+    <circle cx="67" cy="46" r="2.300" />
+  </g>
+</svg>

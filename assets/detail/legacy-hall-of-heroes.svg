@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="240" height="240">
+  <title>영웅의 전당 — 해결된 Issue</title>
+  <ellipse cx="60" cy="110" rx="50" ry="6" fill="#231a3d" opacity="0.15" />
+  <g stroke="#231a3d" stroke-width="3" stroke-linejoin="round" stroke-linecap="round">
+    <rect x="14" y="98" width="92" height="9" rx="2" fill="#b3aa9c" />
+    <rect x="20" y="90" width="80" height="8" rx="2" fill="#d9d2c5" />
+    <rect x="26" y="52" width="68" height="38" fill="#8d86a8" />
+    <path d="M53 90V70a7 7 0 0 1 14 0v20z" fill="#3b2a7a" />
+    <rect x="28" y="52" width="10" height="38" fill="#f1ece2" />
+    <rect x="42" y="52" width="10" height="38" fill="#f1ece2" />
+    <rect x="68" y="52" width="10" height="38" fill="#f1ece2" />
+    <rect x="82" y="52" width="10" height="38" fill="#f1ece2" />
+    <rect x="20" y="44" width="80" height="8" rx="2" fill="#d9d2c5" />
+    <polygon points="16,44 60,18 104,44" fill="#f1ece2" />
+    <path d="M54 29h12v6q0 5-6 7q-6-2-6-7z" fill="#d6455d" />
+    <path d="M60 31v8" fill="none" stroke="#f1ece2" stroke-width="2" />
+    <circle cx="60" cy="13" r="4.500" fill="#f2b84b" />
+    <path d="M22 44V30" fill="none" />
+    <path d="M22 30h10l-3 3.500 3 3.500H22z" fill="#f2b84b" />
+    <path d="M98 44V30" fill="none" />
+    <path d="M98 30H88l3 3.500-3 3.500h10z" fill="#f2b84b" />
+  </g>
+</svg>

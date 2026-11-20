@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48">
+  <title>몬스터</title>
+  <g stroke="#231a3d" stroke-width="2" stroke-linejoin="round" stroke-linecap="round">
+    <path d="M8 38c0-13 7-23 16-23s16 10 16 23c0 4-5 5-8 3c-2 2-5 2-8 0c-3 2-6 2-8 0c-3 2-8 1-8-3z" fill="#6fbf5a" />
+    <circle cx="18" cy="29" r="4" fill="#ffffff" />
+    <circle cx="30" cy="29" r="4" fill="#ffffff" />
+    <path d="M13 23l7 2.500M35 23l-7 2.500" fill="none" />
+  </g>
+  <g fill="#231a3d">
+    <circle cx="19" cy="29.500" r="1.500" />
+    <circle cx="29" cy="29.500" r="1.500" />
+  </g>
+</svg>
