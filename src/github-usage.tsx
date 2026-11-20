@@ -25,9 +25,11 @@ export function publishGitHubUsage(
 export function GitHubUsage({
   token,
   refresh,
+  refreshStale = false,
 }: {
   token: string;
   refresh?: RefreshConsumption;
+  refreshStale?: boolean;
 }) {
   const [reading, setReading] = useState<{ token: string; core?: CoreUsage }>();
   const [hover, setHover] = useState(false);
@@ -39,24 +41,16 @@ export function GitHubUsage({
 
   useEffect(() => {
     const update: UsageListener = (scope, snapshot) => {
-      if (scope !== token) return;
-      if (!snapshot) {
-        setReading(undefined);
-        return;
-      }
+      if (scope !== token || !snapshot) return;
       const core = snapshot.core;
       setReading((previous) => {
         const old = previous?.token === token ? previous.core : undefined;
-        const fresh = old?.reset !== undefined && old.reset * 1000 > Date.now();
         const older =
-          fresh &&
+          old?.reset !== undefined &&
           (core?.reset === undefined ||
-            core.reset < old.reset! ||
+            core.reset < old.reset ||
             (core.reset === old.reset && (core.used ?? -1) < (old.used ?? -1)));
-        return {
-          token,
-          core: older ? old : (core ?? (fresh ? old : undefined)),
-        };
+        return { token, core: older ? old : (core ?? old) };
       });
     };
     usageListeners.add(update);
@@ -88,11 +82,8 @@ export function GitHubUsage({
   }, [open]);
 
   if (!reading || reading.token !== token) return null;
-  const core = reading.core;
-  const { limit, used, remaining, reset } =
-    core?.reset !== undefined && core.reset * 1000 <= Date.now()
-      ? {}
-      : (core ?? {});
+  const { limit, used, remaining, reset } = reading.core ?? {};
+  const coreStale = reset !== undefined && reset * 1000 <= Date.now();
   const measuredUsed =
     used ??
     (limit !== undefined && remaining !== undefined && remaining <= limit
@@ -138,7 +129,7 @@ export function GitHubUsage({
       {open && (
         <div id={label} className="github-usage-tooltip" role="tooltip">
           <dl>
-            <dt>직전 갱신 소비량</dt>
+            <dt>{refreshStale ? '마지막 확인 소비량' : '직전 갱신 소비량'}</dt>
             <dd>
               {formatNumber(refresh?.consumed)} · {rate}
             </dd>
@@ -151,6 +142,8 @@ export function GitHubUsage({
             <dt>초기화 시각</dt>
             <dd>{resetLabel}</dd>
           </dl>
+          {refreshStale && <small>직전 갱신의 소비량은 미확인입니다.</small>}
+          {coreStale && <small>한도 초기화 전 마지막 확인값입니다.</small>}
           <small>같은 계정의 다른 API 사용량이 포함될 수 있습니다.</small>
         </div>
       )}

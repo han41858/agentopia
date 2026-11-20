@@ -83,6 +83,8 @@ import type {
   GitHubDebugSnapshot,
   RefreshConsumption,
 } from '../server/github-debug.ts';
+import { BranchRoadMap } from './branch-road-map.tsx';
+import type { RoadSelection } from './branch-road-map.tsx';
 import './styles.css';
 
 function reportForges(report?: Report) {
@@ -150,6 +152,10 @@ function reportSnapshot(report: Report, previous?: Snapshot): Snapshot {
   );
   report = {
     ...report,
+    branchInventory: report.branchInventory ?? oldReport.branchInventory,
+    branchPulls: missingPulls
+      ? (oldReport.branchPulls ?? report.branchPulls)
+      : report.branchPulls,
     releases:
       missingDeployments && !report.releases.length
         ? oldReport.releases
@@ -1832,6 +1838,11 @@ function App() {
   const [refreshUsage, setRefreshUsage] = useState<{
     token: string;
     usage: RefreshConsumption;
+    stale: boolean;
+  }>();
+  const [selectedRoad, setSelectedRoad] = useState<{
+    region: Region;
+    selection: RoadSelection;
   }>();
   const [selectedHeritage, setSelectedHeritage] = useState<HeritageSelection>();
   const [inspected, setInspected] = useState<MapEntry>();
@@ -1862,7 +1873,15 @@ function App() {
   });
   const refreshJobs = useRef<{
     token: string;
-    jobs: Map<string, { last: number; interval: number; report?: Report }>;
+    jobs: Map<
+      string,
+      {
+        last: number;
+        interval: number;
+        report?: Report;
+        branchCheckedAt?: number;
+      }
+    >;
   }>({ token, jobs: new Map() });
   const [showConnect, setShowConnect] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
@@ -1889,6 +1908,7 @@ function App() {
       const next = readSettings();
       refreshJobs.current.jobs.clear();
       setSelectedHeritage(undefined);
+      setSelectedRoad(undefined);
       setSettings(next);
       setSnapshots({});
       setSelected(undefined);
@@ -1960,22 +1980,40 @@ function App() {
         usages.every((usage) => usage?.consumed !== undefined)
           ? usages.reduce((sum, usage) => sum + (usage?.consumed ?? 0), 0)
           : undefined;
-      setRefreshUsage({
-        token,
-        usage: {
-          consumed,
-          limit: limits.size === 1 ? limits.values().next().value : undefined,
-        },
+      setRefreshUsage((previous) => {
+        const last = previous?.token === token ? previous.usage : undefined;
+        if (consumed === undefined)
+          return {
+            token,
+            usage: last ?? {},
+            stale: last?.consumed !== undefined,
+          };
+        return {
+          token,
+          usage: {
+            consumed,
+            limit:
+              limits.size === 1 ? limits.values().next().value : last?.limit,
+          },
+          stale: false,
+        };
       });
     }
 
     async function sync(slug: string, force: boolean) {
       pending.add(slug);
       const previous = jobs.get(slug);
+      const checkBranches =
+        force ||
+        Date.now() - (previous?.branchCheckedAt ?? -Infinity) >= 120_000;
+      const branchCheckedAt = checkBranches
+        ? Date.now()
+        : previous?.branchCheckedAt;
       let usage: RefreshConsumption | undefined;
       try {
         const params = new URLSearchParams({ repo: slug, measure: 'refresh' });
         if (force) params.set('refresh', '1');
+        if (checkBranches) params.set('branches', '1');
         const report = await request<Report>(
           params,
           token,
@@ -2003,7 +2041,7 @@ function App() {
           Boolean(active) || report.warnings.length > 0,
           changed,
         );
-        jobs.set(slug, { last: Date.now(), report, interval });
+        jobs.set(slug, { last: Date.now(), report, interval, branchCheckedAt });
         setSnapshots((current) => ({
           ...current,
           [slug]: reportSnapshot(report, current[slug]),
@@ -2014,6 +2052,7 @@ function App() {
           last: Date.now(),
           interval: refreshInterval,
           report: previous?.report,
+          branchCheckedAt,
         });
         setSnapshots((current) => ({
           ...current,
@@ -2055,6 +2094,7 @@ function App() {
     setSnapshots({});
     setSelectedQuest(undefined);
     setSelectedHeritage(undefined);
+    setSelectedRoad(undefined);
     setLoading(true);
   }
 
@@ -2172,6 +2212,9 @@ function App() {
                 refresh={
                   refreshUsage?.token === token ? refreshUsage.usage : undefined
                 }
+                refreshStale={
+                  refreshUsage?.token === token && refreshUsage.stale
+                }
               />
             </div>
           </div>
@@ -2216,7 +2259,16 @@ function App() {
                         setSelectedHeritage({ region, metric, record })
                       }
                     />
-                    <button className="kingdom" onClick={() => select(region)}>
+                    <button
+                      className="kingdom"
+                      data-road-palace=""
+                      title={
+                        report?.branchInventory
+                          ? `왕궁 · ${report.branchInventory.defaultBranch}`
+                          : undefined
+                      }
+                      onClick={() => select(region)}
+                    >
                       <span className="kingdom-guild">
                         <Castle
                           className="kingdom-crest"
@@ -2242,13 +2294,27 @@ function App() {
                         <strong>{region.name}</strong>
                       </span>
                     </button>
+                    {report?.branchInventory && (
+                      <BranchRoadMap
+                        inventory={report.branchInventory}
+                        pulls={report.branchPulls}
+                        highlightedPull={
+                          localFocus?.kind === 'pull'
+                            ? localFocus.number
+                            : undefined
+                        }
+                        open={(selection) =>
+                          setSelectedRoad({ region, selection })
+                        }
+                      />
+                    )}
                     {visibleFacilities.length > 0 && (
                       <ul
                         className="expeditions kingdom-workshops"
                         aria-label={`${region.name} 왕국 내부`}
                       >
                         {visibleFacilities.map((item) => (
-                          <li key={item.number}>
+                          <li key={item.number} data-road-pr={item.number}>
                             <FacilityMarker
                               pull={item}
                               open={() => openPull(region, item)}
@@ -2359,6 +2425,40 @@ function App() {
           selection={selectedHeritage}
           close={() => setSelectedHeritage(undefined)}
         />
+      )}
+      {selectedRoad && (
+        <Dialog
+          title={
+            selectedRoad.selection.roads.length === 1
+              ? selectedRoad.selection.roads[0].name
+              : '브랜치 도로망'
+          }
+          close={() => setSelectedRoad(undefined)}
+        >
+          {selectedRoad.selection.partial && (
+            <p>브랜치 목록의 첫 페이지와 열린 PR에서 확인한 경로입니다.</p>
+          )}
+          <ul className="branch-road-details">
+            {selectedRoad.selection.roads.map((road) => (
+              <li key={road.name}>
+                <strong>{road.name}</strong>
+                {road.role === 'palace' && <small>기본 브랜치</small>}
+                {road.role === 'plaza' && <small>개발 광장</small>}
+                {road.parent && <small>관측된 PR 대상 · {road.parent}</small>}
+                {road.pulls.map((pull) => (
+                  <OutLink
+                    key={pull.number}
+                    item={{
+                      title: `PR #${pull.number} · ${pull.base}`,
+                      status: pull.merged ? '머지됨' : '열림',
+                      url: `https://github.com/${selectedRoad.region.slug}/pull/${pull.number}`,
+                    }}
+                  />
+                ))}
+              </li>
+            ))}
+          </ul>
+        </Dialog>
       )}
       {selectedQuest && pull && (
         <PullDetail

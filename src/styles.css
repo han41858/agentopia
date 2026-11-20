@@ -1273,3 +1273,63 @@ svg {
   margin: 0;
   text-align: right;
 }
+
+.branch-roads {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
+  margin: 10px auto 14px;
+}
+.branch-road-node {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 25px;
+  padding: 0;
+  border: 1px solid #d0b98766;
+  border-radius: 4px;
+  background: #24392e;
+  color: #e5d6ab;
+}
+.branch-road-node:hover,
+.branch-road-node[data-active='true'] {
+  border-color: #fae9a7;
+  color: #fff2c2;
+}
+.branch-road-lines {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+.branch-road-lines path {
+  fill: none;
+  stroke: #cbb5818d;
+  stroke-width: 1.5px;
+  stroke-linejoin: round;
+}
+.branch-road-lines path[data-merged='true'] {
+  stroke-dasharray: 3 3;
+}
+.branch-road-lines path[data-active='true'] {
+  stroke: #ffdfa0;
+  stroke-width: 2.5px;
+}
+.branch-road-details {
+  display: grid;
+  gap: 10px;
+  padding: 0;
+  list-style: none;
+}
+.branch-road-details strong,
+.branch-road-details small {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.github-usage-tooltip small {
+  display: block;
+}

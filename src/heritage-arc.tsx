@@ -127,7 +127,7 @@ export function HeritageArc({
   const data = snapshot?.token === token ? snapshot.data : undefined;
   const visible = heritageKeys.flatMap((metric, index) => {
     const record = data?.[metric];
-    return record ? [{ metric, index, record }] : [];
+    return record && record.count > 0 ? [{ metric, index, record }] : [];
   });
   return (
     <div
