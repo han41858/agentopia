@@ -109,6 +109,119 @@ test('independent parties retain hierarchy and reflect actual developer and revi
   assert.equal(quests[1].pulls[0].number, 20);
 });
 
+test('monster lifecycle and adventurer activity are independent and use matching workflow attempts', () => {
+  const work = makeQuests(
+    commitTrail,
+    [issue(1), issue(2), issue(3), issue(4), issue(5), issue(6), issue(7)],
+    [],
+    [
+      run(1),
+      run(2),
+      run(3, { status: 'completed', conclusion: 'success' }),
+      run(4, { status: 'queued' }),
+      run(5, { run_attempt: 2 }),
+      run(7),
+    ],
+    [
+      comment(1, 'developing', { developer: 'claude' }),
+      comment(2, 'reviewing', {
+        developer: 'claude',
+        reviewer: 'codex',
+        reviewInProgress: sha,
+      }),
+      comment(3, 'developing', { developer: 'claude' }),
+      comment(4, 'queued', { developer: 'codex' }),
+      comment(5, 'developing', { developer: 'codex', attempt: 1 }),
+      comment(7, 'revising', { developer: 'codex' }),
+    ],
+    new Map([[2, 1]]),
+    [],
+  );
+  assert.deepEqual(
+    work.map(({ stage }) => stage),
+    [
+      'developing',
+      'reviewing',
+      'returned',
+      'queued',
+      'developing',
+      'idle',
+      'revising',
+    ],
+  );
+  assert.deepEqual(
+    work.map(({ adventurers }) =>
+      adventurers?.map(({ agent, active }) => [agent, active]),
+    ),
+    [
+      [['claude', 'develop']],
+      [
+        ['claude', undefined],
+        ['codex', 'review'],
+      ],
+      [['claude', undefined]],
+      [],
+      [],
+      [],
+      [['codex', 'develop']],
+    ],
+  );
+  assert.equal(work[1].parent, 1);
+});
+
+test('a merged PR is a victory independently of whether its monster has been defeated', () => {
+  const merged = {
+    ...pull,
+    state: 'closed',
+    merged_at: stamp,
+    merge_commit_sha: mergeSha,
+  };
+  const [open, closed] = makeQuests(
+    commitTrail,
+    [issue(2), { ...issue(8), state: 'closed', state_reason: 'completed' }],
+    [merged],
+    [],
+    [],
+    new Map(),
+    [],
+  );
+  assert.equal(open.state, 'open');
+  assert.equal(open.victory, true);
+  assert.equal(open.pulls[0].status, 'merged');
+  assert.equal(closed.state, 'closed');
+  assert.equal(closed.stage, 'idle');
+  assert.equal(closed.victory, false);
+  const [independent] = makePullQuests(
+    commitTrail,
+    [{ ...merged, head: { ...pull.head, ref: 'independent' } }],
+    [],
+    new Set([2, 8]),
+    new Map(),
+  );
+  assert.equal(independent.merged, true);
+  assert.equal(independent.stage, 'complete');
+});
+
+test('uses a verified non-base commit as an issue result when a PR does not exist', () => {
+  const [withCommit, onBase] = makeQuests(
+    commitTrail,
+    [issue(1), issue(2)],
+    [],
+    [run(1), run(2)],
+    [
+      comment(1, 'developing', { base: mergeSha }),
+      comment(2, 'developing', { base: sha }),
+    ],
+    new Map(),
+    [],
+  );
+  assert.deepEqual(withCommit.commit, {
+    title: `커밋 ${sha.slice(0, 7)}`,
+    url: `https://github.com/${commitTrail.slug}/commit/${sha}`,
+  });
+  assert.equal(onBase.commit, undefined);
+});
+
 test('a new attempt suppresses old state, and unauthored or unrelated state is ignored', () => {
   const record = comment(2, 'needs_human');
   assert.equal(
@@ -160,7 +273,14 @@ test('failed CI requires matching HEAD and deployment requires matching merge SH
   const [quest] = makeQuests(
     commitTrail,
     [issue(2)],
-    [{ ...pull, state: 'closed', merge_commit_sha: mergeSha }],
+    [
+      {
+        ...pull,
+        state: 'closed',
+        merge_commit_sha: mergeSha,
+        merged_at: stamp,
+      },
+    ],
     [],
     [comment(2, 'merged')],
     new Map(),

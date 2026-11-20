@@ -3,7 +3,7 @@
 :root {
   font-family: 'Noto Sans KR', system-ui, sans-serif;
   color: #eee9f7;
-  background: #100e1d;
+  background: #152b22;
   font-synthesis: none;
   color-scheme: dark;
   --gold: #eec781;
@@ -22,9 +22,6 @@ html {
 body {
   margin: 0;
   min-width: 320px;
-  background:
-    radial-gradient(ellipse 75% 34rem at 56% 7%, #281c3f 0%, transparent 75%),
-    #100e1d;
 }
 a {
   color: inherit;
@@ -57,14 +54,14 @@ svg {
   flex-shrink: 0;
 }
 .world {
-  height: 100dvh;
+  min-height: 100dvh;
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto;
-  background-color: #111c29;
+  grid-template-rows: auto 1fr auto;
+  background-color: #152b22;
   background-image:
-    linear-gradient(#b4c5db14 1px, transparent 1px),
-    linear-gradient(90deg, #b4c5db14 1px, transparent 1px),
-    radial-gradient(ellipse at 50% 37%, #263b48, transparent 74%);
+    linear-gradient(#a9c79813 1px, transparent 1px),
+    linear-gradient(90deg, #a9c79813 1px, transparent 1px),
+    radial-gradient(ellipse at 51% 37%, #324f39, transparent 76%);
   background-size:
     36px 36px,
     36px 36px,
@@ -76,11 +73,8 @@ svg {
   margin: clamp(12px, 3vw, 32px);
 }
 .world-footer {
-  display: grid;
-  grid-template-columns: minmax(0, 30rem) auto;
-  justify-content: space-between;
-  align-items: end;
-  gap: clamp(8px, 2vw, 24px);
+  display: flex;
+  justify-content: flex-end;
   margin-top: 4px;
 }
 .world-header,
@@ -187,83 +181,20 @@ svg {
   margin-top: 4px;
 }
 .map-viewport {
+  grid-template-columns: minmax(0, 1fr);
   display: grid;
   grid-auto-rows: max-content;
-  align-content: safe center;
-  overflow: auto;
+  align-content: center;
   padding: 18px clamp(12px, 4vw, 44px);
-}
-.world-land {
-  --world-shape: polygon(
-    45% 0,
-    63% min(2%, 13px),
-    78% min(5%, 30px),
-    89% min(9%, 48px),
-    95% min(16%, 72px),
-    98% 32%,
-    100% 53%,
-    98% 69%,
-    94% calc(100% - min(14%, 68px)),
-    85% calc(100% - min(7%, 42px)),
-    71% calc(100% - min(3%, 21px)),
-    52% 100%,
-    35% calc(100% - min(2%, 14px)),
-    20% calc(100% - min(5%, 30px)),
-    10% calc(100% - min(9%, 51px)),
-    5% calc(100% - min(15%, 72px)),
-    1% 65%,
-    0 46%,
-    2% 29%,
-    7% min(14%, 65px),
-    16% min(8%, 43px),
-    29% min(3%, 20px)
-  );
-  position: relative;
-  isolation: isolate;
-  display: grid;
-  align-items: center;
-  width: min(100%, 1320px);
-  min-height: clamp(255px, 45dvh, 465px);
-  margin-inline: auto;
-  padding: clamp(34px, 3.8vw, 58px) clamp(18px, 7vw, 100px);
-}
-.world-land::before,
-.world-land::after {
-  content: '';
-  position: absolute;
-  pointer-events: none;
-  clip-path: var(--world-shape);
-}
-.world-land::before {
-  inset: 0;
-  z-index: -2;
-  background: #507d74;
-}
-.world-land::after {
-  inset: 2px;
-  z-index: -1;
-  background: radial-gradient(ellipse at 47% 38%, #29483f, #172f32 83%);
 }
 .kingdoms {
   width: min(100%, 1160px);
   margin-inline: auto;
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
-  align-items: start;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: center;
   gap: clamp(12px, 2vw, 24px);
-}
-.kingdoms:has(> .kingdom-area:only-child) {
-  max-width: 230px;
-}
-.kingdoms:has(
-  > .kingdom-area:only-child :is(.expeditions, .guild-parties) > li:nth-child(4)
-) {
-  max-width: 340px;
-}
-.kingdoms:has(
-  > .kingdom-area:only-child :is(.expeditions, .guild-parties) > li:nth-child(7)
-) {
-  max-width: 560px;
 }
 .kingdom-area {
   --land: oklch(66% 0.09 var(--kingdom-hue));
@@ -294,23 +225,10 @@ svg {
   );
   position: relative;
   isolation: isolate;
+  width: max-content;
   min-width: 0;
-  padding: 38px max(16px, 9%) 42px;
-}
-.kingdom-area:not(:has(> .expeditions)) {
-  width: 100%;
-  max-width: 185px;
-  padding-inline: 16px;
-  justify-self: center;
-}
-@media (min-width: 900px) {
-  .kingdoms:has(> .kingdom-area:nth-child(2))
-    > .kingdom-area:has(
-      > .expeditions > li:nth-child(13),
-      .guild-parties > li:nth-child(13)
-    ) {
-    grid-column: span 2;
-  }
+  max-width: min(100%, 720px);
+  padding: 38px clamp(17px, 2.7vw, 33px) 42px;
 }
 .kingdom-area:nth-child(even) {
   --territory-shape: polygon(
@@ -380,32 +298,22 @@ svg {
 }
 .expeditions,
 .guild-parties {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(53px, 100%), 1fr));
+  display: flex;
+  flex-wrap: wrap;
   gap: 3px;
   padding: 0;
   margin: 7px 0 0;
   list-style: none;
 }
-.guild-branch {
-  grid-column: 1 / -1;
+.expeditions > li,
+.guild-parties > li {
+  flex: 0 0 53px;
+  min-width: 0;
+  max-width: 100%;
 }
-.guild-leader {
-  padding: 6px 8px;
-  border: 0;
-  border-radius: 7px;
-  background: transparent;
-  font-size: 12px;
-}
-.guild-leader:hover {
-  background: #25313a;
-}
-.guild-leader > span:first-child {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--accent);
-  font-weight: 700;
+.expeditions > .guild-branch,
+.guild-parties > .guild-branch {
+  flex-basis: 100%;
 }
 .guild-parties {
   margin: 6px 0 0 7px;
@@ -449,10 +357,104 @@ svg {
 .expedition.closed-issue {
   --accent: #bbc8d3;
 }
-.expedition-party {
+.monster-encounter {
   display: grid;
-  grid-template-columns: repeat(2, auto);
-  gap: 2px;
+  justify-items: center;
+  gap: 3px;
+}
+.monster-glyph {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  width: 27px;
+  height: 27px;
+  color: var(--accent, #eec781);
+}
+.monster-glyph.boss {
+  width: 33px;
+  height: 34px;
+  padding-top: 8px;
+}
+.monster-crown {
+  position: absolute;
+  top: 0;
+  color: #f3d69a;
+}
+.monster-glyph.defeated {
+  color: #b7c1ca;
+  opacity: 0.58;
+}
+.monster-marker.boss-marker {
+  width: max-content;
+  min-width: 53px;
+  max-width: 100%;
+}
+.adventurer-party,
+.adventurer {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 3px;
+}
+.adventurer-glyph {
+  display: inline-grid;
+  position: relative;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border: 1px solid currentColor;
+  border-radius: 5px;
+  background: #15212f;
+}
+.adventurer-glyph.codex {
+  color: #9de6c3;
+}
+.adventurer-glyph.claude {
+  color: #ffb38e;
+}
+.adventurer-glyph.active {
+  background: color-mix(in srgb, currentColor 24%, #15212f);
+}
+.adventurer-role {
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  background: #15212f;
+  border-radius: 2px;
+}
+.adventurer-party.detailed {
+  gap: 8px;
+  justify-content: flex-start;
+}
+.adventurer-party.detailed .adventurer {
+  gap: 7px;
+  padding: 6px;
+  border: 1px solid #4e3b5b;
+  border-radius: 6px;
+}
+.adventurer-party.detailed strong,
+.adventurer-party.detailed small {
+  display: block;
+  font-size: 11px;
+}
+.adventurer-party.detailed small {
+  color: #bdabd1;
+}
+.monster-statuses {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.monster-detail-heading {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+.monster-detail-heading h3 {
+  margin: 0;
 }
 .expedition-number {
   display: flex;
@@ -558,69 +560,6 @@ svg {
   border-radius: 12px;
   background: var(--panel);
 }
-.quest-log {
-  min-width: 0;
-}
-.quest-log h2 {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 10px;
-  color: var(--gold);
-  font-size: 13px;
-}
-.quest-log p {
-  padding: 0 10px 9px;
-  color: #b7c5d2;
-  font-size: 11px;
-}
-.quest-log-list {
-  max-height: min(23dvh, 184px);
-  overflow-y: auto;
-  margin: 0;
-  padding: 0 6px 6px;
-  list-style: none;
-}
-.quest-log-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  column-gap: 6px;
-  align-items: center;
-  width: 100%;
-  padding: 6px 5px;
-  border: 0;
-  border-block-start: 1px solid #405361;
-  background: transparent;
-  text-align: left;
-  font-size: 11px;
-}
-.quest-log-row:hover {
-  background: #263744;
-}
-.quest-log-row:focus-visible {
-  outline-offset: -2px;
-}
-.quest-log-row small {
-  color: #b7c5d2;
-}
-.quest-log-row small,
-.quest-log-row strong {
-  overflow-wrap: anywhere;
-}
-.quest-log-row strong {
-  grid-row: 2;
-  grid-column: 1 / -1;
-}
-.quest-log-row .badge {
-  grid-row: 1;
-  grid-column: 2;
-  padding: 2px 4px;
-  font-size: 10px;
-}
-.quest-log-row .badge svg {
-  width: 12px;
-  height: 12px;
-}
 .icon-button {
   display: inline-grid;
   place-items: center;
@@ -708,6 +647,7 @@ svg {
   white-space: nowrap;
 }
 .badge.developing,
+.badge.revising,
 .badge.deploying,
 .badge.complete {
   color: #abe2b4;
@@ -810,63 +750,45 @@ svg {
 .source small {
   color: #bbafcb;
 }
-.source:hover {
-  color: #f4cf87;
+.dialog-title-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--gold);
 }
-.party {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-bottom: 9px;
-}
-.party > div {
+.result-row {
   display: flex;
   align-items: center;
   gap: 8px;
-  border: 1px solid #4e3b5b;
-  padding: 7px;
-  border-radius: 6px;
+  border-bottom: 1px solid #40324f;
 }
-.party strong,
-.party small {
+.result-link {
+  flex: 1;
+  gap: 6px;
+}
+.result-row .result-link {
+  border-bottom: 0;
+}
+.result-link > span {
   display: block;
-  font-size: 11px;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.party small {
-  color: #bdabd1;
+.result-link > small {
+  flex-shrink: 0;
+  color: #bbafcb;
 }
-.sprite {
-  width: 36px;
-  height: 36px;
-  background: url('/agent-sprites.png') 0 0 / 180px 36px no-repeat;
-  image-rendering: pixelated;
-  filter: drop-shadow(1px 2px 0 #12091e);
+.result-review {
+  padding: 6px;
 }
-.sprite.codex {
-  background-position-x: -36px;
-}
-.sprite.claude {
-  background-position-x: -72px;
-}
-.sprite.golem {
-  background-position-x: -108px;
-}
-.sprite.portal {
-  background-position-x: -144px;
-}
-.party-preview {
-  display: inline-flex;
-}
-.working {
-  animation: hop 0.75s steps(2) infinite alternate;
+.source:hover {
+  color: #f4cf87;
 }
 .rotate {
   animation: spin 1s linear infinite;
-}
-@keyframes hop {
-  to {
-    transform: translateY(-4px);
-  }
 }
 @keyframes spin {
   to {

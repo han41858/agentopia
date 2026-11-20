@@ -7,7 +7,6 @@ import {
   Check,
   ChevronRight,
   Clock3,
-  Code2,
   ExternalLink,
   Flag,
   GitPullRequest,
@@ -16,12 +15,14 @@ import {
   KeyRound,
   Plus,
   RefreshCw,
+  RotateCcw,
   Rocket,
   ScrollText,
-  Sparkles,
   Swords,
+  Skull,
+  Trophy,
+  DoorOpen,
   Ticket,
-  TriangleAlert,
   Workflow,
   X,
 } from 'lucide-react';
@@ -42,6 +43,13 @@ import type {
   Source,
   Stage,
 } from '../server/model.ts';
+import {
+  AdventurerGlyph,
+  AdventurerParty,
+  agentNames,
+  MonsterGlyph,
+  partyLabel,
+} from './characters.tsx';
 import './styles.css';
 
 type Snapshot = {
@@ -49,6 +57,7 @@ type Snapshot = {
   error?: string;
   httpStatus?: number;
   pulses?: Record<string, number>;
+  changed?: Set<string>;
 };
 
 function partyStates(report: Report) {
@@ -62,8 +71,12 @@ function partyStates(report: Report) {
         quest.developer,
         quest.reviewer,
         quest.review,
+        quest.victory,
+        quest.adventurers,
         quest.reason,
-        quest.pulls.map(({ number, status }) => [number, status]),
+        quest.pulls
+          .map(({ number, status }) => [number, status])
+          .sort((a, b) => Number(a[0]) - Number(b[0])),
       ]),
     ]),
     ...(report.pullQuests ?? []).map((pull): [string, string] => [
@@ -83,12 +96,14 @@ function reportSnapshot(report: Report, previous?: Snapshot): Snapshot {
   if (!previous?.report) return { report };
   const priorStates = partyStates(previous.report);
   const pulses: Record<string, number> = {};
+  const changed = new Set<string>();
   for (const [key, state] of partyStates(report)) {
     const pulse = previous.pulses?.[key] ?? 0;
-    const next = pulse + Number(priorStates.get(key) !== state);
+    if (priorStates.get(key) !== state) changed.add(key);
+    const next = pulse + Number(changed.has(key));
     if (next) pulses[key] = next;
   }
-  return { report, pulses };
+  return { report, pulses, changed };
 }
 
 function getTokenStatus(
@@ -131,12 +146,12 @@ function getTokenStatus(
 const activeStages = new Set<Stage>([
   'queued',
   'developing',
+  'revising',
   'reviewing',
   'ci',
   'deploying',
   'merging',
 ]);
-const ciActivity = 'CI 검사 중';
 const alerts = new Set<Stage>(['failed', 'attention']);
 const initialRepositories: Repository[] = [
   { slug: 'han41858/agentopia', private: false },
@@ -197,120 +212,93 @@ const glyph = {
   idle: Clock3,
   queued: Hourglass,
   developing: Swords,
+  revising: RotateCcw,
   reviewing: ScrollText,
   ci: Workflow,
   deploying: Rocket,
   merging: GitPullRequest,
-  complete: Check,
-  failed: TriangleAlert,
+  complete: Trophy,
+  returned: DoorOpen,
+  failed: Skull,
   attention: Flag,
 };
 
-const partyRoles = [
-  { name: 'GitHub Actions', Icon: Workflow, color: 'actions' },
-  { name: 'Codex', Icon: Code2, color: 'codex' },
-  { name: 'Claude', Icon: Sparkles, color: 'claude' },
-  { name: 'Release', Icon: Rocket, color: 'release' },
-] as const;
-
-function expeditionActivity(quest: Quest): {
-  role?: (typeof partyRoles)[number]['color'];
-  action: string;
-} {
-  switch (quest.stage) {
-    case 'queued':
-      return { role: 'actions', action: '워크플로 대기' };
-    case 'developing':
-      return { role: quest.developer, action: '개발 중' };
-    case 'reviewing':
-      return { role: quest.reviewer, action: '코드 리뷰 중' };
-    case 'ci':
-      return { role: 'actions', action: ciActivity };
-    case 'merging':
-      return { role: 'actions', action: 'PR 병합 중' };
-    case 'deploying':
-      return { role: 'release', action: '배포 중' };
-    default:
-      return { action: stages[quest.stage] };
-  }
+function monsterRest(quest: Quest) {
+  if (
+    quest.stage === 'returned' ||
+    quest.stage === 'complete' ||
+    quest.state === 'closed'
+  )
+    return '귀환';
+  return '대기';
 }
 
-function closedIssueLabel(quest: Quest) {
-  const completed = quest.stateReason
-    ? quest.stateReason === 'completed'
-    : quest.stage === 'complete';
-  return completed ? '완료' : '닫힘';
-}
-
-function Expedition({
+function MonsterMarker({
   quest,
+  boss,
   open,
   pulse,
 }: {
   quest: Quest;
+  boss: boolean;
   open: () => void;
   pulse?: number;
 }) {
-  const closed = quest.state === 'closed';
-  const blocked = !closed && alerts.has(quest.stage);
-  const ci = !closed && quest.stage === 'ci';
-  const underway = !closed && activeStages.has(quest.stage);
-  const StatusIcon = closed ? Check : glyph[quest.stage];
-  const activity = expeditionActivity(quest);
-  const role = underway ? activity.role : undefined;
-  const action = closed ? closedIssueLabel(quest) : activity.action;
-  const actor = underway
-    ? (partyRoles.find(({ color }) => color === role)?.name ?? '담당 미확인')
-    : undefined;
-
-  const status = actor ? `${actor} · ${action}` : action;
+  const defeated = quest.state === 'closed';
+  const StageIcon = glyph[quest.stage];
+  const members = quest.adventurers ?? [];
+  const showParty = !defeated && members.length > 0;
+  const resting = monsterRest(quest);
+  const status = [
+    defeated ? '몬스터 처치 완료' : '몬스터 출현',
+    quest.stage !== 'idle' && quest.stage !== 'complete'
+      ? stages[quest.stage]
+      : undefined,
+    quest.victory ? '전투 승리' : undefined,
+    quest.stage === 'failed' ? '구조 요청' : undefined,
+    ...members.map((member) => partyLabel(member, resting)),
+  ]
+    .filter(Boolean)
+    .join(' · ');
 
   return (
     <button
-      className={`expedition${blocked ? ' blocked' : ''}${underway ? ' underway' : ''}${closed ? ' closed-issue' : ''}`}
-      aria-label={`이슈 #${quest.number} 파티 · ${quest.title} · ${status}`}
-      title={
-        blocked || ci || (closed && action === '완료')
-          ? quest.title
-          : `${quest.title} · ${status}`
-      }
+      className={`expedition monster-marker${boss ? ' boss-marker' : ''}${alerts.has(quest.stage) ? ' blocked' : ''}${defeated ? ' closed-issue' : ''}`}
+      aria-label={`${boss ? '보스 몬스터' : '몬스터'} #${quest.number} · ${quest.title} · ${status}`}
+      title={`${quest.title} · ${status}`}
       onClick={open}
     >
       {pulse !== undefined && (
         <span key={pulse} className="party-pulse" aria-hidden="true" />
       )}
-      <span className="expedition-party" aria-hidden="true">
-        {partyRoles.map(({ name, Icon, color }) => (
-          <span
-            className={`role-symbol ${color}${color === role ? ' current-role' : ''}`}
-            key={name}
-          >
-            <Icon size={14} />
-          </span>
-        ))}
+      <span className="monster-encounter">
+        {showParty ? (
+          <AdventurerParty members={members} resting={resting} />
+        ) : (
+          <MonsterGlyph boss={boss} defeated={defeated} />
+        )}
       </span>
       <small className="expedition-number">
-        {!ci && <StatusIcon size={blocked ? 13 : 11} aria-hidden="true" />} #
-        {quest.number}
+        {boss && showParty && <Crown size={12} aria-hidden="true" />}
+        {defeated && <Check size={12} aria-hidden="true" />}
+        {quest.victory && <Trophy size={12} aria-hidden="true" />}
+        {quest.stage !== 'idle' && quest.stage !== 'complete' && (
+          <StageIcon size={12} aria-hidden="true" />
+        )}
+        #{quest.number}
       </small>
-      {closed && action !== '완료' && (
-        <small className="expedition-status-label">{action}</small>
-      )}
     </button>
   );
 }
 
 function pullStatus(pull: PullQuest) {
-  if (pull.stage === 'ci') return ciActivity;
   if (pull.stage !== 'idle') return stages[pull.stage];
   return pull.draft ? '초안' : 'PR 열림';
 }
 
 function pullActivity(pull: PullQuest) {
-  if (pull.reviewer)
-    return `${partyRoles.find(({ color }) => color === pull.reviewer)?.name} 리뷰 기록`;
-  if (pull.author)
-    return `${partyRoles.find(({ color }) => color === pull.author)?.name} 작성`;
+  if (pull.reviewer) return `${agentNames[pull.reviewer]} 리뷰 기록`;
+  if (pull.author) return `${agentNames[pull.author]} 작성`;
   return undefined;
 }
 
@@ -323,14 +311,14 @@ function PullMarker({
   open: () => void;
   pulse?: number;
 }) {
-  const role = partyRoles.find(
-    ({ color }) =>
-      color ===
-      (pull.stage === 'ci' ? 'actions' : (pull.reviewer ?? pull.author)),
-  );
-  const Icon =
-    role?.Icon ?? (pull.draft ? GitPullRequestDraft : GitPullRequest);
-  const iconOnly = pull.stage === 'idle' || pull.stage === 'ci';
+  const agent = pull.reviewer ?? pull.author;
+  const ci = pull.stage === 'ci';
+  const Icon = ci
+    ? Workflow
+    : pull.draft
+      ? GitPullRequestDraft
+      : GitPullRequest;
+  const iconOnly = pull.stage === 'idle' || ci || pull.stage === 'complete';
   const label = [`PR #${pull.number}`, pull.title, pullActivity(pull)]
     .filter(Boolean)
     .join(' · ');
@@ -348,10 +336,14 @@ function PullMarker({
         <span key={pulse} className="party-pulse" aria-hidden="true" />
       )}
       <span
-        className={`role-symbol current-role${role ? ` ${role.color}` : ''}`}
+        className={`role-symbol current-role${ci ? ' actions' : ''}`}
         data-draft={pull.draft}
       >
-        <Icon size={15} aria-hidden="true" />
+        {!ci && agent ? (
+          <AdventurerGlyph agent={agent} />
+        ) : (
+          <Icon size={15} aria-hidden="true" />
+        )}
       </span>
       <small className="expedition-number">PR #{pull.number}</small>
       {alerts.has(pull.stage) ? (
@@ -363,20 +355,24 @@ function PullMarker({
   );
 }
 
-function GuildQuests({
+function KingdomMonsters({
   quests,
   pulls,
   pulses,
+  changed,
   label,
   openQuest,
   openPull,
+  openList,
 }: {
   quests: Quest[];
   pulls: PullQuest[];
   pulses?: Record<string, number>;
+  changed?: Set<string>;
   label: string;
   openQuest: (quest: Quest) => void;
   openPull: (pull: PullQuest) => void;
+  openList: () => void;
 }) {
   const byNumber = new Map(quests.map((quest) => [quest.number, quest]));
   const childrenByParent = new Map<number, Quest[]>();
@@ -396,7 +392,8 @@ function GuildQuests({
 
   const visible = new Set<number>();
   for (const quest of quests) {
-    if (quest.state !== 'open') continue;
+    if (quest.state !== 'open' && !changed?.has(`issue-${quest.number}`))
+      continue;
     includeDescendants(quest);
     let current: Quest | undefined = quest;
     while (current && !visible.has(current.number)) {
@@ -406,43 +403,64 @@ function GuildQuests({
     }
   }
   for (const number of descendants) visible.add(number);
+  const priority = (quest: Quest) =>
+    alerts.has(quest.stage) ? 2 : activeStages.has(quest.stage) ? 1 : 0;
+  const comparePriority = (a: Quest, b: Quest) => priority(b) - priority(a);
+  const condensed = visible.size > 16;
+  const onMap = new Set(visible);
+  if (condensed) {
+    onMap.clear();
+    const candidates = quests.filter((quest) => visible.has(quest.number));
+    const urgent = candidates.filter(
+      (quest) => priority(quest) > 0 || changed?.has(`issue-${quest.number}`),
+    );
+    const urgentNumbers = new Set(urgent.map(({ number }) => number));
+    const waiting = candidates.filter(
+      (quest) => quest.state === 'open' && !urgentNumbers.has(quest.number),
+    );
+    for (const quest of [
+      ...urgent,
+      ...waiting.slice(0, Math.max(0, 12 - urgent.length)),
+    ]) {
+      let current: Quest | undefined = quest;
+      while (current && !onMap.has(current.number)) {
+        onMap.add(current.number);
+        current =
+          current.parent === undefined
+            ? undefined
+            : byNumber.get(current.parent);
+      }
+    }
+  }
   const roots = quests.filter(
     ({ number, parent }) =>
-      visible.has(number) && (parent === undefined || !visible.has(parent)),
+      onMap.has(number) && (parent === undefined || !onMap.has(parent)),
   );
+
+  if (condensed) roots.sort(comparePriority);
 
   function render(quest: Quest) {
     const children = (childrenByParent.get(quest.number) ?? []).filter(
-      ({ number }) => visible.has(number),
+      ({ number }) => onMap.has(number),
     );
-    const guildLeader = children.length > 0 || Boolean(quest.subIssueCount);
+    if (condensed) children.sort(comparePriority);
+    const boss =
+      childrenByParent.has(quest.number) || Boolean(quest.subIssueCount);
     return (
       <li
         key={quest.number}
-        className={guildLeader ? 'guild-branch' : undefined}
+        className={children.length ? 'guild-branch' : undefined}
       >
-        {guildLeader ? (
-          <button
-            className="guild-leader"
-            title={quest.title}
-            aria-label={`길드장 #${quest.number} · ${quest.title}`}
-            onClick={() => openQuest(quest)}
-          >
-            <span>
-              <Crown size={17} aria-hidden="true" /> #{quest.number}
-            </span>
-          </button>
-        ) : (
-          <Expedition
-            quest={quest}
-            open={() => openQuest(quest)}
-            pulse={pulses?.[`issue-${quest.number}`]}
-          />
-        )}
+        <MonsterMarker
+          quest={quest}
+          boss={boss}
+          open={() => openQuest(quest)}
+          pulse={pulses?.[`issue-${quest.number}`]}
+        />
         {children.length > 0 && (
           <ul
             className="guild-parties"
-            aria-label={`길드장 #${quest.number}의 하위 이슈`}
+            aria-label={`보스 몬스터 #${quest.number}의 하위 몬스터`}
           >
             {children.map(render)}
           </ul>
@@ -454,15 +472,24 @@ function GuildQuests({
   return (
     <ul className="expeditions" aria-label={label}>
       {roots.map(render)}
-      {pulls.map((pull) => (
-        <li key={`pr-${pull.number}`}>
-          <PullMarker
-            pull={pull}
-            open={() => openPull(pull)}
-            pulse={pulses?.[`pr-${pull.number}`]}
-          />
+      {onMap.size < visible.size && (
+        <li className="guild-branch">
+          <button className="text-button" onClick={openList}>
+            몬스터 목록 보기
+          </button>
         </li>
-      ))}
+      )}
+      {pulls
+        .filter((pull) => !pull.merged)
+        .map((pull) => (
+          <li key={`pr-${pull.number}`}>
+            <PullMarker
+              pull={pull}
+              open={() => openPull(pull)}
+              pulse={pulses?.[`pr-${pull.number}`]}
+            />
+          </li>
+        ))}
     </ul>
   );
 }
@@ -494,17 +521,13 @@ async function request<T>(
   return body as T;
 }
 
-function Badge({ stage }: { stage: Stage }) {
+function Badge({ stage, label }: { stage: Stage; label?: string }) {
   const Icon = glyph[stage];
+  const description =
+    label ?? (stage === 'ci' ? `GitHub Actions · ${stages.ci}` : stages[stage]);
   if (alerts.has(stage) || stage === 'complete' || stage === 'ci') {
     return (
-      <span
-        className={`badge ${stage}`}
-        role="img"
-        aria-label={
-          stage === 'ci' ? `GitHub Actions · ${ciActivity}` : stages[stage]
-        }
-      >
+      <span className={`badge ${stage}`} role="img" aria-label={description}>
         <Icon size={14} aria-hidden="true" />
       </span>
     );
@@ -512,20 +535,31 @@ function Badge({ stage }: { stage: Stage }) {
   return (
     <span className={`badge ${stage}`}>
       <Icon size={14} aria-hidden="true" />
-      {stages[stage]}
+      {description}
     </span>
   );
 }
 
 function IssueBadge({ quest }: { quest: Quest }) {
-  if (quest.state !== 'closed') return <Badge stage={quest.stage} />;
-  if (closedIssueLabel(quest) === '완료')
-    return (
-      <span className="badge complete" role="img" aria-label="완료">
-        <Check size={14} aria-hidden="true" />
-      </span>
-    );
-  return <span className="badge">닫힘</span>;
+  return (
+    <span className="monster-statuses">
+      {quest.state === 'closed' && (
+        <span
+          className="badge complete"
+          role="img"
+          aria-label="몬스터 처치 완료"
+        >
+          <Check size={14} aria-hidden="true" />
+        </span>
+      )}
+      {quest.victory && <Badge stage="complete" />}
+      {quest.stage !== 'idle' && quest.stage !== 'complete' ? (
+        <Badge stage={quest.stage} />
+      ) : quest.state === 'open' && !quest.victory ? (
+        <span className="badge idle">몬스터 출현</span>
+      ) : null}
+    </span>
+  );
 }
 
 function OutLink({ item }: { item: Source }) {
@@ -540,18 +574,39 @@ function OutLink({ item }: { item: Source }) {
   );
 }
 
+function ResultLink({ item }: { item: Source }) {
+  return (
+    <a
+      className="source result-link"
+      title={item.title}
+      href={item.url}
+      target="_blank"
+      rel="noreferrer"
+    >
+      <span>{item.title}</span>
+      {item.status && <small>{item.status}</small>}
+      <ExternalLink size={14} aria-hidden="true" />
+    </a>
+  );
+}
+
 function Dialog({
   title,
+  titleHref,
+  closeOnBackdrop = false,
   className,
   children,
   close,
 }: {
   title: string;
+  titleHref?: string;
+  closeOnBackdrop?: boolean;
   className?: string;
   children: ReactNode;
   close: () => void;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
+  const pressedBackdrop = useRef(false);
   useEffect(() => {
     ref.current?.showModal();
   }, []);
@@ -561,9 +616,41 @@ function Dialog({
       className={className ? `panel dialog ${className}` : 'panel dialog'}
       aria-label={title}
       onCancel={close}
+      onPointerDown={(event) => {
+        if (!closeOnBackdrop) return;
+        const box = event.currentTarget.getBoundingClientRect();
+        pressedBackdrop.current =
+          event.target === event.currentTarget &&
+          (event.clientX < box.left ||
+            event.clientX >= box.right ||
+            event.clientY < box.top ||
+            event.clientY >= box.bottom);
+      }}
+      onClick={(event) => {
+        if (
+          closeOnBackdrop &&
+          pressedBackdrop.current &&
+          event.target === event.currentTarget
+        )
+          close();
+        pressedBackdrop.current = false;
+      }}
     >
       <div className="dialog-heading">
-        <h2>{title}</h2>
+        <h2>
+          {titleHref ? (
+            <a
+              className="dialog-title-link"
+              href={titleHref}
+              target="_blank"
+              rel="noreferrer"
+            >
+              {title} <ExternalLink size={15} aria-hidden="true" />
+            </a>
+          ) : (
+            title
+          )}
+        </h2>
         <button className="icon-button" aria-label="닫기" onClick={close}>
           <X size={20} />
         </button>
@@ -604,94 +691,6 @@ function Reviews({
   );
 }
 
-function Party({ quest }: { quest: Quest }) {
-  const activeRole =
-    quest.state === 'open' ? expeditionActivity(quest).role : undefined;
-  const roles = [
-    {
-      name: '파티장',
-      sprite: 'guild',
-      duty: 'GitHub Actions',
-      running: activeRole === 'actions',
-    },
-    {
-      name: '마법공학자',
-      sprite: 'codex',
-      duty: quest.developer === 'codex' ? 'Codex · 개발' : 'Codex · 리뷰',
-      visible: quest.developer === 'codex' || quest.reviewer === 'codex',
-      running: activeRole === 'codex',
-    },
-    {
-      name: '현자',
-      sprite: 'claude',
-      duty: quest.developer === 'claude' ? 'Claude · 개발' : 'Claude · 리뷰',
-      visible: quest.developer === 'claude' || quest.reviewer === 'claude',
-      running: activeRole === 'claude',
-    },
-    {
-      name: '수호 골렘',
-      sprite: 'golem',
-      duty: 'CI',
-      visible: quest.runs.some((item) => item.title === 'CI'),
-      running: quest.state === 'open' && quest.stage === 'ci',
-    },
-    {
-      name: '포탈 관리자',
-      sprite: 'portal',
-      duty:
-        activeRole === 'release' ? 'Release · 배포 중' : 'Release · 배포 담당',
-      running: activeRole === 'release',
-    },
-  ];
-  const members = roles.filter(({ visible }) => visible !== false);
-  return (
-    <div className="party">
-      {members.map(({ name, sprite, duty, running }) => (
-        <div key={name}>
-          <span
-            className={`sprite ${sprite} ${running ? 'working' : ''}`}
-            aria-hidden="true"
-          />
-          <span>
-            <strong>{name}</strong>
-            <small>{duty}</small>
-          </span>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function PartyPreview({ quest }: { quest: Quest }) {
-  const cast = [quest.developer, quest.reviewer].filter(
-    (agent) => agent !== undefined,
-  );
-  if (quest.stage === 'ci')
-    return <span className="sprite golem working" aria-hidden="true" />;
-  if (quest.stage === 'deploying')
-    return <span className="sprite portal working" aria-hidden="true" />;
-  if (!cast.length)
-    return quest.runs.length ? (
-      <span className="sprite guild" aria-hidden="true" />
-    ) : null;
-  const current =
-    quest.stage === 'developing'
-      ? quest.developer
-      : quest.stage === 'reviewing'
-        ? quest.reviewer
-        : undefined;
-  return (
-    <span className="party-preview" aria-hidden="true">
-      {cast.map((agent) => (
-        <span
-          key={agent}
-          className={`sprite ${agent} ${agent === current ? 'working' : ''}`}
-        />
-      ))}
-    </span>
-  );
-}
-
 function QuestDetail({
   quest,
   region,
@@ -705,9 +704,24 @@ function QuestDetail({
 }) {
   const [reviewPull, setReviewPull] = useState<number>();
   return (
-    <Dialog title={`Quest #${quest.number}`} close={close}>
-      <h3>{quest.title}</h3>
+    <Dialog
+      title={`이슈 #${quest.number}`}
+      titleHref={quest.url}
+      closeOnBackdrop
+      close={close}
+    >
+      <div className="monster-detail-heading">
+        <MonsterGlyph
+          boss={Boolean(quest.subIssueCount)}
+          defeated={quest.state === 'closed'}
+        />
+        <h3>{quest.title}</h3>
+      </div>
       <IssueBadge quest={quest} />
+      {quest.stateReason === 'not_planned' && (
+        <p>GitHub 종료 사유 · 작업하지 않기로 함</p>
+      )}
+      {quest.stateReason === 'duplicate' && <p>GitHub 종료 사유 · 중복</p>}
       {(quest.reason || quest.detail) && (
         <div className={`reason ${alerts.has(quest.stage) ? 'danger' : ''}`}>
           <p>{quest.reason}</p>
@@ -715,31 +729,45 @@ function QuestDetail({
         </div>
       )}
       {quest.evidence && <OutLink item={quest.evidence} />}
-      <h4>개발 파티</h4>
-      <Party quest={quest} />
+      {Boolean(quest.adventurers?.length) && (
+        <>
+          <h4>모험가 파티</h4>
+          <AdventurerParty
+            members={quest.adventurers ?? []}
+            resting={monsterRest(quest)}
+            detailed
+          />
+        </>
+      )}
       {quest.review && (
         <p>
           현재 커밋의 AI 리뷰 결과 <strong>{quest.review}</strong>
         </p>
       )}
-      <h4>GitHub 기록</h4>
-      <OutLink item={{ title: `Issue #${quest.number}`, url: quest.url }} />
+      {(quest.pulls.length > 0 || quest.commit) && <h4>공략 결과</h4>}
+      {quest.commit && <ResultLink item={quest.commit} />}
       {quest.pulls.map((item) => (
-        <div className="pull-detail" key={item.number}>
-          <OutLink
-            item={{ ...item, title: `PR #${item.number} · ${item.title}` }}
-          />
-          <button
-            className="text-button"
-            onClick={() =>
-              setReviewPull(
-                reviewPull === item.number ? undefined : item.number,
-              )
-            }
-          >
-            <GitPullRequest size={14} />{' '}
-            {reviewPull === item.number ? '리뷰 접기' : 'PR 리뷰 조회'}
-          </button>
+        <div key={item.number}>
+          <div className="result-row">
+            <ResultLink
+              item={{ ...item, title: `PR #${item.number} · ${item.title}` }}
+            />
+            <button
+              className="text-button result-review"
+              title={reviewPull === item.number ? '리뷰 접기' : 'PR 리뷰 조회'}
+              aria-label={
+                reviewPull === item.number ? '리뷰 접기' : 'PR 리뷰 조회'
+              }
+              aria-expanded={reviewPull === item.number}
+              onClick={() =>
+                setReviewPull(
+                  reviewPull === item.number ? undefined : item.number,
+                )
+              }
+            >
+              <GitPullRequest size={16} aria-hidden="true" />
+            </button>
+          </div>
           {reviewPull === item.number && (
             <Reviews
               key={item.number}
@@ -750,6 +778,7 @@ function QuestDetail({
           )}
         </div>
       ))}
+      {quest.runs.length > 0 && <h4>GitHub Actions</h4>}
       {quest.runs.map((item) => (
         <OutLink key={item.url} item={item} />
       ))}
@@ -769,16 +798,16 @@ function PullDetail({
   close: () => void;
 }) {
   const [showReviews, setShowReviews] = useState(false);
-  const author = partyRoles.find(({ color }) => color === pull.author);
-  const reviewer = partyRoles.find(({ color }) => color === pull.reviewer);
+  const author = pull.author && agentNames[pull.author];
+  const reviewer = pull.reviewer && agentNames[pull.reviewer];
   return (
     <Dialog title={`PR #${pull.number}`} close={close}>
       <h3>{pull.title}</h3>
       <PullStatus pull={pull} />
-      {author && <p>작성 · {author.name}</p>}
+      {author && <p>작성 · {author}</p>}
       {reviewer && (
         <p>
-          리뷰 기록 · {reviewer.name} {pull.review}
+          리뷰 기록 · {reviewer} {pull.review}
         </p>
       )}
       <OutLink item={{ title: `GitHub PR #${pull.number}`, url: pull.url }} />
@@ -808,7 +837,9 @@ function PullStatus({ pull }: { pull: PullQuest }) {
       </span>
     );
   }
-  return alerts.has(pull.stage) || pull.stage === 'ci' ? (
+  return alerts.has(pull.stage) ||
+    pull.stage === 'ci' ||
+    pull.stage === 'complete' ? (
     <Badge stage={pull.stage} />
   ) : (
     <span className={`badge ${pull.stage}`}>{pullStatus(pull)}</span>
@@ -819,16 +850,19 @@ function RegionDetail({
   region,
   snapshot,
   openQuest,
+  openPull,
   remove,
   close,
 }: {
   region: Region;
   snapshot?: Snapshot;
   openQuest: (quest: Quest) => void;
+  openPull: (pull: PullQuest) => void;
   remove: () => void;
   close: () => void;
 }) {
   const quests = snapshot?.report?.quests ?? [];
+  const pulls = snapshot?.report?.pullQuests ?? [];
   const known = new Set(quests.map((quest) => quest.number));
   const roots = quests.filter(
     (quest) => !quest.parent || !known.has(quest.parent),
@@ -850,21 +884,16 @@ function RegionDetail({
           <span>
             <small>
               {children.length || quest.subIssueCount
-                ? '길드장'
-                : quest.parent
-                  ? '하위 이슈 파티'
-                  : '퀘스트'}{' '}
+                ? '보스 몬스터'
+                : '몬스터'}{' '}
               #{quest.number}
             </small>
             <strong>{quest.title}</strong>
-            {quest.developer && (
-              <small>
-                {quest.developer} · 개발
-                {quest.reviewer && ` / ${quest.reviewer} · 리뷰`}
-              </small>
-            )}
           </span>
-          <PartyPreview quest={quest} />
+          <AdventurerParty
+            members={quest.adventurers ?? []}
+            resting={monsterRest(quest)}
+          />
           <IssueBadge quest={quest} />
           <ChevronRight size={16} />
         </button>
@@ -905,13 +934,35 @@ function RegionDetail({
         ) : (
           <p>조회 범위에 퀘스트가 없습니다.</p>
         ))}
+      {pulls.length > 0 && (
+        <>
+          <h4>독립 공략 결과</h4>
+          <ul className="quest-tree">
+            {pulls.map((pull) => (
+              <li key={pull.number}>
+                <button className="quest-row" onClick={() => openPull(pull)}>
+                  <span>
+                    <small>PR #{pull.number}</small>
+                    <strong>{pull.title}</strong>
+                  </span>
+                  <PullStatus pull={pull} />
+                  <ChevronRight size={16} aria-hidden="true" />
+                </button>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
       {!!snapshot?.report?.releases.length && (
         <>
           <h4>왕국 배포 기록</h4>
           {snapshot.report.releases.map((release, index) => (
             <div className="release" key={index}>
               <OutLink item={release} />
-              <Badge stage={release.stage} />
+              <Badge
+                stage={release.stage}
+                label={release.stage === 'complete' ? '배포 완료' : undefined}
+              />
             </div>
           ))}
         </>
@@ -945,9 +996,8 @@ function TokenDialog({
   return (
     <Dialog title="GitHub 연결" close={close}>
       <p>
-        비공개 지역을 탐험하거나 내 API 사용 한도로 조회하려면 읽기 전용 GitHub
-        토큰을 연결하세요. 이 브라우저에 저장되며 티켓에서 연결을 해제할 수
-        있습니다.
+        비공개 지역을 탐험하거나 GitHub API 사용 한도를 높이려면 GitHub 토큰을
+        연결하세요.
       </p>
       {token && (
         <div className="token-result" role="status">
@@ -958,9 +1008,9 @@ function TokenDialog({
         </div>
       )}
       <form className="token-form" onSubmit={submit}>
-        <label htmlFor="github-token">Fine-grained personal access token</label>
         <input
           id="github-token"
+          aria-label="GitHub 토큰"
           type="password"
           autoComplete="off"
           required
@@ -1102,10 +1152,10 @@ function RepositoryDialog({
 
   return (
     <Dialog title="저장소 추가" className="repository-dialog" close={close}>
-      <form className="token-form" onSubmit={submit}>
-        <label htmlFor="github-repository">GitHub 계정 또는 저장소</label>
+      <form className="token-form" onSubmit={submit} aria-busy={pending}>
         <input
           id="github-repository"
+          aria-label="GitHub 계정 또는 저장소"
           placeholder="owner 또는 owner/repo"
           autoCapitalize="none"
           autoComplete="off"
@@ -1124,12 +1174,14 @@ function RepositoryDialog({
           {owner ? '목록 보기' : '추가'}
         </button>
       </form>
-      {pending && <p role="status">GitHub 확인 중…</p>}
       {page && (
         <>
           {page.repositories.length ? (
-            <fieldset className="repository-options" disabled={pending}>
-              <legend>저장소 선택</legend>
+            <fieldset
+              className="repository-options"
+              disabled={pending}
+              aria-label="저장소 선택"
+            >
               {page.repositories.map((repo) => (
                 <label key={repo.slug}>
                   <input
@@ -1188,83 +1240,6 @@ function RepositoryDialog({
         </p>
       )}
     </Dialog>
-  );
-}
-
-function QuestLog({
-  regions,
-  snapshots,
-  loading,
-  openQuest,
-  openPull,
-}: {
-  regions: Region[];
-  snapshots: Record<string, Snapshot>;
-  loading: boolean;
-  openQuest: (region: Region, quest: Quest) => void;
-  openPull: (region: Region, pull: PullQuest) => void;
-}) {
-  const entries = regions
-    .flatMap((region) => {
-      const report = snapshots[region.slug]?.report;
-      const items: (Quest | PullQuest)[] = [
-        ...(report?.quests ?? []),
-        ...(report?.pullQuests ?? []),
-      ];
-      return items.map((item) => ({ region, item }));
-    })
-    .sort(
-      (a, b) =>
-        Number('state' in a.item && a.item.state === 'closed') -
-          Number('state' in b.item && b.item.state === 'closed') ||
-        b.item.number - a.item.number ||
-        a.region.slug.localeCompare(b.region.slug),
-    );
-  const hasReport = regions.some(({ slug }) => snapshots[slug]?.report);
-
-  return (
-    <section className="panel quest-log" aria-labelledby="quest-log-title">
-      <h2 id="quest-log-title">
-        <ScrollText size={15} aria-hidden="true" /> 퀘스트
-      </h2>
-      {entries.length ? (
-        <ul className="quest-log-list">
-          {entries.map(({ region, item }) => {
-            const issue = 'state' in item;
-            return (
-              <li
-                key={`${region.slug}:${issue ? 'issue' : 'pr'}:${item.number}`}
-              >
-                <button
-                  className="quest-log-row"
-                  onClick={() =>
-                    issue ? openQuest(region, item) : openPull(region, item)
-                  }
-                >
-                  <small>
-                    {region.name} · {issue ? '' : 'PR '}#{item.number}
-                  </small>
-                  <strong>{item.title}</strong>
-                  {issue ? (
-                    <IssueBadge quest={item} />
-                  ) : (
-                    <PullStatus pull={item} />
-                  )}
-                </button>
-              </li>
-            );
-          })}
-        </ul>
-      ) : (
-        <p>
-          {hasReport
-            ? '조회된 이슈·PR 없음'
-            : loading
-              ? '이슈·PR 불러오는 중'
-              : '이슈·PR 조회 필요'}
-        </p>
-      )}
-    </section>
   );
 }
 
@@ -1504,72 +1479,74 @@ function App() {
         </header>
 
         <section className="map-viewport" aria-label="저장소 왕국">
-          <div className="world-land">
-            <div className="kingdoms">
-              {worldRegions.map((region) => {
-                const report = snapshots[region.slug]?.report;
-                return (
-                  <div
-                    className="kingdom-area"
-                    key={region.slug}
-                    style={
-                      {
-                        '--kingdom-hue': kingdomHue(region.slug),
-                      } as CSSProperties
-                    }
-                  >
-                    <button className="kingdom" onClick={() => select(region)}>
-                      <Castle
-                        className="kingdom-crest"
-                        size={34}
-                        strokeWidth={1.5}
-                        aria-hidden="true"
-                      />
-                      <span className="kingdom-label">
-                        <strong>{region.name}</strong>
-                      </span>
-                    </button>
-                    {report &&
-                    (report.quests.some(({ state }) => state === 'open') ||
-                      report.pullQuests?.length) ? (
-                      <GuildQuests
-                        quests={report.quests}
-                        pulls={report.pullQuests ?? []}
-                        pulses={snapshots[region.slug]?.pulses}
-                        openPull={(item) => openPull(region, item)}
-                        label={`${region.name} 이슈`}
-                        openQuest={(item) =>
-                          setSelectedQuest({ region, number: item.number })
-                        }
-                      />
-                    ) : !report ? (
-                      <p className="expedition-status">
-                        {loading ? '기록 확인 중' : '기록 확인 필요'}
-                      </p>
-                    ) : null}
-                  </div>
-                );
-              })}
-            </div>
+          <div className="kingdoms">
+            {worldRegions.map((region) => {
+              const report = snapshots[region.slug]?.report;
+              return (
+                <div
+                  className="kingdom-area"
+                  key={region.slug}
+                  style={
+                    {
+                      '--kingdom-hue': kingdomHue(region.slug),
+                    } as CSSProperties
+                  }
+                >
+                  <button className="kingdom" onClick={() => select(region)}>
+                    <Castle
+                      className="kingdom-crest"
+                      size={34}
+                      strokeWidth={1.5}
+                      aria-hidden="true"
+                    />
+                    <span className="kingdom-label">
+                      <strong>{region.name}</strong>
+                    </span>
+                  </button>
+                  {report &&
+                  (report.quests.some(
+                    ({ state, number }) =>
+                      state === 'open' ||
+                      snapshots[region.slug]?.changed?.has(`issue-${number}`),
+                  ) ||
+                    report.pullQuests?.some((item) => !item.merged)) ? (
+                    <KingdomMonsters
+                      quests={report.quests}
+                      pulls={report.pullQuests ?? []}
+                      pulses={snapshots[region.slug]?.pulses}
+                      changed={snapshots[region.slug]?.changed}
+                      openPull={(item) => openPull(region, item)}
+                      label={`${region.name} 몬스터와 공략 결과`}
+                      openList={() => select(region)}
+                      openQuest={(item) =>
+                        setSelectedQuest({ region, number: item.number })
+                      }
+                    />
+                  ) : !report ? (
+                    <p className="expedition-status">
+                      {loading ? '기록 확인 중' : '기록 확인 필요'}
+                    </p>
+                  ) : null}
+                </div>
+              );
+            })}
           </div>
         </section>
 
         <footer className="world-footer">
-          <QuestLog
-            regions={worldRegions}
-            snapshots={snapshots}
-            loading={loading}
-            openPull={openPull}
-            openQuest={(region, item) =>
-              setSelectedQuest({ region, number: item.number })
-            }
-          />
           <ul className="expedition-legend" aria-label="기본 파티 구성">
-            {partyRoles.map(({ name, Icon, color }) => (
-              <li className={color} key={name}>
-                <Icon size={14} aria-hidden="true" /> {name}
-              </li>
-            ))}
+            <li className="actions">
+              <Workflow size={14} aria-hidden="true" /> 파티장
+            </li>
+            <li className="codex">
+              <AdventurerGlyph agent="codex" /> Codex
+            </li>
+            <li className="claude">
+              <AdventurerGlyph agent="claude" /> Claude
+            </li>
+            <li className="release">
+              <Rocket size={14} aria-hidden="true" /> 포탈 관리자
+            </li>
           </ul>
         </footer>
       </main>
@@ -1578,6 +1555,7 @@ function App() {
           key={selected.slug}
           region={selected}
           snapshot={snapshots[selected.slug]}
+          openPull={(item) => openPull(selected, item)}
           openQuest={(item) =>
             setSelectedQuest({ region: selected, number: item.number })
           }
