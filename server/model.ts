@@ -85,6 +85,7 @@ export type Quest = {
   reviewer?: Agent;
   review?: string;
   pulls: (Source & { number: number })[];
+  commit?: Source;
   runs: Source[];
 };
 export type PullQuest = Source & {
@@ -169,6 +170,7 @@ type AutomationState = {
   reviewInProgress?: string;
   reason?: string;
   detail?: string;
+  base?: string;
   head?: string;
   reviews?: { head: string; result?: { status: string } }[];
 };
@@ -581,6 +583,18 @@ export function makeQuests(
         addAdventurer(state.reviewer, 'review', active);
     }
 
+    const commit =
+      !issuePulls.length &&
+      state?.base &&
+      state.head &&
+      state.head !== state.base &&
+      /^[a-f0-9]{40}$/i.test(state.head)
+        ? {
+            title: `커밋 ${state.head.slice(0, 7)}`,
+            url: `https://github.com/${region.slug}/commit/${state.head}`,
+          }
+        : undefined;
+
     return {
       number: issue.number,
       title: issue.title,
@@ -602,6 +616,7 @@ export function makeQuests(
       developer,
       reviewer,
       review,
+      commit,
       pulls: issuePulls.map((item) => ({
         number: item.number,
         title: item.title,

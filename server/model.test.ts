@@ -202,6 +202,26 @@ test('a merged PR is a victory independently of whether its monster has been def
   assert.equal(independent.stage, 'complete');
 });
 
+test('uses a verified non-base commit as an issue result when a PR does not exist', () => {
+  const [withCommit, onBase] = makeQuests(
+    commitTrail,
+    [issue(1), issue(2)],
+    [],
+    [run(1), run(2)],
+    [
+      comment(1, 'developing', { base: mergeSha }),
+      comment(2, 'developing', { base: sha }),
+    ],
+    new Map(),
+    [],
+  );
+  assert.deepEqual(withCommit.commit, {
+    title: `커밋 ${sha.slice(0, 7)}`,
+    url: `https://github.com/${commitTrail.slug}/commit/${sha}`,
+  });
+  assert.equal(onBase.commit, undefined);
+});
+
 test('a new attempt suppresses old state, and unauthored or unrelated state is ignored', () => {
   const record = comment(2, 'needs_human');
   assert.equal(

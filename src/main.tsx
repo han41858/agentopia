@@ -3,6 +3,7 @@ import type { CSSProperties, FormEvent, ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 import {
   Castle,
+  Crown,
   Check,
   ChevronRight,
   Clock3,
@@ -246,6 +247,7 @@ function MonsterMarker({
   const defeated = quest.state === 'closed';
   const StageIcon = glyph[quest.stage];
   const members = quest.adventurers ?? [];
+  const showParty = !defeated && members.length > 0;
   const resting = monsterRest(quest);
   const status = [
     defeated ? '몬스터 처치 완료' : '몬스터 출현',
@@ -270,10 +272,14 @@ function MonsterMarker({
         <span key={pulse} className="party-pulse" aria-hidden="true" />
       )}
       <span className="monster-encounter">
-        <MonsterGlyph boss={boss} defeated={defeated} />
-        <AdventurerParty members={members} resting={resting} />
+        {showParty ? (
+          <AdventurerParty members={members} resting={resting} />
+        ) : (
+          <MonsterGlyph boss={boss} defeated={defeated} />
+        )}
       </span>
       <small className="expedition-number">
+        {boss && showParty && <Crown size={12} aria-hidden="true" />}
         {defeated && <Check size={12} aria-hidden="true" />}
         {quest.victory && <Trophy size={12} aria-hidden="true" />}
         {quest.stage !== 'idle' && quest.stage !== 'complete' && (
@@ -568,18 +574,39 @@ function OutLink({ item }: { item: Source }) {
   );
 }
 
+function ResultLink({ item }: { item: Source }) {
+  return (
+    <a
+      className="source result-link"
+      title={item.title}
+      href={item.url}
+      target="_blank"
+      rel="noreferrer"
+    >
+      <span>{item.title}</span>
+      {item.status && <small>{item.status}</small>}
+      <ExternalLink size={14} aria-hidden="true" />
+    </a>
+  );
+}
+
 function Dialog({
   title,
+  titleHref,
+  closeOnBackdrop = false,
   className,
   children,
   close,
 }: {
   title: string;
+  titleHref?: string;
+  closeOnBackdrop?: boolean;
   className?: string;
   children: ReactNode;
   close: () => void;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
+  const pressedBackdrop = useRef(false);
   useEffect(() => {
     ref.current?.showModal();
   }, []);
@@ -589,9 +616,41 @@ function Dialog({
       className={className ? `panel dialog ${className}` : 'panel dialog'}
       aria-label={title}
       onCancel={close}
+      onPointerDown={(event) => {
+        if (!closeOnBackdrop) return;
+        const box = event.currentTarget.getBoundingClientRect();
+        pressedBackdrop.current =
+          event.target === event.currentTarget &&
+          (event.clientX < box.left ||
+            event.clientX >= box.right ||
+            event.clientY < box.top ||
+            event.clientY >= box.bottom);
+      }}
+      onClick={(event) => {
+        if (
+          closeOnBackdrop &&
+          pressedBackdrop.current &&
+          event.target === event.currentTarget
+        )
+          close();
+        pressedBackdrop.current = false;
+      }}
     >
       <div className="dialog-heading">
-        <h2>{title}</h2>
+        <h2>
+          {titleHref ? (
+            <a
+              className="dialog-title-link"
+              href={titleHref}
+              target="_blank"
+              rel="noreferrer"
+            >
+              {title} <ExternalLink size={15} aria-hidden="true" />
+            </a>
+          ) : (
+            title
+          )}
+        </h2>
         <button className="icon-button" aria-label="닫기" onClick={close}>
           <X size={20} />
         </button>
@@ -646,7 +705,9 @@ function QuestDetail({
   const [reviewPull, setReviewPull] = useState<number>();
   return (
     <Dialog
-      title={`${quest.subIssueCount ? '보스 몬스터' : '몬스터'} #${quest.number}`}
+      title={`이슈 #${quest.number}`}
+      titleHref={quest.url}
+      closeOnBackdrop
       close={close}
     >
       <div className="monster-detail-heading">
@@ -683,25 +744,30 @@ function QuestDetail({
           현재 커밋의 AI 리뷰 결과 <strong>{quest.review}</strong>
         </p>
       )}
-      <h4>GitHub 기록</h4>
-      <OutLink item={{ title: `Issue #${quest.number}`, url: quest.url }} />
-      {quest.pulls.length > 0 && <h4>공략 결과</h4>}
+      {(quest.pulls.length > 0 || quest.commit) && <h4>공략 결과</h4>}
+      {quest.commit && <ResultLink item={quest.commit} />}
       {quest.pulls.map((item) => (
-        <div className="pull-detail" key={item.number}>
-          <OutLink
-            item={{ ...item, title: `PR #${item.number} · ${item.title}` }}
-          />
-          <button
-            className="text-button"
-            onClick={() =>
-              setReviewPull(
-                reviewPull === item.number ? undefined : item.number,
-              )
-            }
-          >
-            <GitPullRequest size={14} />{' '}
-            {reviewPull === item.number ? '리뷰 접기' : 'PR 리뷰 조회'}
-          </button>
+        <div key={item.number}>
+          <div className="result-row">
+            <ResultLink
+              item={{ ...item, title: `PR #${item.number} · ${item.title}` }}
+            />
+            <button
+              className="text-button result-review"
+              title={reviewPull === item.number ? '리뷰 접기' : 'PR 리뷰 조회'}
+              aria-label={
+                reviewPull === item.number ? '리뷰 접기' : 'PR 리뷰 조회'
+              }
+              aria-expanded={reviewPull === item.number}
+              onClick={() =>
+                setReviewPull(
+                  reviewPull === item.number ? undefined : item.number,
+                )
+              }
+            >
+              <GitPullRequest size={16} aria-hidden="true" />
+            </button>
+          </div>
           {reviewPull === item.number && (
             <Reviews
               key={item.number}
@@ -712,6 +778,7 @@ function QuestDetail({
           )}
         </div>
       ))}
+      {quest.runs.length > 0 && <h4>GitHub Actions</h4>}
       {quest.runs.map((item) => (
         <OutLink key={item.url} item={item} />
       ))}
@@ -929,9 +996,8 @@ function TokenDialog({
   return (
     <Dialog title="GitHub 연결" close={close}>
       <p>
-        비공개 지역을 탐험하거나 내 API 사용 한도로 조회하려면 읽기 전용 GitHub
-        토큰을 연결하세요. 이 브라우저에 저장되며 티켓에서 연결을 해제할 수
-        있습니다.
+        비공개 지역을 탐험하거나 GitHub API 사용 한도를 높이려면 GitHub 토큰을
+        연결하세요.
       </p>
       {token && (
         <div className="token-result" role="status">
@@ -942,9 +1008,9 @@ function TokenDialog({
         </div>
       )}
       <form className="token-form" onSubmit={submit}>
-        <label htmlFor="github-token">Fine-grained personal access token</label>
         <input
           id="github-token"
+          aria-label="GitHub 토큰"
           type="password"
           autoComplete="off"
           required

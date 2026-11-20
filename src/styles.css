@@ -750,6 +750,40 @@ svg {
 .source small {
   color: #bbafcb;
 }
+.dialog-title-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--gold);
+}
+.result-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-bottom: 1px solid #40324f;
+}
+.result-link {
+  flex: 1;
+  gap: 6px;
+}
+.result-row .result-link {
+  border-bottom: 0;
+}
+.result-link > span {
+  display: block;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.result-link > small {
+  flex-shrink: 0;
+  color: #bbafcb;
+}
+.result-review {
+  padding: 6px;
+}
 .source:hover {
   color: #f4cf87;
 }
