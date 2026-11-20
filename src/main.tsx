@@ -77,6 +77,7 @@ import type {
   HeritageMetric,
   HeritageRecord,
 } from '../server/heritage.ts';
+import { GitHubUsage } from './github-usage.tsx';
 import './styles.css';
 
 function reportForges(report?: Report) {
@@ -2033,33 +2034,36 @@ function App() {
             >
               <Ticket size={19} aria-hidden="true" />
             </button>
-            <button
-              className="refresh-button"
-              aria-label="새로 고침"
-              aria-busy={loading}
-              data-warning={!loading && partial}
-              title={
-                !loading && partial
-                  ? '일부 GitHub 기록을 확인하지 못했습니다.'
-                  : `다음 자동 갱신까지 약 ${Math.ceil(progress.duration / 1000)}초`
-              }
-              disabled={!worldRegions.length}
-              onClick={() => refresh.current?.()}
-            >
-              {!loading && (
-                <span
-                  key={progress.key}
-                  className="refresh-fill"
-                  style={{ animationDuration: `${progress.duration}ms` }}
+            <div className="refresh-control">
+              <button
+                className="refresh-button"
+                aria-label="새로 고침"
+                aria-busy={loading}
+                data-warning={!loading && partial}
+                title={
+                  !loading && partial
+                    ? '일부 GitHub 기록을 확인하지 못했습니다.'
+                    : `다음 자동 갱신까지 약 ${Math.ceil(progress.duration / 1000)}초`
+                }
+                disabled={!worldRegions.length}
+                onClick={() => refresh.current?.()}
+              >
+                {!loading && (
+                  <span
+                    key={progress.key}
+                    className="refresh-fill"
+                    style={{ animationDuration: `${progress.duration}ms` }}
+                    aria-hidden="true"
+                  />
+                )}
+                <RefreshCw
+                  size={16}
+                  className={loading ? 'rotate' : ''}
                   aria-hidden="true"
                 />
-              )}
-              <RefreshCw
-                size={16}
-                className={loading ? 'rotate' : ''}
-                aria-hidden="true"
-              />
-            </button>
+              </button>
+              <GitHubUsage token={token} />
+            </div>
           </div>
         </header>
 

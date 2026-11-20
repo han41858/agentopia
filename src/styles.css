@@ -1231,3 +1231,49 @@ svg {
   opacity: 0.55;
   filter: grayscale(1);
 }
+
+.refresh-control {
+  display: grid;
+  justify-items: center;
+  position: relative;
+}
+.world-header:has(.github-usage) {
+  padding-bottom: 19px;
+}
+.github-usage {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  z-index: 3;
+}
+.github-usage-value {
+  padding: 3px 0 0;
+  border: 0;
+  color: #adc2b9;
+  background: transparent;
+  font: 10px/1.3 var(--mono, monospace);
+  white-space: nowrap;
+}
+.github-usage-tooltip {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  width: min(232px, calc(100vw - 32px));
+  padding: 8px 10px;
+  border: 1px solid #4a6359;
+  border-radius: 5px;
+  color: #e1ebe5;
+  background: #1c3028;
+  box-shadow: 0 6px 16px #10231b99;
+  font-size: 11px;
+}
+.github-usage-tooltip dl {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 12px;
+  margin: 0 0 5px;
+}
+.github-usage-tooltip dd {
+  margin: 0;
+  text-align: right;
+}

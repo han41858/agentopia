@@ -1,3 +1,8 @@
+import {
+  githubDebugEnabled,
+  recordCoreUsage,
+  recordGitHubRequest,
+} from './github-debug.ts';
 import { createHash } from 'node:crypto';
 
 type QueryResponse = {
@@ -28,7 +33,7 @@ export function observeGitHub(
   status?: number,
   page = false,
 ) {
-  if (process.env.AGENTOPIA_GITHUB_DEBUG !== '1') return;
+  if (!githubDebugEnabled()) return;
   const key = `${repo} ${endpoint}`;
   if (!usage.has(key) && usage.size >= 256)
     usage.delete(usage.keys().next().value!);
@@ -80,7 +85,8 @@ export async function githubGet(
     requestUrl.pathname
       .replace(/^\/repos\/[^/]+\/[^/]+/, '')
       .replace(/\/\d+(?=\/|$)/g, '/:id') || '/';
-  const key = `${credentialScope(token)}:${url}`;
+  const scope = credentialScope(token);
+  const key = `${scope}:${url}`;
   const now = Date.now();
   const entry = token ? undefined : cached.get(key);
   const previous =
@@ -105,11 +111,13 @@ export async function githubGet(
       undefined,
       Number(requestUrl.searchParams.get('page')) > 1,
     );
+    recordGitHubRequest(scope);
     const response = await fetch(url, {
       headers,
       redirect: 'error',
       signal: AbortSignal.timeout(9000),
     });
+    recordCoreUsage(scope, response.headers);
     observeGitHub(repo, endpoint, 'response', response.status);
     let result: QueryResponse;
     if (response.status === 304 && previous) {
