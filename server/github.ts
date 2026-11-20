@@ -1,3 +1,8 @@
+import {
+  githubDebugEnabled,
+  githubDebugSnapshot,
+  recordGitHubRequest,
+} from './github-debug.ts';
 import { onePerPageCount, verifiedCount } from './heritage.ts';
 import type { Heritage, HeritageMetric } from './heritage.ts';
 import { credentialScope, githubGet, observeGitHub } from './github-query.ts';
@@ -170,6 +175,7 @@ async function fetchGraphql<T>(
     undefined,
     Boolean(variables.cursor),
   );
+  if (githubDebugEnabled()) recordGitHubRequest(credentialScope(token));
   const response = await fetch('https://api.github.com/graphql', {
     method: 'POST',
     headers: {
@@ -1102,6 +1108,10 @@ export async function githubResponse(
   if (authorization && !/^Bearer [a-zA-Z0-9_]{1,512}$/.test(authorization)) {
     return reply(400, { error: 'GitHub 토큰 형식을 확인해 주세요.' });
   }
+  if (url.searchParams.get('debug') === 'usage')
+    return githubDebugEnabled()
+      ? reply(200, githubDebugSnapshot(credentialScope(authorization)))
+      : reply(404, { error: '디버그 모드가 꺼져 있습니다.' });
   try {
     const ownerInput = url.searchParams.get('owner');
     if (ownerInput !== null) {
