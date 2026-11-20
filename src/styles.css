@@ -362,14 +362,14 @@ svg {
   position: relative;
   display: inline-grid;
   place-items: center;
-  width: 27px;
-  height: 27px;
+  min-width: 27px;
+  min-height: 27px;
   color: var(--accent, #eec781);
 }
 .monster-glyph.boss {
-  width: 33px;
-  height: 34px;
-  padding-top: 8px;
+  min-width: 33px;
+  min-height: 34px;
+  padding-top: 10px;
 }
 .monster-crown {
   position: absolute;
@@ -543,9 +543,6 @@ svg {
   grid-area: 1 / 2;
   display: grid;
   justify-items: center;
-}
-.battle-scene > .activity-counters {
-  grid-column: 1 / -1;
 }
 .activity-browser {
   margin-block: 6px;
@@ -974,4 +971,88 @@ svg {
     animation: none !important;
     transition: none !important;
   }
+}
+
+.activity-aura {
+  display: grid;
+  grid-template-columns: minmax(0, auto) auto minmax(0, auto);
+  align-items: center;
+  justify-items: center;
+  gap: 2px;
+}
+.aura-core {
+  grid-area: 1 / 2;
+  display: grid;
+  place-items: center;
+}
+.aura-discussion,
+.aura-runes {
+  grid-row: 1;
+  display: grid;
+  gap: 1px;
+}
+.aura-discussion {
+  grid-column: 1;
+  color: #f1e9b3;
+}
+.aura-runes {
+  grid-column: 3;
+  color: #ead0ff;
+}
+.aura-crowd {
+  grid-area: 2 / 1 / 2 / -1;
+  display: flex;
+  gap: 2px;
+  color: #becdc7;
+}
+.aura-opinion {
+  grid-column: 1 / -1;
+  display: grid;
+  place-items: center;
+  padding: 1px 3px;
+  border: 1px solid currentColor;
+}
+.aura-opinion.approved {
+  border-radius: 50%;
+  color: #b8f8b0;
+}
+.aura-opinion.changes {
+  border-radius: 2px;
+  color: #ffb3a6;
+}
+.monster-glyph.defeated > svg:not(.monster-crown, .monster-remains) {
+  transform: rotate(64deg) scale(0.85);
+}
+.monster-remains {
+  position: absolute;
+  bottom: 0;
+  right: 0;
+}
+.monster-revival {
+  position: absolute;
+  inset: 1px;
+  border: 1px dashed currentColor;
+  border-radius: 40%;
+  animation: revive-monster 900ms ease-out;
+}
+@keyframes revive-monster {
+  from {
+    transform: scale(0.65);
+    opacity: 0.35;
+  }
+}
+.activity-totals dl {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-block: 6px;
+}
+.activity-totals dl div {
+  padding: 4px 7px;
+  border: 1px solid #526043;
+  border-radius: 4px;
+}
+.activity-totals dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
 }

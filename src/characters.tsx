@@ -1,4 +1,4 @@
-import { Bug, Crown, ScrollText, Swords } from 'lucide-react';
+import { Bug, Crown, ScrollText, Swords, X } from 'lucide-react';
 import type { Adventurer, AdventurerRole, Agent } from '../server/model.ts';
 
 export const agentNames: Record<Agent, string> = {
@@ -11,14 +11,21 @@ const roleNames: Record<AdventurerRole, string> = {
   review: '리뷰',
 };
 
-export function MonsterGlyph({ boss = false, defeated = false }) {
+export function MonsterGlyph({
+  boss = false,
+  defeated = false,
+  reopened = false,
+  growth = 0,
+}) {
   return (
     <span
-      className={`monster-glyph${boss ? ' boss' : ''}${defeated ? ' defeated' : ''}`}
+      className={`monster-glyph${boss ? ' boss' : ''}${defeated ? ' defeated' : ''}${reopened ? ' revived' : ''}`}
       aria-hidden="true"
     >
       {boss && <Crown className="monster-crown" size={12} />}
-      <Bug size={boss ? 25 : 21} strokeWidth={1.7} />
+      <Bug size={(boss ? 25 : 21) + growth} strokeWidth={1.7} />
+      {defeated && <X className="monster-remains" size={11} />}
+      {reopened && <span className="monster-revival" />}
     </span>
   );
 }

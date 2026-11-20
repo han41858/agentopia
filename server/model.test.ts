@@ -688,22 +688,47 @@ test('activity counts follow verified links and failed actors follow the matchin
     new Map([
       [
         20,
-        { issues: [2], activities: { commits: 2, comments: 1, reviews: 0 } },
+        {
+          issues: [2],
+          activity: {
+            shas: [sha, mergeSha],
+            commits: 2,
+            comments: 1,
+            reviews: 0,
+            people: ['Alice'],
+            complete: true,
+            opinion: { state: 'APPROVED', at: '2026-11-19T00:00:00Z' },
+          },
+        },
       ],
       [
         21,
-        { issues: [2], activities: { commits: 4, comments: 2, reviews: 3 } },
+        {
+          issues: [2],
+          activities: { commits: 2, comments: 2, reviews: 3 },
+          activity: {
+            shas: [sha, 'c'.repeat(40)],
+            commits: 2,
+            comments: 2,
+            reviews: 3,
+            people: ['alice', 'Bob'],
+            complete: true,
+            opinion: { state: 'CHANGES_REQUESTED', at: '2026-11-20T00:00:00Z' },
+          },
+        },
       ],
     ]),
   );
-  assert.deepEqual(knownQuest.activities, {
-    commits: 6,
-    comments: 6,
-    reviews: 3,
-  });
-  assert.equal(knownQuest.issueComments, 3);
+  assert.equal(knownQuest.activity?.commits, 3);
+  assert.equal(knownQuest.activity?.partialCommits, false);
+  assert.equal(knownQuest.activity?.issueComments, 3);
+  assert.equal(knownQuest.activity?.pullComments, 3);
+  assert.equal(knownQuest.activity?.reviews, 3);
+  assert.equal(knownQuest.activity?.participants, 3);
+  assert.equal(knownQuest.activity?.partialParticipants, true);
+  assert.equal(knownQuest.activity?.opinion?.state, 'CHANGES_REQUESTED');
   assert.deepEqual(knownQuest.pulls[1].activities, {
-    commits: 4,
+    commits: 2,
     comments: 2,
     reviews: 3,
   });

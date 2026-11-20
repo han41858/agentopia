@@ -55,6 +55,13 @@ import {
   MonsterGlyph,
   partyLabel,
 } from './characters.tsx';
+import { summarizeActivity } from '../server/activity.ts';
+import type {
+  ActivityProfile,
+  Discussion,
+  PullActivity,
+} from '../server/activity.ts';
+import { ActivityAura, monsterGrowth } from './activity-effects.tsx';
 import './styles.css';
 
 type Snapshot = {
@@ -78,7 +85,8 @@ function partyStates(report: Report) {
         quest.review,
         quest.victory,
         quest.adventurers,
-        quest.activities,
+        quest.activity,
+        quest.reopened,
         quest.reason,
         quest.pulls
           .map(({ number, status }) => [number, status])
@@ -93,7 +101,7 @@ function partyStates(report: Report) {
         pull.author,
         pull.reviewer,
         pull.review,
-        pull.activities,
+        pull.activity,
       ]),
     ]),
   ]);
@@ -101,6 +109,20 @@ function partyStates(report: Report) {
 
 function reportSnapshot(report: Report, previous?: Snapshot): Snapshot {
   if (!previous?.report) return { report };
+  const prior = new Map(
+    previous.report.quests.map((quest) => [quest.number, quest]),
+  );
+  report = {
+    ...report,
+    quests: report.quests.map((quest) => {
+      const old = prior.get(quest.number);
+      return quest.state === 'open' &&
+        !quest.reopened &&
+        (old?.state === 'closed' || old?.reopened)
+        ? { ...quest, reopened: true }
+        : quest;
+    }),
+  };
   const priorStates = partyStates(previous.report);
   const pulses: Record<string, number> = {};
   const changed = new Set<string>();
@@ -255,7 +277,11 @@ function MonsterMarker({
   const members = quest.adventurers ?? [];
   const resting = monsterRest(quest);
   const status = [
-    defeated ? '몬스터 처치 완료' : '몬스터 출현',
+    defeated
+      ? '몬스터 처치 완료'
+      : quest.reopened
+        ? '몬스터 부활'
+        : '몬스터 출현',
     quest.stage !== 'idle' && quest.stage !== 'complete'
       ? stages[quest.stage]
       : undefined,
@@ -269,18 +295,24 @@ function MonsterMarker({
   return (
     <button
       className={`expedition monster-marker${boss ? ' boss-marker' : ''}${alerts.has(quest.stage) ? ' blocked' : ''}${defeated ? ' closed-issue' : ''}`}
-      aria-label={`${boss ? '보스 몬스터' : '몬스터'} #${quest.number} · ${quest.title} · ${status}${activityDescription(quest.activities)}`}
+      aria-label={`${boss ? '보스 몬스터' : '몬스터'} #${quest.number} · ${quest.title} · ${status}${activityEffectsLabel(quest.activity)}`}
       title={`${quest.title} · ${status}`}
       onClick={open}
     >
       {pulse !== undefined && (
         <span key={pulse} className="party-pulse" aria-hidden="true" />
       )}
-      <MonsterGlyph boss={boss} defeated={defeated} />
+      <ActivityAura activity={quest.activity}>
+        <MonsterGlyph
+          boss={boss}
+          defeated={defeated}
+          reopened={quest.reopened}
+          growth={monsterGrowth(quest.activity?.commits)}
+        />
+      </ActivityAura>
       <small className="expedition-number">{`#${quest.number}`}</small>
       <AdventurerParty members={members} resting={resting} />
       <MonsterStatusIcons quest={quest} />
-      <ActivityCounters counts={quest.activities} />
     </button>
   );
 }
@@ -305,37 +337,12 @@ const activityDisplay = {
   reviews: { Icon: ClipboardCheck, label: '리뷰' },
 };
 
-function activityDescription(counts?: ActivityCounts) {
-  return activityKinds
-    .map((kind) =>
-      counts?.[kind]
-        ? ` · ${activityDisplay[kind].label} ${counts[kind]}개`
-        : '',
-    )
-    .join('');
-}
-
-function ActivityCounters({ counts }: { counts?: ActivityCounts }) {
-  return (
-    <span className="activity-counters">
-      {activityKinds.map((kind) => {
-        const count = counts?.[kind];
-        if (!count) return null;
-        const { Icon, label } = activityDisplay[kind];
-        return (
-          <span
-            className="activity-counter"
-            key={kind}
-            title={`${label} ${count}개`}
-            aria-label={`${label} ${count}개`}
-          >
-            <Icon size={13} aria-hidden="true" />
-            {count}
-          </span>
-        );
-      })}
-    </span>
-  );
+function activityEffectsLabel(activity?: ActivityProfile) {
+  return activity?.opinion?.state === 'APPROVED'
+    ? ' · 리뷰 승인'
+    : activity?.opinion?.state === 'CHANGES_REQUESTED'
+      ? ' · 수정 요청'
+      : '';
 }
 
 function pullStatus(pull: PullQuest) {
@@ -374,27 +381,28 @@ function PullMarker({
     <button
       className={`expedition pull-marker${alerts.has(pull.stage) ? ' blocked' : ''}`}
       title={`${label} · ${status}`}
-      aria-label={`${label} · ${status}${activityDescription(pull.activities)}`}
+      aria-label={`${label} · ${status}${activityEffectsLabel(pull.activity)}`}
       onClick={open}
     >
       {pulse !== undefined && (
         <span key={pulse} className="party-pulse" aria-hidden="true" />
       )}
-      <span
-        className={`role-symbol current-role${ci ? ' actions' : ''}`}
-        data-draft={pull.draft}
-      >
-        {!ci && agent ? (
-          <AdventurerGlyph agent={agent} />
-        ) : (
-          <Icon size={15} aria-hidden="true" />
-        )}
-      </span>
+      <ActivityAura activity={pull.activity}>
+        <span
+          className={`role-symbol current-role${ci ? ' actions' : ''}`}
+          data-draft={pull.draft}
+        >
+          {!ci && agent ? (
+            <AdventurerGlyph agent={agent} />
+          ) : (
+            <Icon size={15} aria-hidden="true" />
+          )}
+        </span>
+      </ActivityAura>
       <small className="expedition-number">{`PR #${pull.number}`}</small>
       {!ci && pull.stage !== 'idle' && (
         <StageIcon size={12} aria-hidden="true" />
       )}
-      <ActivityCounters counts={pull.activities} />
     </button>
   );
 }
@@ -834,6 +842,98 @@ function ActivityEntries({
   );
 }
 
+function ActivityTotals({
+  region,
+  token,
+  issue,
+  pulls,
+  initial,
+}: {
+  region: string;
+  token: string;
+  issue?: number;
+  pulls: string;
+  initial?: ActivityProfile;
+}) {
+  const [loaded, setLoaded] = useState<ActivityProfile>();
+  const [failed, setFailed] = useState(false);
+  const needsDetails =
+    !initial ||
+    initial.partialCommits ||
+    initial.partialParticipants ||
+    initial.commits === undefined ||
+    initial.pullComments === undefined ||
+    initial.reviews === undefined ||
+    (issue !== undefined && initial.issueComments === undefined);
+  useEffect(() => {
+    if (!needsDetails) return;
+    const controller = new AbortController();
+    const get = <T,>(summary: string, number: string) =>
+      request<T>(
+        new URLSearchParams({ repo: region, summary, number }),
+        token,
+        controller.signal,
+      );
+    async function load() {
+      const issueRecord =
+        issue === undefined
+          ? undefined
+          : await get<Discussion>('issue', String(issue));
+      const numbers = pulls ? pulls.split(',') : [];
+      const records: PullActivity[] = [];
+      for (let offset = 0; offset < numbers.length; offset += 3) {
+        records.push(
+          ...(await Promise.all(
+            numbers
+              .slice(offset, offset + 3)
+              .map((number) => get<PullActivity>('pull', number)),
+          )),
+        );
+      }
+      if (!controller.signal.aborted)
+        setLoaded(summarizeActivity(issueRecord, records));
+    }
+    void load().catch(() => {
+      if (!controller.signal.aborted) setFailed(true);
+    });
+    return () => controller.abort();
+  }, [region, token, issue, pulls, needsDetails]);
+  const activity = loaded ?? initial;
+  const rows = [
+    ['고유 커밋', activity?.commits, activity?.partialCommits],
+    ...(issue === undefined
+      ? []
+      : ([['이슈 댓글', activity?.issueComments, false]] as const)),
+    ['PR 댓글', activity?.pullComments, false],
+    ['리뷰', activity?.reviews, false],
+    ['고유 참여자', activity?.participants, activity?.partialParticipants],
+  ] as const;
+  return (
+    <section className="activity-totals">
+      <h4>GitHub 활동량</h4>
+      <dl>
+        {rows.map(([label, count, partial]) => (
+          <div key={label}>
+            <dt>{label}</dt>
+            <dd>
+              {typeof count === 'number'
+                ? `${count.toLocaleString('ko-KR')}${partial ? ' 이상' : ''}`
+                : '미확인'}
+            </dd>
+          </div>
+        ))}
+      </dl>
+      {needsDetails && !loaded && (
+        <small role="status">
+          {failed
+            ? '일부 활동을 조회하지 못했습니다.'
+            : 'GitHub 활동 집계 확인 중…'}
+        </small>
+      )}
+    </section>
+  );
+}
+
 function QuestDetail({
   quest,
   region,
@@ -877,15 +977,26 @@ function QuestDetail({
           );
         })}
         <div className="battle-monster">
-          <MonsterGlyph
-            boss={Boolean(quest.subIssueCount)}
-            defeated={quest.state === 'closed'}
-          />
+          <ActivityAura activity={quest.activity}>
+            <MonsterGlyph
+              boss={Boolean(quest.subIssueCount)}
+              defeated={quest.state === 'closed'}
+              reopened={quest.reopened}
+              growth={monsterGrowth(quest.activity?.commits)}
+            />
+          </ActivityAura>
           <small className="expedition-number">{`#${quest.number}`}</small>
           <MonsterStatusIcons quest={quest} />
         </div>
-        <ActivityCounters counts={quest.activities} />
       </div>
+      <ActivityTotals
+        key={`${region.slug}:${quest.number}:${quest.pulls.map(({ number }) => number).join(',')}`}
+        region={region.slug}
+        token={token}
+        issue={quest.number}
+        pulls={quest.pulls.map(({ number }) => number).join(',')}
+        initial={quest.activity}
+      />
       <IssueBadge quest={quest} />
       {quest.stateReason === 'not_planned' && (
         <p>GitHub 종료 사유 · 작업하지 않기로 함</p>
@@ -979,7 +1090,7 @@ function PullDetail({
   const author = pull.author && agentNames[pull.author];
   const reviewer = pull.reviewer && agentNames[pull.reviewer];
   return (
-    <Dialog title={`PR #${pull.number}`} close={close}>
+    <Dialog title={`PR #${pull.number}`} titleHref={pull.url} close={close}>
       <h3>{pull.title}</h3>
       <PullStatus pull={pull} />
       {author && <p>작성 · {author}</p>}
@@ -988,7 +1099,13 @@ function PullDetail({
           리뷰 기록 · {reviewer} {pull.review}
         </p>
       )}
-      <OutLink item={{ title: `GitHub PR #${pull.number}`, url: pull.url }} />
+      <ActivityTotals
+        key={`${region.slug}:${pull.number}`}
+        region={region.slug}
+        token={token}
+        pulls={String(pull.number)}
+        initial={pull.activity}
+      />
       <ActivityBrowser
         region={region.slug}
         number={pull.number}
