@@ -62,6 +62,7 @@ import type {
   PullActivity,
 } from '../server/activity.ts';
 import { ActivityAura, monsterGrowth } from './activity-effects.tsx';
+import { nextRefreshInterval, refreshDue } from './refresh.ts';
 import './styles.css';
 
 type Snapshot = {
@@ -109,13 +110,65 @@ function partyStates(report: Report) {
 
 function reportSnapshot(report: Report, previous?: Snapshot): Snapshot {
   if (!previous?.report) return { report };
+  const oldReport = previous.report;
+  const warnings = new Set(report.warnings);
+  const missingPulls = warnings.has('PR') || warnings.has('열린 PR');
+  const missingRuns = warnings.has('Actions') || warnings.has('AI 상태 기록');
+  const missingLinks = warnings.has('PR 이슈 연결 및 리뷰');
+  const missingDeployments = warnings.has('배포') || warnings.has('배포 상태');
   const prior = new Map(
     previous.report.quests.map((quest) => [quest.number, quest]),
   );
   report = {
     ...report,
+    releases:
+      missingDeployments && !report.releases.length
+        ? oldReport.releases
+        : report.releases,
+    pullQuests: missingPulls
+      ? [
+          ...(report.pullQuests ?? []),
+          ...(oldReport.pullQuests ?? []).filter(
+            (pull) =>
+              !report.pullQuests?.some((fresh) => fresh.number === pull.number),
+          ),
+        ]
+      : report.pullQuests,
     quests: report.quests.map((quest) => {
       const old = prior.get(quest.number);
+      if (old && (missingPulls || missingRuns || missingLinks)) {
+        const knownStage = quest.stage !== 'idle' && quest.stage !== 'returned';
+        const sameState = quest.state === old.state;
+        const adventurers = quest.adventurers?.length
+          ? quest.adventurers
+          : old.adventurers?.map(({ active: _, ...member }) => member);
+        const oldPulls =
+          missingPulls || missingLinks
+            ? old.pulls.filter(
+                (pull) =>
+                  !quest.pulls.some((fresh) => fresh.number === pull.number),
+              )
+            : [];
+        quest = {
+          ...quest,
+          pulls: [...quest.pulls, ...oldPulls],
+          victory:
+            quest.victory || ((missingPulls || missingLinks) && old.victory),
+          activity:
+            (missingPulls || missingLinks) && old.activity
+              ? { ...old.activity, issueComments: quest.issueComments }
+              : quest.activity,
+          adventurers,
+          ...(missingRuns && !knownStage && sameState
+            ? {
+                stage: activeStages.has(old.stage) ? 'idle' : old.stage,
+                reason: old.reason,
+                evidence: old.evidence,
+                runs: old.runs,
+              }
+            : {}),
+        };
+      }
       return quest.state === 'open' &&
         !quest.reopened &&
         (old?.state === 'closed' || old?.reopened)
@@ -726,6 +779,7 @@ function ActivityBrowser({
   counts?: ActivityCounts;
 }) {
   const [selected, setSelected] = useState<ActivityKind>();
+  const [visited, setVisited] = useState<ActivityKind[]>([]);
   return (
     <div className="activity-browser">
       <div className="activity-counters">
@@ -743,7 +797,10 @@ function ActivityBrowser({
                   : `${label} ${counts[kind]}개`
               }
               aria-expanded={selected === kind}
-              onClick={() => setSelected(selected === kind ? undefined : kind)}
+              onClick={() => {
+                if (!visited.includes(kind)) setVisited([...visited, kind]);
+                setSelected(selected === kind ? undefined : kind);
+              }}
             >
               <Icon size={16} aria-hidden="true" />
               {counts?.[kind]}
@@ -751,15 +808,16 @@ function ActivityBrowser({
           );
         })}
       </div>
-      {selected && (
-        <ActivityEntries
-          key={`${region}:${number}:${selected}`}
-          region={region}
-          number={number}
-          kind={selected}
-          token={token}
-        />
-      )}
+      {visited.map((kind) => (
+        <div key={kind} hidden={selected !== kind}>
+          <ActivityEntries
+            region={region}
+            number={number}
+            kind={kind}
+            token={token}
+          />
+        </div>
+      ))}
     </div>
   );
 }
@@ -946,6 +1004,7 @@ function QuestDetail({
   close: () => void;
 }) {
   const [activityPull, setActivityPull] = useState<number>();
+  const [visitedPulls, setVisitedPulls] = useState<number[]>([]);
   return (
     <Dialog
       title={`이슈 #${quest.number}`}
@@ -1048,23 +1107,27 @@ function QuestDetail({
                 activityPull === item.number ? 'PR 활동 접기' : 'PR 활동 보기'
               }
               aria-expanded={activityPull === item.number}
-              onClick={() =>
+              onClick={() => {
+                if (!visitedPulls.includes(item.number))
+                  setVisitedPulls([...visitedPulls, item.number]);
                 setActivityPull(
                   activityPull === item.number ? undefined : item.number,
-                )
-              }
+                );
+              }}
             >
               <GitPullRequest size={16} aria-hidden="true" />
             </button>
           </div>
-          {activityPull === item.number && (
-            <ActivityBrowser
-              key={item.number}
-              region={region.slug}
-              number={item.number}
-              counts={item.activities}
-              token={token}
-            />
+          {visitedPulls.includes(item.number) && (
+            <div hidden={activityPull !== item.number}>
+              <ActivityBrowser
+                key={item.number}
+                region={region.slug}
+                number={item.number}
+                counts={item.activities}
+                token={token}
+              />
+            </div>
           )}
         </div>
       ))}
@@ -1551,6 +1614,14 @@ function App() {
   const refresh = useRef<(() => void) | null>(null);
   const [loading, setLoading] = useState(true);
   const refreshInterval = token ? 20_000 : 60_000;
+  const [progress, setProgress] = useState({
+    duration: refreshInterval,
+    key: 0,
+  });
+  const refreshJobs = useRef<{
+    token: string;
+    jobs: Map<string, { last: number; interval: number; report?: Report }>;
+  }>({ token, jobs: new Map() });
   const [showConnect, setShowConnect] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
 
@@ -1574,6 +1645,7 @@ function App() {
       )
         return;
       const next = readSettings();
+      refreshJobs.current.jobs.clear();
       setSettings(next);
       setSnapshots({});
       setSelected(undefined);
@@ -1588,60 +1660,100 @@ function App() {
 
   useEffect(() => {
     const controller = new AbortController();
-    let syncing = false;
+    if (refreshJobs.current.token !== token)
+      refreshJobs.current = { token, jobs: new Map() };
+    const jobs = refreshJobs.current.jobs;
+    const slugs = new Set(worldRegions.map(({ slug }) => slug));
+    for (const slug of jobs.keys()) if (!slugs.has(slug)) jobs.delete(slug);
+    const pending = new Set<string>();
+    const forced = new Set<string>();
     let timer: number | undefined;
-    async function sync(force = false) {
-      if (syncing || controller.signal.aborted) return;
+
+    function schedule() {
       window.clearTimeout(timer);
-      syncing = true;
-      setLoading(true);
-      await Promise.all(
-        worldRegions.map(async (region) => {
-          try {
-            const params = new URLSearchParams({ repo: region.slug });
-            if (force) params.set('refresh', '1');
-            const report = await request<Report>(
-              params,
-              token,
-              controller.signal,
-            );
-            if (!controller.signal.aborted)
-              setSnapshots((current) => ({
-                ...current,
-                [region.slug]: reportSnapshot(report, current[region.slug]),
-              }));
-          } catch (error) {
-            if (!controller.signal.aborted)
-              setSnapshots((current) => ({
-                ...current,
-                [region.slug]: {
-                  ...current[region.slug],
-                  error: (error as Error).message,
-                  httpStatus:
-                    error instanceof RequestError ? error.status : undefined,
-                },
-              }));
-          }
-        }),
-      );
-      syncing = false;
       if (controller.signal.aborted) return;
-      setLoading(false);
-      if (document.visibilityState === 'visible')
-        timer = window.setTimeout(syncVisible, refreshInterval);
+      setLoading(pending.size > 0);
+      const now = Date.now();
+      const hidden = document.visibilityState !== 'visible';
+      let next = Infinity;
+      for (const slug of slugs) {
+        if (pending.has(slug)) continue;
+        const job = jobs.get(slug);
+        const due = job ? refreshDue(job.last, job.interval, hidden) : now;
+        if (due <= now || forced.has(slug))
+          void sync(slug, forced.delete(slug));
+        else next = Math.min(next, due);
+      }
+      setLoading(pending.size > 0);
+      if (Number.isFinite(next)) {
+        const duration = Math.max(1, next - now);
+        timer = window.setTimeout(schedule, duration);
+        setProgress((previous) => ({ duration, key: previous.key + 1 }));
+      }
     }
 
-    function syncVisible() {
-      if (document.visibilityState === 'visible') void sync();
-      else window.clearTimeout(timer);
+    async function sync(slug: string, force: boolean) {
+      pending.add(slug);
+      const previous = jobs.get(slug);
+      try {
+        const params = new URLSearchParams({ repo: slug });
+        if (force) params.set('refresh', '1');
+        const report = await request<Report>(params, token, controller.signal);
+        if (controller.signal.aborted) return;
+        const prior = previous?.report && partyStates(previous.report);
+        const current = partyStates(report);
+        const changed =
+          !prior ||
+          prior.size !== current.size ||
+          [...current].some(([key, value]) => prior.get(key) !== value) ||
+          JSON.stringify(previous?.report?.releases) !==
+            JSON.stringify(report.releases);
+        const active =
+          report.quests.some(({ stage }) => activeStages.has(stage)) ||
+          report.pullQuests?.some(({ stage }) => activeStages.has(stage)) ||
+          report.releases.some(({ stage }) => activeStages.has(stage));
+        const interval = nextRefreshInterval(
+          refreshInterval,
+          previous?.interval ?? refreshInterval,
+          Boolean(active) || report.warnings.length > 0,
+          changed,
+        );
+        jobs.set(slug, { last: Date.now(), report, interval });
+        setSnapshots((current) => ({
+          ...current,
+          [slug]: reportSnapshot(report, current[slug]),
+        }));
+      } catch (error) {
+        if (controller.signal.aborted) return;
+        jobs.set(slug, {
+          last: Date.now(),
+          interval: refreshInterval,
+          report: previous?.report,
+        });
+        setSnapshots((current) => ({
+          ...current,
+          [slug]: {
+            ...current[slug],
+            error: (error as Error).message,
+            httpStatus:
+              error instanceof RequestError ? error.status : undefined,
+          },
+        }));
+      } finally {
+        pending.delete(slug);
+        schedule();
+      }
     }
 
-    refresh.current = () => void sync(true);
-    void sync();
-    document.addEventListener('visibilitychange', syncVisible);
+    refresh.current = () => {
+      for (const slug of slugs) forced.add(slug);
+      schedule();
+    };
+    schedule();
+    document.addEventListener('visibilitychange', schedule);
     return () => {
       refresh.current = null;
-      document.removeEventListener('visibilitychange', syncVisible);
+      document.removeEventListener('visibilitychange', schedule);
       window.clearTimeout(timer);
       controller.abort();
     };
@@ -1748,15 +1860,16 @@ function App() {
               title={
                 !loading && partial
                   ? '일부 GitHub 기록을 확인하지 못했습니다.'
-                  : `자동 갱신 ${refreshInterval / 1000}초 간격`
+                  : `다음 자동 갱신까지 약 ${Math.ceil(progress.duration / 1000)}초`
               }
-              disabled={loading}
+              disabled={!worldRegions.length}
               onClick={() => refresh.current?.()}
             >
               {!loading && (
                 <span
+                  key={progress.key}
                   className="refresh-fill"
-                  style={{ animationDuration: `${refreshInterval}ms` }}
+                  style={{ animationDuration: `${progress.duration}ms` }}
                   aria-hidden="true"
                 />
               )}
