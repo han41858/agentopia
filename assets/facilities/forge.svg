@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48">
+  <title>대장간 — 기능 개발</title>
+  <g stroke="#231a3d" stroke-width="2" stroke-linejoin="round" stroke-linecap="round">
+    <polygon points="8,19 11,5 19,5 22,19" fill="#b3aa9c" />
+    <rect x="4" y="19" width="22" height="24" fill="#d9d2c5" />
+    <path d="M8 43v-9a7 7 0 0 1 14 0v9z" fill="#f2903a" />
+    <path d="M15 42c-3 0-4-2.500-2.500-5c1 1 1.500 .500 1.500-.500c0-1.500 .500-2.500 1.500-3.500c.500 2.500 3 3.500 3 6c0 2-1.500 3-3.500 3z" fill="#ffd978" stroke="none" />
+    <path d="M27 28h18v4q-5 0-6 4v3h4v4H30v-4h4v-3q-1-4-7-4z" fill="#6b6f82" />
+    <g transform="translate(33 26) rotate(25)">
+      <rect x="-1.500" y="-13" width="3" height="13" rx="1" fill="#c98a4b" stroke-width="1.500" />
+      <rect x="-5.500" y="-19" width="11" height="7" rx="1.500" fill="#cfd8e3" />
+    </g>
+  </g>
+</svg>

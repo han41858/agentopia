@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48">
+  <title>완공 기념비</title>
+  <g stroke="#231a3d" stroke-width="2" stroke-linejoin="round" stroke-linecap="round">
+    <rect x="7" y="38" width="34" height="5" rx="1" fill="#b3aa9c" />
+    <rect x="12" y="32" width="24" height="6" rx="1" fill="#d9d2c5" />
+    <polygon points="16,32 19,15 29,15 32,32" fill="#f1ece2" />
+    <polygon points="19,15 24,4 29,15" fill="#f2b84b" />
+  </g>
+</svg>
