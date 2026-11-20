@@ -3,9 +3,8 @@ import type { CSSProperties, FormEvent, ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 import {
   Castle,
-  Anvil,
-  Hammer,
   FlaskConical,
+  Construction,
   ClipboardCheck,
   GitCommitHorizontal,
   MessageCircle,
@@ -66,6 +65,8 @@ import type {
 } from '../server/activity.ts';
 import { ActivityAura, monsterGrowth } from './activity-effects.tsx';
 import { nextRefreshInterval, refreshDue } from './refresh.ts';
+import { facilities, FacilityGlyph } from './facility-art.tsx';
+import { facilityKind, isHistoricFacility } from './facility-kind.ts';
 import './styles.css';
 
 function reportForges(report?: Report) {
@@ -107,6 +108,8 @@ function partyStates(report: Report) {
       JSON.stringify([
         pull.stage,
         pull.draft,
+        pull.cancelled,
+        pull.finishedAt,
         pull.author,
         pull.reviewer,
         pull.review,
@@ -449,6 +452,7 @@ function activityEffectsLabel(activity?: ActivityProfile) {
 }
 
 function pullStatus(pull: PullQuest) {
+  if (pull.cancelled) return '시설 작업 취소';
   switch (pull.stage) {
     case 'developing':
       return '제작 중';
@@ -461,7 +465,7 @@ function pullStatus(pull: PullQuest) {
     case 'merging':
       return '제작 결과 반영 중';
     case 'complete':
-      return '제작 결과 반영';
+      return '시설 완성';
     case 'idle':
       break;
     default:
@@ -476,7 +480,7 @@ function pullActivity(pull: PullQuest) {
   return undefined;
 }
 
-function ForgeMarker({
+function FacilityMarker({
   pull,
   open,
   pulse,
@@ -491,11 +495,18 @@ function ForgeMarker({
   related: boolean;
   inspect: (active: boolean) => void;
 }) {
+  const kind = facilityKind(pull.title);
+  const { name, Tool } = facilities[kind];
+  const lifecycle = pull.merged
+    ? 'complete'
+    : pull.cancelled
+      ? 'cancelled'
+      : 'open';
   const working = pull.stage === 'developing' || pull.stage === 'revising';
   const reviewing = pull.stage === 'reviewing';
   const quality = pull.quality === 'ci' || pull.stage === 'ci';
   const label = [
-    `대장간 PR #${pull.number}`,
+    `${name} PR #${pull.number}`,
     pull.title,
     pullActivity(pull),
     pullStatus(pull),
@@ -506,9 +517,11 @@ function ForgeMarker({
 
   return (
     <button
-      className={`expedition pull-marker forge-marker${alerts.has(pull.stage) ? ' blocked' : ''}`}
+      className={`expedition pull-marker facility-marker${alerts.has(pull.stage) ? ' blocked' : ''}`}
       data-highlight={inspected ? 'selected' : related ? 'related' : undefined}
       data-stage={pull.stage}
+      data-facility={kind}
+      data-lifecycle={lifecycle}
       title={label}
       aria-label={`${label}${activityEffectsLabel(pull.activity)}`}
       onClick={open}
@@ -521,17 +534,27 @@ function ForgeMarker({
         <span key={pulse} className="party-pulse" aria-hidden="true" />
       )}
       <ActivityAura activity={pull.activity}>
-        <span className="forge-core" data-draft={pull.draft} aria-hidden="true">
-          <Anvil size={22} />
-          {working && <Hammer className="forge-tool" size={13} />}
-          {reviewing && <ScrollText className="forge-tool" size={13} />}
-          {quality && <FlaskConical className="forge-test" size={13} />}
-          {pull.stage === 'merging' && (
-            <GitPullRequest className="forge-result" size={13} />
+        <span
+          className="facility-core"
+          data-draft={pull.draft}
+          aria-hidden="true"
+        >
+          <FacilityGlyph kind={kind} />
+          {lifecycle === 'open' && pull.stage === 'idle' && (
+            <Construction className="facility-build" size={13} />
           )}
-          {pull.merged && <Check className="forge-result" size={13} />}
+          {lifecycle === 'cancelled' && (
+            <X className="facility-result" size={13} />
+          )}
+          {working && <Tool className="facility-tool" size={13} />}
+          {reviewing && <ScrollText className="facility-tool" size={13} />}
+          {quality && <FlaskConical className="facility-test" size={13} />}
+          {pull.stage === 'merging' && (
+            <GitPullRequest className="facility-result" size={13} />
+          )}
+          {pull.merged && <Check className="facility-result" size={13} />}
           {alerts.has(pull.stage) && (
-            <Skull className="forge-result" size={13} />
+            <Skull className="facility-result" size={13} />
           )}
         </span>
       </ActivityAura>
@@ -1211,12 +1234,17 @@ function PullDetail({
   close: () => void;
   openIssue: (number: number) => boolean;
 }) {
+  const kind = facilityKind(pull.title);
   const author = pull.author && agentNames[pull.author];
   const reviewer = pull.reviewer && agentNames[pull.reviewer];
   return (
     <Dialog title={`PR #${pull.number}`} titleHref={pull.url} close={close}>
       <h3>{pull.title}</h3>
-      <PullStatus pull={pull} />
+      <div className="facility-detail">
+        <FacilityGlyph kind={kind} />
+        <strong>{facilities[kind].name}</strong>
+        <PullStatus pull={pull} />
+      </div>
       <AdventurerParty
         members={pull.adventurers ?? []}
         resting="대기"
@@ -1224,7 +1252,7 @@ function PullDetail({
         forge
       />
       {!!pull.issues?.length && (
-        <ul className="forge-issues" aria-label="연결된 이슈">
+        <ul className="facility-issues" aria-label="연결된 이슈">
           {pull.issues.map((number) => (
             <li key={number}>
               <a
@@ -1274,6 +1302,12 @@ function PullDetail({
 }
 
 function PullStatus({ pull }: { pull: PullQuest }) {
+  if (pull.cancelled)
+    return (
+      <span className="badge idle">
+        <X size={14} aria-hidden="true" /> 작업 취소
+      </span>
+    );
   if (pull.stage === 'idle') {
     const Icon = pull.draft ? GitPullRequestDraft : GitPullRequest;
     return (
@@ -1307,7 +1341,16 @@ function RegionDetail({
   close: () => void;
 }) {
   const quests = snapshot?.report?.quests ?? [];
+  const now = Date.now();
   const pulls = reportForges(snapshot?.report);
+  const currentFacilities = pulls.filter(
+    (pull) => !isHistoricFacility(pull.finishedAt, now),
+  );
+  const facilityHistory = pulls
+    .filter((pull) => isHistoricFacility(pull.finishedAt, now))
+    .sort((left, right) =>
+      (right.finishedAt ?? '').localeCompare(left.finishedAt ?? ''),
+    );
   const known = new Set(quests.map((quest) => quest.number));
   const roots = quests.filter(
     (quest) => !quest.parent || !known.has(quest.parent),
@@ -1352,6 +1395,31 @@ function RegionDetail({
       </li>
     );
   }
+  function facilityRows(entries: PullQuest[]) {
+    return (
+      <ul className="quest-tree">
+        {entries.map((pull) => {
+          const kind = facilityKind(pull.title);
+          return (
+            <li key={pull.number}>
+              <button className="quest-row" onClick={() => openPull(pull)}>
+                <FacilityGlyph kind={kind} />
+                <span>
+                  <small>
+                    {facilities[kind].name} · PR #{pull.number}
+                  </small>
+                  <strong>{pull.title}</strong>
+                </span>
+                <PullStatus pull={pull} />
+                <ChevronRight size={16} aria-hidden="true" />
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+    );
+  }
+
   return (
     <Dialog title={region.name} close={close}>
       <OutLink
@@ -1379,24 +1447,23 @@ function RegionDetail({
         ) : (
           <p>조회 범위에 퀘스트가 없습니다.</p>
         ))}
-      {pulls.length > 0 && (
+      {currentFacilities.length > 0 && (
         <>
-          <h4>대장간</h4>
-          <ul className="quest-tree">
-            {pulls.map((pull) => (
-              <li key={pull.number}>
-                <button className="quest-row" onClick={() => openPull(pull)}>
-                  <span>
-                    <small>PR #{pull.number}</small>
-                    <strong>{pull.title}</strong>
-                  </span>
-                  <PullStatus pull={pull} />
-                  <ChevronRight size={16} aria-hidden="true" />
-                </button>
-              </li>
-            ))}
-          </ul>
+          <h4>왕국 시설</h4>
+          {facilityRows(currentFacilities)}
         </>
+      )}
+      {facilityHistory.length > 0 && (
+        <details className="facility-history">
+          <summary>시설 이력</summary>
+          {facilityRows(facilityHistory)}
+          <OutLink
+            item={{
+              title: 'GitHub에서 종료된 PR 보기',
+              url: `https://github.com/${region.slug}/pulls?q=is%3Apr+is%3Aclosed`,
+            }}
+          />
+        </details>
       )}
       {!!snapshot?.report?.releases.length && (
         <>
@@ -1998,6 +2065,13 @@ function App() {
                       ?.issues
                   : [],
               );
+              const now = Date.now();
+              const visibleFacilities = forges.filter(
+                (pull) =>
+                  !isHistoricFacility(pull.finishedAt, now) ||
+                  (localFocus?.kind === 'pull' &&
+                    localFocus.number === pull.number),
+              );
               const portalNames = new Set<string>();
               const portals = (report?.releases ?? []).filter((release) => {
                 if (portalNames.has(release.title)) return false;
@@ -2042,14 +2116,14 @@ function App() {
                         <strong>{region.name}</strong>
                       </span>
                     </button>
-                    {(forges.length > 0 || portals.length > 0) && (
+                    {(visibleFacilities.length > 0 || portals.length > 0) && (
                       <ul
                         className="expeditions kingdom-workshops"
                         aria-label={`${region.name} 왕국 내부`}
                       >
-                        {forges.map((item) => (
+                        {visibleFacilities.map((item) => (
                           <li key={item.number}>
-                            <ForgeMarker
+                            <FacilityMarker
                               pull={item}
                               open={() => openPull(region, item)}
                               pulse={snapshot?.pulses?.[`pr-${item.number}`]}

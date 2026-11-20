@@ -12,6 +12,7 @@ import {
 } from './model.ts';
 import type { Comment, Issue, Pull, Run } from './model.ts';
 import { githubResponse } from './github.ts';
+import { facilityKind, isHistoricFacility } from '../src/facility-kind.ts';
 
 const commitTrail = repositoryRegion('han41858/commit-trail');
 const videx = repositoryRegion('han41858/videx');
@@ -872,4 +873,51 @@ test('forges represent many-to-many links and activate only the uniquely matched
       ambiguousQuests,
     ).every((forge) => !forge.adventurers?.length),
   );
+});
+
+test('facility classification uses the leading GitMoji and keeps a neutral default', () => {
+  assert.deepEqual(
+    ['✨', '🐛', '💄', '📝', '✅', '⚡️', '♻️', '🔒', '🚀'].map((emoji) =>
+      facilityKind(`  ${emoji} Change`),
+    ),
+    [
+      'forge',
+      'wall',
+      'garden',
+      'library',
+      'training',
+      'machine',
+      'repair',
+      'guard',
+      'portal',
+    ],
+  );
+  assert.equal(facilityKind('✨🐛 Mixed'), 'forge');
+  assert.equal(facilityKind('🎨 Ordinary title ✨'), 'workshop');
+  assert.equal(facilityKind('Ordinary title'), 'workshop');
+  assert.equal(facilityKind(''), 'workshop');
+});
+
+test('completed and cancelled facility ages use their respective GitHub events', () => {
+  const closed = {
+    ...pull,
+    state: 'closed',
+    closed_at: '2026-11-18T10:00:00Z',
+  };
+  const merged = { ...closed, number: 21, merged_at: '2026-11-19T10:00:01Z' };
+  const [cancelled, completed] = makeForges(
+    commitTrail,
+    [closed, merged],
+    [],
+    new Map(),
+  );
+  const today = Date.parse('2026-11-20T10:00:00Z');
+  assert.equal(cancelled.cancelled, true);
+  assert.equal(cancelled.stage, 'idle');
+  assert.equal(isHistoricFacility(cancelled.finishedAt, today), true);
+  assert.equal(completed.merged, true);
+  assert.equal(completed.stage, 'complete');
+  assert.equal(isHistoricFacility(completed.finishedAt, today), false);
+  assert.equal(isHistoricFacility(completed.finishedAt, today + 1000), true);
+  assert.equal(isHistoricFacility(undefined, today), false);
 });
