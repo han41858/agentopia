@@ -1,3 +1,4 @@
+import type { BranchInventory } from './branch-roads.ts';
 import { onePerPageCount, verifiedCount } from './heritage.ts';
 import type { Heritage, HeritageMetric } from './heritage.ts';
 import { credentialScope, githubGet, observeGitHub } from './github-query.ts';
@@ -720,6 +721,22 @@ async function getReport(
         : quest,
     ),
     forges,
+    branchPulls: pulls.flatMap((pull) =>
+      (pull.state === 'open' || pull.merged_at) &&
+      pull.base?.ref &&
+      pull.head.ref &&
+      pull.base.repo?.full_name.toLowerCase() === region.slug &&
+      pull.head.repo?.full_name.toLowerCase() === region.slug
+        ? [
+            {
+              number: pull.number,
+              base: pull.base.ref,
+              head: pull.head.ref,
+              merged: Boolean(pull.merged_at),
+            },
+          ]
+        : [],
+    ),
     releases: releases.map(({ title, url, status, stage }) => ({
       title,
       url,
@@ -775,6 +792,31 @@ export function regionReport(region: Region, token?: string, force = false) {
     },
   );
   return entry.value;
+}
+
+async function readBranches(
+  region: Region,
+  token?: string,
+  force = false,
+): Promise<BranchInventory> {
+  const get = client(region, token, force);
+  let partial = false;
+  const [repository, branches] = await Promise.all([
+    get<{ default_branch?: string }>('', undefined, 10 * 60_000),
+    get<{ name: string }[]>(
+      '/branches?per_page=100',
+      (next) => {
+        partial = next;
+      },
+      120_000,
+    ),
+  ]);
+  if (!repository.default_branch) throw new GitHubError(502);
+  return {
+    defaultBranch: repository.default_branch,
+    names: branches.map(({ name }) => name),
+    partial,
+  };
 }
 
 async function repositoryInfo(
@@ -1160,15 +1202,16 @@ export async function githubResponse(
       return reply(400, { error: 'PR 번호를 확인해 주세요.' });
     if (url.searchParams.get('repository') === '1')
       return reply(200, await repositoryInfo(region, authorization));
-    const result =
-      pull === null
-        ? await regionReport(
-            region,
-            authorization,
-            url.searchParams.get('refresh') === '1',
-          )
-        : await pullReviews(region, pull, authorization);
-    return reply(200, result);
+    if (pull !== null)
+      return reply(200, await pullReviews(region, pull, authorization));
+    const force = url.searchParams.get('refresh') === '1';
+    const [result, branchInventory] = await Promise.all([
+      regionReport(region, authorization, force),
+      url.searchParams.get('branches') === '1'
+        ? readBranches(region, authorization, force).catch(() => undefined)
+        : undefined,
+    ]);
+    return reply(200, { ...result, branchInventory });
   } catch (error) {
     if (error instanceof GitHubError) {
       if (error.rateLimited)

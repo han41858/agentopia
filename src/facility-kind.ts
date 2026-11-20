@@ -8,6 +8,9 @@ export type FacilityKind =
   | 'machine'
   | 'repair'
   | 'guard'
+  | 'control'
+  | 'supply'
+  | 'observatory'
   | 'portal';
 
 const kindsByMoji: Readonly<Record<string, FacilityKind>> = {
@@ -19,6 +22,14 @@ const kindsByMoji: Readonly<Record<string, FacilityKind>> = {
   '⚡': 'machine',
   '♻': 'repair',
   '🔒': 'guard',
+  '👷': 'control',
+  '💚': 'control',
+  '🔧': 'supply',
+  '📦': 'supply',
+  '⬆': 'supply',
+  '⬇': 'supply',
+  '📈': 'observatory',
+  '🔊': 'observatory',
   '🚀': 'portal',
 };
 

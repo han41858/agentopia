@@ -892,6 +892,9 @@ test('facility classification uses the leading GitMoji and keeps a neutral defau
       'portal',
     ],
   );
+  assert.equal(facilityKind('👷 CI'), 'control');
+  assert.equal(facilityKind('📦 Dependencies'), 'supply');
+  assert.equal(facilityKind('📈 Analytics'), 'observatory');
   assert.equal(facilityKind('✨🐛 Mixed'), 'forge');
   assert.equal(facilityKind('🎨 Ordinary title ✨'), 'workshop');
   assert.equal(facilityKind('Ordinary title'), 'workshop');
