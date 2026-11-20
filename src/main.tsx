@@ -3,7 +3,9 @@ import type { CSSProperties, FormEvent, ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 import {
   Castle,
-  Crown,
+  ClipboardCheck,
+  GitCommitHorizontal,
+  MessageCircle,
   Check,
   ChevronRight,
   Clock3,
@@ -34,6 +36,9 @@ import {
   stages,
 } from '../server/model.ts';
 import type {
+  ActivityCounts,
+  ActivityKind,
+  ActivityPage,
   PullQuest,
   Quest,
   Region,
@@ -73,6 +78,7 @@ function partyStates(report: Report) {
         quest.review,
         quest.victory,
         quest.adventurers,
+        quest.activities,
         quest.reason,
         quest.pulls
           .map(({ number, status }) => [number, status])
@@ -87,6 +93,7 @@ function partyStates(report: Report) {
         pull.author,
         pull.reviewer,
         pull.review,
+        pull.activities,
       ]),
     ]),
   ]);
@@ -245,9 +252,7 @@ function MonsterMarker({
   pulse?: number;
 }) {
   const defeated = quest.state === 'closed';
-  const StageIcon = glyph[quest.stage];
   const members = quest.adventurers ?? [];
-  const showParty = !defeated && members.length > 0;
   const resting = monsterRest(quest);
   const status = [
     defeated ? '몬스터 처치 완료' : '몬스터 출현',
@@ -264,30 +269,72 @@ function MonsterMarker({
   return (
     <button
       className={`expedition monster-marker${boss ? ' boss-marker' : ''}${alerts.has(quest.stage) ? ' blocked' : ''}${defeated ? ' closed-issue' : ''}`}
-      aria-label={`${boss ? '보스 몬스터' : '몬스터'} #${quest.number} · ${quest.title} · ${status}`}
+      aria-label={`${boss ? '보스 몬스터' : '몬스터'} #${quest.number} · ${quest.title} · ${status}${activityDescription(quest.activities)}`}
       title={`${quest.title} · ${status}`}
       onClick={open}
     >
       {pulse !== undefined && (
         <span key={pulse} className="party-pulse" aria-hidden="true" />
       )}
-      <span className="monster-encounter">
-        {showParty ? (
-          <AdventurerParty members={members} resting={resting} />
-        ) : (
-          <MonsterGlyph boss={boss} defeated={defeated} />
-        )}
-      </span>
-      <small className="expedition-number">
-        {boss && showParty && <Crown size={12} aria-hidden="true" />}
-        {defeated && <Check size={12} aria-hidden="true" />}
-        {quest.victory && <Trophy size={12} aria-hidden="true" />}
-        {quest.stage !== 'idle' && quest.stage !== 'complete' && (
-          <StageIcon size={12} aria-hidden="true" />
-        )}
-        #{quest.number}
-      </small>
+      <MonsterGlyph boss={boss} defeated={defeated} />
+      <small className="expedition-number">{`#${quest.number}`}</small>
+      <AdventurerParty members={members} resting={resting} />
+      <MonsterStatusIcons quest={quest} />
+      <ActivityCounters counts={quest.activities} />
     </button>
+  );
+}
+
+function MonsterStatusIcons({ quest }: { quest: Quest }) {
+  const StageIcon = glyph[quest.stage];
+  return (
+    <span className="monster-statuses" aria-hidden="true">
+      {quest.state === 'closed' && <Check size={12} />}
+      {quest.victory && <Trophy size={12} />}
+      {quest.stage !== 'idle' && quest.stage !== 'complete' && (
+        <StageIcon size={12} />
+      )}
+    </span>
+  );
+}
+
+const activityKinds = ['commits', 'comments', 'reviews'] as const;
+const activityDisplay = {
+  commits: { Icon: GitCommitHorizontal, label: '커밋' },
+  comments: { Icon: MessageCircle, label: '댓글' },
+  reviews: { Icon: ClipboardCheck, label: '리뷰' },
+};
+
+function activityDescription(counts?: ActivityCounts) {
+  return activityKinds
+    .map((kind) =>
+      counts?.[kind]
+        ? ` · ${activityDisplay[kind].label} ${counts[kind]}개`
+        : '',
+    )
+    .join('');
+}
+
+function ActivityCounters({ counts }: { counts?: ActivityCounts }) {
+  return (
+    <span className="activity-counters">
+      {activityKinds.map((kind) => {
+        const count = counts?.[kind];
+        if (!count) return null;
+        const { Icon, label } = activityDisplay[kind];
+        return (
+          <span
+            className="activity-counter"
+            key={kind}
+            title={`${label} ${count}개`}
+            aria-label={`${label} ${count}개`}
+          >
+            <Icon size={13} aria-hidden="true" />
+            {count}
+          </span>
+        );
+      })}
+    </span>
   );
 }
 
@@ -318,7 +365,7 @@ function PullMarker({
     : pull.draft
       ? GitPullRequestDraft
       : GitPullRequest;
-  const iconOnly = pull.stage === 'idle' || ci || pull.stage === 'complete';
+  const StageIcon = glyph[pull.stage];
   const label = [`PR #${pull.number}`, pull.title, pullActivity(pull)]
     .filter(Boolean)
     .join(' · ');
@@ -326,10 +373,8 @@ function PullMarker({
   return (
     <button
       className={`expedition pull-marker${alerts.has(pull.stage) ? ' blocked' : ''}`}
-      title={
-        alerts.has(pull.stage) || iconOnly ? label : `${label} · ${status}`
-      }
-      aria-label={`${label} · ${status}`}
+      title={`${label} · ${status}`}
+      aria-label={`${label} · ${status}${activityDescription(pull.activities)}`}
       onClick={open}
     >
       {pulse !== undefined && (
@@ -345,12 +390,11 @@ function PullMarker({
           <Icon size={15} aria-hidden="true" />
         )}
       </span>
-      <small className="expedition-number">PR #{pull.number}</small>
-      {alerts.has(pull.stage) ? (
-        <Badge stage={pull.stage} />
-      ) : iconOnly ? null : (
-        <small className="expedition-status-label">{status}</small>
+      <small className="expedition-number">{`PR #${pull.number}`}</small>
+      {!ci && pull.stage !== 'idle' && (
+        <StageIcon size={12} aria-hidden="true" />
       )}
+      <ActivityCounters counts={pull.activities} />
     </button>
   );
 }
@@ -480,7 +524,7 @@ function KingdomMonsters({
         </li>
       )}
       {pulls
-        .filter((pull) => !pull.merged)
+        .filter((pull) => !pull.merged || changed?.has(`pr-${pull.number}`))
         .map((pull) => (
           <li key={`pr-${pull.number}`}>
             <PullMarker
@@ -660,34 +704,133 @@ function Dialog({
   );
 }
 
-function Reviews({
+function ActivityBrowser({
   region,
-  pull,
+  number,
+  token,
+  kinds = activityKinds,
+  counts,
+}: {
+  region: string;
+  number: number;
+  token: string;
+  kinds?: readonly ActivityKind[];
+  counts?: ActivityCounts;
+}) {
+  const [selected, setSelected] = useState<ActivityKind>();
+  return (
+    <div className="activity-browser">
+      <div className="activity-counters">
+        {kinds.map((kind) => {
+          const { Icon, label } = activityDisplay[kind];
+          return (
+            <button
+              key={kind}
+              type="button"
+              className="text-button activity-counter"
+              title={label}
+              aria-label={
+                counts?.[kind] === undefined
+                  ? label
+                  : `${label} ${counts[kind]}개`
+              }
+              aria-expanded={selected === kind}
+              onClick={() => setSelected(selected === kind ? undefined : kind)}
+            >
+              <Icon size={16} aria-hidden="true" />
+              {counts?.[kind]}
+            </button>
+          );
+        })}
+      </div>
+      {selected && (
+        <ActivityEntries
+          key={`${region}:${number}:${selected}`}
+          region={region}
+          number={number}
+          kind={selected}
+          token={token}
+        />
+      )}
+    </div>
+  );
+}
+
+function ActivityEntries({
+  region,
+  number,
+  kind,
   token,
 }: {
   region: string;
-  pull: number;
+  number: number;
+  kind: ActivityKind;
   token: string;
 }) {
-  const [reviews, setReviews] = useState<Source[]>();
+  const [page, setPage] = useState(1);
+  const [result, setResult] = useState<ActivityPage>();
   const [error, setError] = useState('');
   useEffect(() => {
     const controller = new AbortController();
-    request<Source[]>(
-      new URLSearchParams({ repo: region, reviews: String(pull) }),
+    request<ActivityPage>(
+      new URLSearchParams({
+        repo: region,
+        activity: kind,
+        number: String(number),
+        page: String(page),
+      }),
       token,
       controller.signal,
-    ).then(setReviews, (cause: Error) => {
-      if (!controller.signal.aborted) setError(cause.message);
-    });
+    ).then(
+      (data) => {
+        if (!controller.signal.aborted) {
+          setResult((previous) => ({
+            entries:
+              page === 1
+                ? data.entries
+                : [...(previous?.entries ?? []), ...data.entries],
+            next: data.next,
+          }));
+        }
+      },
+      (cause: Error) => {
+        if (!controller.signal.aborted) setError(cause.message);
+      },
+    );
     return () => controller.abort();
-  }, [region, pull, token]);
+  }, [region, number, kind, page, token]);
   if (error) return <p className="fetch-error">{error}</p>;
-  if (!reviews) return <p>리뷰 조회 중…</p>;
-  return reviews.length ? (
-    reviews.map((item, index) => <OutLink key={index} item={item} />)
-  ) : (
-    <p>GitHub PR 리뷰 기록이 없습니다.</p>
+  if (!result) return <p role="status">GitHub 기록 조회 중…</p>;
+  return (
+    <div className="activity-entries">
+      {!result.entries.length && <p>GitHub 기록이 없습니다.</p>}
+      {result.entries.map((item) => (
+        <div className="activity-entry" key={item.url}>
+          <OutLink item={item} />
+          {(item.author || item.at) && (
+            <small>
+              {[
+                item.author,
+                item.at && new Date(item.at).toLocaleString('ko-KR'),
+              ]
+                .filter(Boolean)
+                .join(' · ')}
+            </small>
+          )}
+          {item.body && <p>{item.body}</p>}
+        </div>
+      ))}
+      {result.next && (
+        <button
+          type="button"
+          className="text-button"
+          disabled={page === result.next}
+          onClick={() => setPage(result.next ?? page)}
+        >
+          더 보기
+        </button>
+      )}
+    </div>
   );
 }
 
@@ -702,7 +845,7 @@ function QuestDetail({
   token: string;
   close: () => void;
 }) {
-  const [reviewPull, setReviewPull] = useState<number>();
+  const [activityPull, setActivityPull] = useState<number>();
   return (
     <Dialog
       title={`이슈 #${quest.number}`}
@@ -710,12 +853,38 @@ function QuestDetail({
       closeOnBackdrop
       close={close}
     >
-      <div className="monster-detail-heading">
-        <MonsterGlyph
-          boss={Boolean(quest.subIssueCount)}
-          defeated={quest.state === 'closed'}
-        />
-        <h3>{quest.title}</h3>
+      <h3>{quest.title}</h3>
+      <div className="battle-scene">
+        {(['codex', 'claude'] as const).map((agent) => {
+          const member = quest.adventurers?.find(
+            (item) => item.agent === agent,
+          );
+          return (
+            member && (
+              <div
+                className={`battle-adventurer ${agent}`}
+                key={agent}
+                title={partyLabel(member, monsterRest(quest))}
+                aria-label={partyLabel(member, monsterRest(quest))}
+              >
+                <AdventurerGlyph
+                  agent={agent}
+                  active={member.active}
+                  fallen={member.fallen}
+                />
+              </div>
+            )
+          );
+        })}
+        <div className="battle-monster">
+          <MonsterGlyph
+            boss={Boolean(quest.subIssueCount)}
+            defeated={quest.state === 'closed'}
+          />
+          <small className="expedition-number">{`#${quest.number}`}</small>
+          <MonsterStatusIcons quest={quest} />
+        </div>
+        <ActivityCounters counts={quest.activities} />
       </div>
       <IssueBadge quest={quest} />
       {quest.stateReason === 'not_planned' && (
@@ -744,6 +913,13 @@ function QuestDetail({
           현재 커밋의 AI 리뷰 결과 <strong>{quest.review}</strong>
         </p>
       )}
+      <ActivityBrowser
+        region={region.slug}
+        number={quest.number}
+        token={token}
+        kinds={['comments']}
+        counts={{ comments: quest.issueComments }}
+      />
       {(quest.pulls.length > 0 || quest.commit) && <h4>공략 결과</h4>}
       {quest.commit && <ResultLink item={quest.commit} />}
       {quest.pulls.map((item) => (
@@ -754,25 +930,28 @@ function QuestDetail({
             />
             <button
               className="text-button result-review"
-              title={reviewPull === item.number ? '리뷰 접기' : 'PR 리뷰 조회'}
-              aria-label={
-                reviewPull === item.number ? '리뷰 접기' : 'PR 리뷰 조회'
+              title={
+                activityPull === item.number ? 'PR 활동 접기' : 'PR 활동 보기'
               }
-              aria-expanded={reviewPull === item.number}
+              aria-label={
+                activityPull === item.number ? 'PR 활동 접기' : 'PR 활동 보기'
+              }
+              aria-expanded={activityPull === item.number}
               onClick={() =>
-                setReviewPull(
-                  reviewPull === item.number ? undefined : item.number,
+                setActivityPull(
+                  activityPull === item.number ? undefined : item.number,
                 )
               }
             >
               <GitPullRequest size={16} aria-hidden="true" />
             </button>
           </div>
-          {reviewPull === item.number && (
-            <Reviews
+          {activityPull === item.number && (
+            <ActivityBrowser
               key={item.number}
               region={region.slug}
-              pull={item.number}
+              number={item.number}
+              counts={item.activities}
               token={token}
             />
           )}
@@ -797,7 +976,6 @@ function PullDetail({
   token: string;
   close: () => void;
 }) {
-  const [showReviews, setShowReviews] = useState(false);
   const author = pull.author && agentNames[pull.author];
   const reviewer = pull.reviewer && agentNames[pull.reviewer];
   return (
@@ -811,16 +989,12 @@ function PullDetail({
         </p>
       )}
       <OutLink item={{ title: `GitHub PR #${pull.number}`, url: pull.url }} />
-      <button
-        className="text-button"
-        onClick={() => setShowReviews(!showReviews)}
-      >
-        <GitPullRequest size={14} aria-hidden="true" />{' '}
-        {showReviews ? '리뷰 접기' : 'PR 리뷰 조회'}
-      </button>
-      {showReviews && (
-        <Reviews region={region.slug} pull={pull.number} token={token} />
-      )}
+      <ActivityBrowser
+        region={region.slug}
+        number={pull.number}
+        token={token}
+        counts={pull.activities}
+      />
       {pull.runs.map((run) => (
         <OutLink key={run.url} item={run} />
       ))}
@@ -1509,7 +1683,13 @@ function App() {
                       state === 'open' ||
                       snapshots[region.slug]?.changed?.has(`issue-${number}`),
                   ) ||
-                    report.pullQuests?.some((item) => !item.merged)) ? (
+                    report.pullQuests?.some(
+                      (item) =>
+                        !item.merged ||
+                        snapshots[region.slug]?.changed?.has(
+                          `pr-${item.number}`,
+                        ),
+                    )) ? (
                     <KingdomMonsters
                       quests={report.quests}
                       pulls={report.pullQuests ?? []}

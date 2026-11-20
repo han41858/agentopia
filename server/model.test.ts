@@ -662,3 +662,126 @@ test('public refresh reuses recent reports, refreshes on demand, and honors rate
   await githubResponse(url, 'GET');
   assert.equal(issueRequests, 4);
 });
+
+test('activity counts follow verified links and failed actors follow the matching run attempt', () => {
+  const linked = { ...pull, number: 21, body: 'Closes #2' };
+  const unknown = {
+    ...pull,
+    number: 22,
+    body: 'Closes #3',
+    head: { ...pull.head, ref: 'feature/without-counts' },
+  };
+  const [knownQuest, unknownQuest] = makeQuests(
+    commitTrail,
+    [
+      { ...issue(2), comments: 3 },
+      { ...issue(3), comments: 0 },
+    ],
+    [pull, linked, unknown],
+    [
+      run(2, { status: 'completed', conclusion: 'failure' }),
+      run(3, { run_attempt: 2, status: 'completed', conclusion: 'failure' }),
+    ],
+    [comment(2, 'developing'), comment(3, 'developing')],
+    new Map(),
+    [],
+    new Map([
+      [
+        20,
+        { issues: [2], activities: { commits: 2, comments: 1, reviews: 0 } },
+      ],
+      [
+        21,
+        { issues: [2], activities: { commits: 4, comments: 2, reviews: 3 } },
+      ],
+    ]),
+  );
+  assert.deepEqual(knownQuest.activities, {
+    commits: 6,
+    comments: 6,
+    reviews: 3,
+  });
+  assert.equal(knownQuest.issueComments, 3);
+  assert.deepEqual(knownQuest.pulls[1].activities, {
+    commits: 4,
+    comments: 2,
+    reviews: 3,
+  });
+  assert.equal(knownQuest.adventurers?.[0].fallen, true);
+  assert.equal(knownQuest.adventurers?.[0].active, undefined);
+  assert.equal(unknownQuest.activities?.commits, undefined);
+  assert.equal(unknownQuest.activities?.comments, 0);
+  assert.equal(unknownQuest.adventurers?.[0]?.fallen, undefined);
+});
+
+test('activity detail requests stay on the validated GitHub resource and omit unpublished reviews', async (context) => {
+  const link = 'https://github.com/example/project/pull/23#pullrequestreview-1';
+  const get = context.mock.method(
+    globalThis,
+    'fetch',
+    async (input: string, options: RequestInit) => {
+      const url = new URL(input);
+      assert.equal(url.origin, 'https://api.github.com');
+      assert.equal(
+        new Headers(options.headers).get('authorization'),
+        'Bearer activity_token',
+      );
+      assert.equal(url.searchParams.get('per_page'), '30');
+      assert.equal(url.searchParams.get('page'), '2');
+      switch (url.pathname) {
+        case '/repos/example/project/pulls/23/reviews':
+          return Response.json([
+            {
+              user: { login: 'agent' },
+              html_url: link,
+              state: 'APPROVED',
+              body: 'Looks good\n<!-- hidden -->',
+              submitted_at: stamp,
+            },
+            { state: 'PENDING', body: 'Unpublished' },
+          ]);
+        case '/repos/example/project/pulls/23/commits':
+          return Response.json([
+            { sha, html_url: link, commit: { message: 'Implement change' } },
+          ]);
+        case '/repos/example/project/issues/23/comments':
+          return Response.json([
+            {
+              user: { login: 'maintainer' },
+              html_url: link,
+              body: 'Discuss change',
+              created_at: stamp,
+            },
+          ]);
+        default:
+          throw new Error('Unexpected GitHub resource');
+      }
+    },
+  );
+  const requestActivity = (kind: string, number = '23') =>
+    githubResponse(
+      new URL(
+        `https://agentopia.test/api/github?repo=example/project&activity=${kind}&number=${number}&page=2`,
+      ),
+      'GET',
+      'Bearer activity_token',
+    );
+  assert.equal((await requestActivity('reviews', '%2F23')).status, 400);
+  assert.equal(get.mock.callCount(), 0);
+  const [reviews, commits, comments] = await Promise.all(
+    ['reviews', 'commits', 'comments'].map((kind) => requestActivity(kind)),
+  );
+  assert.deepEqual(JSON.parse(reviews.body), {
+    entries: [
+      {
+        title: 'agent',
+        url: link,
+        status: 'APPROVED',
+        body: 'Looks good',
+        at: stamp,
+      },
+    ],
+  });
+  assert.equal(JSON.parse(commits.body).entries[0].body, 'Implement change');
+  assert.equal(JSON.parse(comments.body).entries[0].body, 'Discuss change');
+});

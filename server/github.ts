@@ -10,6 +10,9 @@ import {
   runStage,
 } from './model.ts';
 import type {
+  ActivityEntry,
+  ActivityKind,
+  ActivityPage,
   Comment,
   Issue,
   Pull,
@@ -214,6 +217,9 @@ async function listRepositories(
 
 type NativePull = {
   number: number;
+  commits?: { totalCount: number };
+  comments?: { totalCount: number };
+  reviews?: { totalCount: number };
   closingIssuesReferences: {
     nodes: { number: number; repository: { nameWithOwner: string } }[];
   };
@@ -233,25 +239,39 @@ async function nativePullLinks(region: Region, token: string, pulls: Pull[]) {
     query($owner: String!, $name: String!) {
       repository(owner: $owner, name: $name) {
         pullRequests(first: 50, states: OPEN, orderBy: {field: UPDATED_AT, direction: DESC}) {
-          nodes {
-            number
-            closingIssuesReferences(first: 20) { nodes { number repository { nameWithOwner } } }
-            latestReviews(first: 10) { nodes { author { login __typename } state submittedAt commit { oid } } }
-          }
+          nodes { ...PullActivity }
+        }
+        merged: pullRequests(first: 50, states: MERGED, orderBy: {field: UPDATED_AT, direction: DESC}) {
+          nodes { ...PullActivity }
         }
       }
+    }
+    fragment PullActivity on PullRequest {
+      number
+      commits { totalCount }
+      comments { totalCount }
+      reviews(states: [APPROVED, CHANGES_REQUESTED, COMMENTED, DISMISSED]) { totalCount }
+      closingIssuesReferences(first: 20) { nodes { number repository { nameWithOwner } } }
+      latestReviews(first: 10) { nodes { author { login __typename } state submittedAt commit { oid } } }
     }`;
   const data = await githubGraphql<{
-    repository?: { pullRequests: { nodes: NativePull[] } };
+    repository?: {
+      pullRequests: { nodes: NativePull[] };
+      merged?: { nodes: NativePull[] };
+    };
   }>(query, { owner, name }, token);
-  const nodes = data.repository?.pullRequests.nodes;
-  if (!nodes) throw new GitHubError(404);
+  if (!data.repository) throw new GitHubError(404);
+  const nodes = [
+    ...data.repository.pullRequests.nodes,
+    ...(data.repository.merged?.nodes ?? []),
+  ];
 
   const headByNumber = new Map(
     pulls.map((pull) => [pull.number, pull.head.sha]),
   );
   const links = new Map<number, PullLinks>();
   for (const pull of nodes) {
+    if (!headByNumber.has(pull.number)) continue;
     const issues = pull.closingIssuesReferences.nodes
       .filter(
         (issue) => issue.repository.nameWithOwner.toLowerCase() === region.slug,
@@ -273,6 +293,11 @@ async function nativePullLinks(region: Region, token: string, pulls: Pull[]) {
     );
     links.set(pull.number, {
       issues,
+      activities: {
+        commits: pull.commits?.totalCount,
+        comments: pull.comments?.totalCount,
+        reviews: pull.reviews?.totalCount,
+      },
       reviewer,
       review: reviewer ? latest.state : undefined,
     });
@@ -339,7 +364,7 @@ async function getReport(region: Region, token?: string): Promise<Report> {
     pulls.sort((a, b) => b.updated_at.localeCompare(a.updated_at));
   }
   const pullLinks =
-    token && pulls.some(({ state }) => state === 'open')
+    token && pulls.some(({ state, merged_at }) => state === 'open' || merged_at)
       ? await optional(
           'PR 이슈 연결 및 리뷰',
           nativePullLinks(region, token, pulls),
@@ -546,6 +571,63 @@ async function pullReviews(
   }));
 }
 
+async function activityPage(
+  region: Region,
+  kind: ActivityKind,
+  number: string,
+  page: number,
+  token?: string,
+): Promise<ActivityPage> {
+  const get = client(region, token);
+  const query = `?per_page=30&page=${page}`;
+  let entries: ActivityEntry[];
+  let resultCount: number;
+  if (kind === 'commits') {
+    const result = await get<
+      {
+        sha: string;
+        html_url: string;
+        author?: { login: string } | null;
+        commit: { message: string; author?: { date?: string; name?: string } };
+      }[]
+    >(`/pulls/${number}/commits${query}`);
+    resultCount = result.length;
+    entries = result.map((item) => ({
+      title: item.sha.slice(0, 7),
+      url: item.html_url,
+      author: item.author?.login ?? item.commit.author?.name,
+      body: item.commit.message,
+      at: item.commit.author?.date,
+    }));
+  } else {
+    const resource =
+      kind === 'comments'
+        ? `/issues/${number}/comments`
+        : `/pulls/${number}/reviews`;
+    const result = await get<
+      {
+        user?: { login: string } | null;
+        state?: string;
+        html_url: string;
+        body?: string | null;
+        created_at?: string;
+        submitted_at?: string;
+      }[]
+    >(resource + query);
+    resultCount = result.length;
+    entries = result
+      .filter((item) => kind !== 'reviews' || item.state !== 'PENDING')
+      .map((item) => ({
+        title: item.user?.login ?? 'GitHub',
+        url: item.html_url,
+        status: item.state,
+        body: item.body?.replace(/<!--[\s\S]*?-->/g, '').trim() || undefined,
+        at: item.submitted_at ?? item.created_at,
+      }));
+  }
+  return { entries, next: resultCount === 30 ? page + 1 : undefined };
+}
+
 export async function githubResponse(
   url: URL,
   method: string | undefined,
@@ -574,6 +656,29 @@ export async function githubResponse(
     const slug = repositorySlug(url.searchParams.get('repo') ?? '');
     if (!slug) return reply(400, { error: '지원하는 저장소를 선택해 주세요.' });
     const region = repositoryRegion(slug);
+    const activity = url.searchParams.get('activity');
+    if (activity !== null) {
+      const number = url.searchParams.get('number') ?? '';
+      const page = url.searchParams.get('page') ?? '1';
+      if (
+        (activity !== 'commits' &&
+          activity !== 'comments' &&
+          activity !== 'reviews') ||
+        !/^[1-9]\d{0,11}$/.test(number) ||
+        !/^[1-9]\d{0,3}$/.test(page)
+      )
+        return reply(400, { error: '조회할 GitHub 활동을 확인해 주세요.' });
+      return reply(
+        200,
+        await activityPage(
+          region,
+          activity,
+          number,
+          Number(page),
+          authorization,
+        ),
+      );
+    }
     const pull = url.searchParams.get('reviews');
     if (pull !== null && !/^[1-9]\d{0,11}$/.test(pull))
       return reply(400, { error: 'PR 번호를 확인해 주세요.' });
