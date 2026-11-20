@@ -19,14 +19,12 @@ import {
   Plus,
   RefreshCw,
   RotateCcw,
-  Rocket,
   ScrollText,
   Swords,
   Skull,
   Trophy,
   DoorOpen,
   Ticket,
-  Workflow,
   X,
 } from 'lucide-react';
 import {
@@ -52,6 +50,8 @@ import type {
 import {
   AdventurerGlyph,
   AdventurerParty,
+  PartyLeaderGlyph,
+  PortalKeeperGlyph,
   agentNames,
   MonsterGlyph,
   partyLabel,
@@ -341,8 +341,8 @@ const glyph = {
   developing: Swords,
   revising: RotateCcw,
   reviewing: ScrollText,
-  ci: Workflow,
-  deploying: Rocket,
+  ci: PartyLeaderGlyph,
+  deploying: PortalKeeperGlyph,
   merging: GitPullRequest,
   complete: Trophy,
   returned: DoorOpen,
@@ -585,7 +585,7 @@ function FacilityMarker({
           {!activeMembers.length && reviewing && (
             <ScrollText className="facility-tool" size={13} />
           )}
-          {quality && <Workflow className="facility-test" size={13} />}
+          {quality && <PartyLeaderGlyph className="facility-test" size={18} />}
           {pull.stage === 'merging' && (
             <GitPullRequest className="facility-result" size={13} />
           )}
@@ -2373,7 +2373,7 @@ function App() {
         <footer className="world-footer">
           <ul className="expedition-legend" aria-label="기본 파티 구성">
             <li className="actions">
-              <Workflow size={14} aria-hidden="true" /> 파티장
+              <PartyLeaderGlyph /> 파티장
             </li>
             <li className="codex">
               <AdventurerGlyph agent="codex" /> Codex
@@ -2382,7 +2382,7 @@ function App() {
               <AdventurerGlyph agent="claude" /> Claude
             </li>
             <li className="release">
-              <Rocket size={14} aria-hidden="true" /> 포탈 관리자
+              <PortalKeeperGlyph /> 포탈 관리자
             </li>
           </ul>
         </footer>

@@ -332,12 +332,6 @@ svg {
 .monster-glyph.boss {
   min-width: 33px;
   min-height: 34px;
-  padding-top: 10px;
-}
-.monster-crown {
-  position: absolute;
-  top: 0;
-  color: #f3d69a;
 }
 .monster-glyph.defeated {
   color: #b7c1ca;
@@ -373,6 +367,18 @@ svg {
   background-size: 100px 20px;
   background-position: -20px 0;
   image-rendering: pixelated;
+}
+.party-sprite {
+  display: inline-block;
+  flex: none;
+  background-size: 500% 100%;
+  background-repeat: no-repeat;
+}
+.party-sprite.actions {
+  background-position: 75% 0;
+}
+.party-sprite.release {
+  background-position: 0 0;
 }
 .adventurer-glyph.claude .adventurer-avatar {
   background-position: -40px 0;
@@ -949,7 +955,7 @@ svg {
   border-radius: 2px;
   color: #ffb3a6;
 }
-.monster-glyph.defeated > svg:not(.monster-crown, .monster-remains) {
+.monster-glyph.defeated > svg:not(.monster-remains) {
   transform: rotate(64deg) scale(0.85);
 }
 .monster-remains {
@@ -1030,7 +1036,6 @@ svg {
   border-color: color-mix(in srgb, currentColor, #142430 55%);
 }
 .facility-tool,
-.facility-test,
 .facility-result {
   position: absolute;
   top: -4px;
@@ -1040,7 +1045,6 @@ svg {
   background: #242329;
 }
 .facility-tool,
-.facility-test,
 .facility-build,
 .facility-marker .adventurer-role {
   background: transparent;
@@ -1057,7 +1061,8 @@ svg {
   filter: drop-shadow(0 1px 1px #10171c);
 }
 .facility-test {
-  right: auto;
+  position: absolute;
+  top: -4px;
   left: -3px;
   color: #c9e9ff;
   animation: forge-test 1.6s ease-in-out infinite;
