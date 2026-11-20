@@ -1,3 +1,5 @@
+import { latestOpinion, reviewOpinion } from './activity.ts';
+import type { Discussion, PullActivity } from './activity.ts';
 import {
   linkedPullIssues,
   makePullQuests,
@@ -48,7 +50,10 @@ function client(region?: Region, token?: string) {
   const root = region
     ? `https://api.github.com/repos/${region.slug}`
     : 'https://api.github.com';
-  return async function get<T>(path: string): Promise<T> {
+  return async function get<T>(
+    path: string,
+    pagination?: (hasNext: boolean) => void,
+  ): Promise<T> {
     const headers: Record<string, string> = {
       Accept: 'application/vnd.github+json',
       'X-GitHub-Api-Version': '2022-11-28',
@@ -79,6 +84,7 @@ function client(region?: Region, token?: string) {
       }
       throw error;
     }
+    pagination?.(/rel="next"/.test(response.headers.get('link') ?? ''));
     return response.json() as Promise<T>;
   };
 }
@@ -215,11 +221,24 @@ async function listRepositories(
   };
 }
 
+type Login = { login: string };
+type NativeDiscussion = {
+  totalCount: number;
+  nodes: { author: Login | null }[];
+};
+type NativeReview = {
+  author: Login | null;
+  state: string;
+  submittedAt: string | null;
+};
+
 type NativePull = {
   number: number;
-  commits?: { totalCount: number };
-  comments?: { totalCount: number };
-  reviews?: { totalCount: number };
+  author?: Login | null;
+  commits?: { totalCount: number; nodes?: { commit: { oid: string } }[] };
+  comments?: NativeDiscussion;
+  reviews?: NativeDiscussion;
+  latestOpinionatedReviews?: { nodes: NativeReview[] };
   closingIssuesReferences: {
     nodes: { number: number; repository: { nameWithOwner: string } }[];
   };
@@ -244,13 +263,23 @@ async function nativePullLinks(region: Region, token: string, pulls: Pull[]) {
         merged: pullRequests(first: 50, states: MERGED, orderBy: {field: UPDATED_AT, direction: DESC}) {
           nodes { ...PullActivity }
         }
+        issues(first: 50, orderBy: {field: UPDATED_AT, direction: DESC}) {
+          nodes {
+            number
+            timelineItems(last: 1, itemTypes: [REOPENED_EVENT, CLOSED_EVENT]) { nodes { __typename } }
+          }
+        }
       }
     }
     fragment PullActivity on PullRequest {
       number
-      commits { totalCount }
-      comments { totalCount }
-      reviews(states: [APPROVED, CHANGES_REQUESTED, COMMENTED, DISMISSED]) { totalCount }
+      author { login }
+      commits(first: 35) { totalCount nodes { commit { oid } } }
+      comments(last: 25) { totalCount nodes { author { login } } }
+      reviews(last: 25, states: [APPROVED, CHANGES_REQUESTED, COMMENTED, DISMISSED]) {
+        totalCount nodes { author { login } }
+      }
+      latestOpinionatedReviews(last: 25) { nodes { state submittedAt } }
       closingIssuesReferences(first: 20) { nodes { number repository { nameWithOwner } } }
       latestReviews(first: 10) { nodes { author { login __typename } state submittedAt commit { oid } } }
     }`;
@@ -258,6 +287,12 @@ async function nativePullLinks(region: Region, token: string, pulls: Pull[]) {
     repository?: {
       pullRequests: { nodes: NativePull[] };
       merged?: { nodes: NativePull[] };
+      issues?: {
+        nodes: {
+          number: number;
+          timelineItems: { nodes: { __typename: string }[] };
+        }[];
+      };
     };
   }>(query, { owner, name }, token);
   if (!data.repository) throw new GitHubError(404);
@@ -291,8 +326,31 @@ async function nativePullLinks(region: Region, token: string, pulls: Pull[]) {
       latest?.author?.login,
       latest?.author?.__typename,
     );
+    const commenters = pull.comments?.nodes ?? [];
+    const reviewers = pull.reviews?.nodes ?? [];
+    const opinions = pull.latestOpinionatedReviews?.nodes ?? [];
+    const activity: PullActivity = {
+      shas: pull.commits?.nodes?.map(({ commit }) => commit.oid) ?? [],
+      commits: pull.commits?.totalCount,
+      comments: pull.comments?.totalCount,
+      reviews: pull.reviews?.totalCount,
+      people: [
+        pull.author?.login,
+        ...[...commenters, ...reviewers].map(({ author }) => author?.login),
+      ].filter((login): login is string => Boolean(login)),
+      complete:
+        pull.comments?.totalCount === commenters.length &&
+        pull.reviews?.totalCount === reviewers.length,
+      opinion: latestOpinion(
+        opinions.flatMap(({ state, submittedAt }) => {
+          const opinion = reviewOpinion(state, submittedAt);
+          return opinion ? [opinion] : [];
+        }),
+      ),
+    };
     links.set(pull.number, {
       issues,
+      activity,
       activities: {
         commits: pull.commits?.totalCount,
         comments: pull.comments?.totalCount,
@@ -302,7 +360,50 @@ async function nativePullLinks(region: Region, token: string, pulls: Pull[]) {
       review: reviewer ? latest.state : undefined,
     });
   }
-  return links;
+  const reopened = new Set(
+    (data.repository.issues?.nodes ?? [])
+      .filter(
+        ({ timelineItems }) =>
+          timelineItems.nodes[0]?.__typename === 'ReopenedEvent',
+      )
+      .map(({ number }) => number),
+  );
+  return { links, reopened };
+}
+
+const publicCommitSamples = new Map<
+  string,
+  { expires: number; value: Promise<Pick<PullActivity, 'shas' | 'commits'>> }
+>();
+
+function publicCommitSample(
+  region: Region,
+  pull: Pull,
+  get: ReturnType<typeof client>,
+) {
+  const key = `${region.slug}:${pull.number}:${pull.head.sha}`;
+  const cached = publicCommitSamples.get(key);
+  if (cached && cached.expires > Date.now()) return cached.value;
+  if (publicCommitSamples.size >= 64) {
+    const oldest = publicCommitSamples.keys().next().value;
+    if (oldest) publicCommitSamples.delete(oldest);
+  }
+  let complete = false;
+  const value = get<{ sha: string }[]>(
+    `/pulls/${pull.number}/commits?per_page=35`,
+    (next) => {
+      complete = !next;
+    },
+  ).then((commits) => ({
+    shas: commits.map(({ sha }) => sha),
+    commits: complete ? commits.length : undefined,
+  }));
+  publicCommitSamples.set(key, { expires: Date.now() + 10 * 60_000, value });
+  void value.catch(() => {
+    if (publicCommitSamples.get(key)?.value === value)
+      publicCommitSamples.delete(key);
+  });
+  return value;
 }
 
 async function getReport(region: Region, token?: string): Promise<Report> {
@@ -363,14 +464,50 @@ async function getReport(region: Region, token?: string): Promise<Report> {
     pulls.push(...open.filter(({ number }) => !seen.has(number)));
     pulls.sort((a, b) => b.updated_at.localeCompare(a.updated_at));
   }
-  const pullLinks =
+  const { links: pullLinks, reopened } =
     token && pulls.some(({ state, merged_at }) => state === 'open' || merged_at)
       ? await optional(
           'PR 이슈 연결 및 리뷰',
           nativePullLinks(region, token, pulls),
-          new Map<number, PullLinks>(),
+          { links: new Map<number, PullLinks>(), reopened: new Set<number>() },
         )
-      : new Map<number, PullLinks>();
+      : { links: new Map<number, PullLinks>(), reopened: new Set<number>() };
+  if (!token) {
+    const commentsByPull = new Map(
+      issuePage
+        .filter((issue) => issue.pull_request)
+        .map((issue) => [issue.number, issue.comments]),
+    );
+    const samples = pulls
+      .filter((pull) => pull.state === 'open' || pull.merged_at)
+      .slice(0, 2);
+    await Promise.all(
+      samples.map(async (pull) => {
+        const sample = await optional(
+          'PR 커밋 일부',
+          publicCommitSample(region, pull, get),
+          undefined,
+        );
+        if (!sample) return;
+        pullLinks.set(pull.number, {
+          issues: [],
+          activity: {
+            ...sample,
+            comments: commentsByPull.get(pull.number),
+            people: [],
+            complete: false,
+          },
+        });
+      }),
+    );
+    for (const [number, count] of commentsByPull) {
+      if (!pullLinks.has(number))
+        pullLinks.set(number, {
+          issues: [],
+          activity: { shas: [], comments: count, people: [], complete: false },
+        });
+    }
+  }
   const linked = [
     ...new Set([
       ...runs.map(runIssue),
@@ -475,7 +612,11 @@ async function getReport(region: Region, token?: string): Promise<Report> {
     pullLinks,
   );
   return {
-    quests,
+    quests: quests.map((quest) =>
+      quest.state === 'open' && reopened.has(quest.number)
+        ? { ...quest, reopened: true }
+        : quest,
+    ),
     pullQuests: makePullQuests(
       region,
       pulls,
@@ -628,6 +769,100 @@ async function activityPage(
   return { entries, next: resultCount === 30 ? page + 1 : undefined };
 }
 
+async function activitySummary(
+  region: Region,
+  scope: 'issue' | 'pull',
+  number: string,
+  token?: string,
+) {
+  const get = client(region, token);
+  async function collect<T>(path: string, maxPages: number) {
+    const entries: T[] = [];
+    let hasNext = true;
+    for (let page = 1; hasNext && page <= maxPages; page++) {
+      const batch = await get<T[]>(
+        `${path}?per_page=100&page=${page}`,
+        (next) => {
+          hasNext = next;
+        },
+      );
+      entries.push(...batch);
+    }
+    return { entries, complete: !hasNext };
+  }
+
+  const comments = collect<{ user?: Login | null }>(
+    `/issues/${number}/comments`,
+    5,
+  );
+  if (scope === 'issue') {
+    const [issue, discussion] = await Promise.all([
+      get<{ user?: Login | null; comments: number; pull_request?: unknown }>(
+        `/issues/${number}`,
+      ),
+      comments,
+    ]);
+    if (issue.pull_request) throw new GitHubError(404);
+    return {
+      comments: issue.comments,
+      people: [
+        issue.user,
+        ...discussion.entries.map(({ user }) => user),
+      ].flatMap((user) => (user ? [user.login] : [])),
+      complete:
+        discussion.complete && discussion.entries.length === issue.comments,
+    } satisfies Discussion;
+  }
+
+  const [pull, discussion, commits, reviews] = await Promise.all([
+    get<{ user?: Login | null; comments: number; commits: number }>(
+      `/pulls/${number}`,
+    ),
+    comments,
+    collect<{ sha: string }>(`/pulls/${number}/commits`, 3),
+    collect<{ user?: Login | null; state: string; submitted_at?: string }>(
+      `/pulls/${number}/reviews`,
+      5,
+    ),
+  ]);
+  const published = reviews.entries.filter(({ state }) => state !== 'PENDING');
+  const effective = new Map<string, (typeof published)[number]>();
+  for (const review of published) {
+    const login = review.user?.login.toLowerCase();
+    if (
+      !login ||
+      !review.submitted_at ||
+      !['APPROVED', 'CHANGES_REQUESTED', 'DISMISSED'].includes(review.state)
+    )
+      continue;
+    if (review.submitted_at >= (effective.get(login)?.submitted_at ?? ''))
+      effective.set(login, review);
+  }
+  return {
+    shas: commits.entries.map(({ sha }) => sha),
+    commits: pull.commits,
+    comments: pull.comments,
+    reviews: reviews.complete ? published.length : undefined,
+    people: [
+      pull.user,
+      ...discussion.entries.map(({ user }) => user),
+      ...published.map(({ user }) => user),
+    ].flatMap((user) => (user ? [user.login] : [])),
+    complete:
+      discussion.complete &&
+      discussion.entries.length === pull.comments &&
+      reviews.complete,
+    opinion: reviews.complete
+      ? latestOpinion(
+          [...effective.values()].flatMap(({ state, submitted_at }) => {
+            const opinion = reviewOpinion(state, submitted_at);
+            return opinion ? [opinion] : [];
+          }),
+        )
+      : undefined,
+  } satisfies PullActivity;
+}
+
 export async function githubResponse(
   url: URL,
   method: string | undefined,
@@ -656,6 +891,19 @@ export async function githubResponse(
     const slug = repositorySlug(url.searchParams.get('repo') ?? '');
     if (!slug) return reply(400, { error: '지원하는 저장소를 선택해 주세요.' });
     const region = repositoryRegion(slug);
+    const summary = url.searchParams.get('summary');
+    if (summary !== null) {
+      const number = url.searchParams.get('number') ?? '';
+      if (
+        (summary !== 'issue' && summary !== 'pull') ||
+        !/^[1-9]\d{0,11}$/.test(number)
+      )
+        return reply(400, { error: '조회할 GitHub 활동을 확인해 주세요.' });
+      return reply(
+        200,
+        await activitySummary(region, summary, number, authorization),
+      );
+    }
     const activity = url.searchParams.get('activity');
     if (activity !== null) {
       const number = url.searchParams.get('number') ?? '';

@@ -1,3 +1,6 @@
+import { summarizeActivity } from './activity.ts';
+import type { ActivityProfile, PullActivity } from './activity.ts';
+
 export type Region = {
   slug: string;
   name: string;
@@ -87,6 +90,8 @@ export type Quest = {
   victory?: boolean;
   adventurers?: Adventurer[];
   activities?: ActivityCounts;
+  activity?: ActivityProfile;
+  reopened?: boolean;
   issueComments?: number;
   subIssueCount?: number;
   parent?: number;
@@ -104,6 +109,7 @@ export type PullQuest = Source & {
   number: number;
   draft: boolean;
   merged?: boolean;
+  activity?: ActivityProfile;
   activities?: ActivityCounts;
   stage: Stage;
   author?: Agent;
@@ -113,6 +119,7 @@ export type PullQuest = Source & {
 };
 
 export type PullLinks = {
+  activity?: PullActivity;
   issues: number[];
   activities?: ActivityCounts;
   reviewer?: Agent;
@@ -134,6 +141,7 @@ export type Issue = {
   state: string;
   state_reason?: string | null;
   pull_request?: unknown;
+  user?: { login: string } | null;
   labels: { name: string }[];
   comments?: number;
   sub_issues_summary?: { total: number };
@@ -352,6 +360,9 @@ export function makePullQuests(
         url: pull.html_url,
         draft: pull.draft,
         merged: Boolean(pull.merged_at),
+        activity: summarizeActivity(undefined, [
+          pullDiscussion(pull, review?.activity),
+        ]),
         activities: review?.activities,
         stage: pull.merged_at
           ? 'complete'
@@ -366,6 +377,23 @@ export function makePullQuests(
         runs: relatedRuns.slice(0, 8).map(runSource),
       };
     });
+}
+
+function pullDiscussion(
+  pull: Pull,
+  known?: PullActivity,
+  commenters: string[] = [],
+): PullActivity {
+  return {
+    shas: [],
+    ...known,
+    complete: known?.complete ?? false,
+    people: [
+      pull.user?.login ?? '',
+      ...(known?.people ?? []),
+      ...commenters,
+    ].filter(Boolean),
+  };
 }
 
 export function makeQuests(
@@ -410,6 +438,14 @@ export function makeQuests(
   const childrenByIssue = new Map<number, number>();
   for (const parent of parents.values())
     childrenByIssue.set(parent, (childrenByIssue.get(parent) ?? 0) + 1);
+
+  const discussion = new Map<number, Map<string, string>>();
+  for (const entry of comments) {
+    const number = Number(entry.issue_url.split('/').pop());
+    const conversation = discussion.get(number) ?? new Map<string, string>();
+    conversation.set(entry.html_url, entry.user?.login ?? '');
+    discussion.set(number, conversation);
+  }
 
   return issues.map((issue) => {
     const issuePulls = pullsByIssue.get(issue.number) ?? [];
@@ -616,24 +652,28 @@ export function makeQuests(
           }
         : undefined;
 
-    function pullActivityTotal(kind: ActivityKind) {
-      if (!issuePulls.length) return undefined;
-      let count = 0;
-      for (const item of issuePulls) {
-        const total = pullLinks.get(item.number)?.activities?.[kind];
-        if (total === undefined) return undefined;
-        count += total;
-      }
-      return count;
-    }
-    const pullComments = pullActivityTotal('comments');
+    const issueDiscussion = discussion.get(issue.number);
+    const activity = summarizeActivity(
+      {
+        comments: issue.comments,
+        people: [
+          issue.user?.login ?? '',
+          ...(issueDiscussion?.values() ?? []),
+        ].filter(Boolean),
+        complete:
+          issue.comments !== undefined &&
+          issue.comments === (issueDiscussion?.size ?? 0),
+      },
+      issuePulls.map((pull) =>
+        pullDiscussion(pull, pullLinks.get(pull.number)?.activity, [
+          ...(discussion.get(pull.number)?.values() ?? []),
+        ]),
+      ),
+    );
     const activities = {
-      comments:
-        issue.comments === undefined
-          ? pullComments
-          : issue.comments + (pullComments ?? 0),
-      commits: pullActivityTotal('commits') ?? (commit ? 1 : undefined),
-      reviews: pullActivityTotal('reviews') ?? state?.reviews?.length,
+      commits: activity.commits,
+      comments: activity.issueComments,
+      reviews: activity.reviews,
     };
 
     return {
@@ -643,9 +683,14 @@ export function makeQuests(
       stage,
       state: issue.state,
       stateReason: issue.state_reason,
+      reopened:
+        issue.state === 'open' && issue.state_reason === 'reopened'
+          ? true
+          : undefined,
       victory,
       adventurers: [...adventurers.values()],
       activities,
+      activity,
       issueComments: issue.comments,
       subIssueCount:
         Math.max(
