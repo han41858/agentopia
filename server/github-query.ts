@@ -1,7 +1,7 @@
 import {
   githubDebugEnabled,
   recordCoreUsage,
-  recordGitHubRequest,
+  recordRefreshResponse,
 } from './github-debug.ts';
 import { createHash } from 'node:crypto';
 
@@ -111,12 +111,15 @@ export async function githubGet(
       undefined,
       Number(requestUrl.searchParams.get('page')) > 1,
     );
-    recordGitHubRequest(scope);
     const response = await fetch(url, {
       headers,
       redirect: 'error',
       signal: AbortSignal.timeout(9000),
+    }).catch((error) => {
+      recordRefreshResponse(undefined, Boolean(token));
+      throw error;
     });
+    recordRefreshResponse(response, Boolean(token));
     recordCoreUsage(scope, response.headers);
     observeGitHub(repo, endpoint, 'response', response.status);
     let result: QueryResponse;

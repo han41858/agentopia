@@ -1,50 +1,65 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { githubDebugSnapshot, recordCoreUsage } from './github-debug.ts';
+import {
+  githubDebugSnapshot,
+  measureRefresh,
+  recordCoreUsage,
+  recordRefreshResponse,
+} from './github-debug.ts';
 import { githubGet } from './github-query.ts';
-import { githubResponse } from './github.ts';
 
-test('debug counts real requests, expires its rolling window, and only reports Core quota', async (context) => {
+const headers = {
+  etag: '"debug-test"',
+  'x-ratelimit-resource': 'core',
+  'x-ratelimit-limit': '5000',
+  'x-ratelimit-used': '2340',
+  'x-ratelimit-remaining': '2660',
+  'x-ratelimit-reset': '1800003600',
+};
+
+test('isolates overlapping refreshes and only attributes issued requests', async (context) => {
   context.mock.method(console, 'debug', () => {});
-  const previous = process.env.AGENTOPIA_GITHUB_DEBUG;
-  delete process.env.AGENTOPIA_GITHUB_DEBUG;
-  context.after(() => {
-    if (previous === undefined) delete process.env.AGENTOPIA_GITHUB_DEBUG;
-    else process.env.AGENTOPIA_GITHUB_DEBUG = previous;
-  });
-  let now = 1_800_000_000_000;
-  context.mock.method(Date, 'now', () => now);
-  const headers = {
-    etag: '"debug-test"',
-    'x-ratelimit-resource': 'core',
-    'x-ratelimit-limit': '5000',
-    'x-ratelimit-used': '2340',
-    'x-ratelimit-remaining': '2660',
-    'x-ratelimit-reset': String(now / 1000 + 3600),
-  };
-  const fetch = context.mock.method(
+  context.mock.method(Date, 'now', () => 1_800_000_000_000);
+  const calls = context.mock.method(
     globalThis,
     'fetch',
-    async (_url: string, init: RequestInit) =>
-      new Headers(init.headers).has('If-None-Match')
-        ? new Response(null, { status: 304, headers })
-        : Response.json([], { headers }),
+    async (url: string, init: RequestInit) => {
+      if (new Headers(init.headers).has('If-None-Match'))
+        return new Response(null, { status: 304, headers });
+      return Response.json([], {
+        headers: {
+          ...headers,
+          'x-ratelimit-used': url.endsWith('other') ? '2378' : '2340',
+        },
+      });
+    },
   );
-  const get = (ttl: number) =>
+  const get = (endpoint: string, ttl = 0) =>
     githubGet(
-      'https://api.github.com/repos/example/debug/metadata',
+      `https://api.github.com/repos/example/debug/${endpoint}`,
       'example/debug',
       undefined,
       {},
       ttl,
       async () => {},
     );
-  await Promise.all([get(0), get(0)]);
-  await get(10_000);
-  assert.equal(githubDebugSnapshot('public').requestsPerSecond, 1 / 60);
-  now += 30_000;
-  await get(0);
-  assert.equal(fetch.mock.callCount(), 2);
+  const [owner, concurrent, other] = await Promise.all([
+    measureRefresh(() => get('report')),
+    measureRefresh(() => get('report')),
+    measureRefresh(() => get('other')),
+  ]);
+  assert.deepEqual(owner.usage, { consumed: 1, limit: 5000 });
+  assert.deepEqual(concurrent.usage, { consumed: 0, limit: undefined });
+  assert.deepEqual(other.usage, { consumed: 1, limit: 5000 });
+  assert.equal(
+    (await measureRefresh(() => get('report', 10000))).usage.consumed,
+    0,
+  );
+  assert.equal(
+    (await measureRefresh(() => get('report'))).usage.consumed,
+    undefined,
+  );
+  assert.equal(calls.mock.callCount(), 3);
   recordCoreUsage(
     'public',
     new Headers({
@@ -53,22 +68,23 @@ test('debug counts real requests, expires its rolling window, and only reports C
       'x-ratelimit-used': '5',
     }),
   );
-  const url = new URL('https://agentopia.test/api/github?debug=usage');
-  const result = JSON.parse((await githubResponse(url, 'GET')).body);
-  assert.equal(result.requestsPerSecond, 2 / 60);
-  assert.equal(result.core.used, 2340);
-  assert.deepEqual(
-    JSON.parse((await githubResponse(url, 'GET', 'Bearer other_token')).body),
-    { requestsPerSecond: 0 },
-  );
-  now += 30_000;
-  assert.equal(githubDebugSnapshot('public').requestsPerSecond, 1 / 60);
-  now += 3_540_000;
-  assert.deepEqual(githubDebugSnapshot('public'), {
-    requestsPerSecond: 0,
-    core: undefined,
+  assert.equal(githubDebugSnapshot('public').core?.used, 2378);
+});
+
+test('excludes authenticated 304 and non-Core usage and leaves unclassified requests unknown', async () => {
+  const exempt = await measureRefresh(async () => {
+    recordRefreshResponse(new Response(null, { status: 304, headers }), true);
+    recordRefreshResponse(
+      new Response(null, {
+        status: 200,
+        headers: { 'x-ratelimit-resource': 'search' },
+      }),
+      true,
+    );
   });
-  process.env.AGENTOPIA_GITHUB_DEBUG = '0';
-  assert.equal((await githubResponse(url, 'GET')).status, 404);
-  assert.equal(fetch.mock.callCount(), 2);
+  assert.equal(exempt.usage.consumed, 0);
+  const unknown = await measureRefresh(async () =>
+    recordRefreshResponse(undefined, true),
+  );
+  assert.equal(unknown.usage.consumed, undefined);
 });

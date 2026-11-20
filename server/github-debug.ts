@@ -1,3 +1,5 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
+
 export type CoreUsage = {
   limit?: number;
   used?: number;
@@ -5,46 +7,59 @@ export type CoreUsage = {
   reset?: number;
 };
 
+export type RefreshConsumption = { consumed?: number; limit?: number };
 export type GitHubDebugSnapshot = {
-  requestsPerSecond: number;
+  refresh?: RefreshConsumption;
   core?: CoreUsage;
 };
+type Measurement = { consumed: number; uncertain: boolean; limit?: number };
 
-type ScopeUsage = {
-  buckets: Map<number, number>;
-  core?: CoreUsage;
-};
-
-const windowSeconds = 60;
-const scopes = new Map<string, ScopeUsage>();
+const scopes = new Map<string, CoreUsage>();
+const refresh = new AsyncLocalStorage<Measurement>();
 
 export function githubDebugEnabled() {
   return process.env.AGENTOPIA_GITHUB_DEBUG !== '0';
 }
 
-function prune(buckets: Map<number, number>, second: number) {
-  for (const bucket of buckets.keys())
-    if (bucket <= second - windowSeconds) buckets.delete(bucket);
+export async function measureRefresh<T>(load: () => Promise<T>) {
+  const measurement = {
+    consumed: 0,
+    uncertain: false,
+    limit: undefined,
+  } as Measurement;
+  const result = await refresh.run(measurement, load);
+  return {
+    result,
+    usage: {
+      consumed: measurement.uncertain ? undefined : measurement.consumed,
+      limit: measurement.limit,
+    } satisfies RefreshConsumption,
+  };
 }
 
-function scopeUsage(scope: string) {
-  const previous = scopes.get(scope);
-  if (scopes.size >= 128 && !previous) {
-    const oldest = scopes.keys().next().value;
-    if (oldest !== undefined) scopes.delete(oldest);
+export function recordRefreshResponse(
+  response: Response | undefined,
+  authenticated: boolean,
+) {
+  const usage = refresh.getStore();
+  if (!usage) return;
+  const resource = response?.headers.get('x-ratelimit-resource');
+  if (resource && resource !== 'core') return;
+  if (response?.status === 304 && authenticated) return;
+  if (!response?.ok || resource !== 'core') {
+    usage.uncertain = true;
+    return;
   }
-  const usage = previous ?? { buckets: new Map<number, number>() };
-  scopes.delete(scope);
-  scopes.set(scope, usage);
-  return usage;
-}
 
-export function recordGitHubRequest(scope: string) {
-  if (!githubDebugEnabled()) return;
-  const usage = scopeUsage(scope);
-  const second = Math.floor(Date.now() / 1000);
-  prune(usage.buckets, second);
-  usage.buckets.set(second, (usage.buckets.get(second) ?? 0) + 1);
+  // A successful REST Core request uses one request from the primary quota.
+  // Quota header deltas may include other clients and are never attributed here.
+  usage.consumed++;
+  const limit = count(response.headers, 'limit');
+  if (limit !== undefined) {
+    if (usage.limit !== undefined && usage.limit !== limit)
+      usage.uncertain = true;
+    usage.limit = limit;
+  }
 }
 
 function count(headers: Headers, key: string) {
@@ -64,8 +79,7 @@ export function recordCoreUsage(scope: string, headers: Headers) {
     reset: count(headers, 'reset'),
   };
   if (Object.values(core).every((value) => value === undefined)) return;
-  const usage = scopeUsage(scope);
-  const previous = usage.core;
+  const previous = scopes.get(scope);
   if (previous?.reset !== undefined) {
     if (core.reset === undefined && previous.reset * 1000 > Date.now()) return;
     if (core.reset !== undefined && core.reset < previous.reset) return;
@@ -77,21 +91,20 @@ export function recordCoreUsage(scope: string, headers: Headers) {
     )
       return;
   }
-  usage.core = core;
+  if (scopes.size >= 128 && !previous) {
+    const oldest = scopes.keys().next().value;
+    if (oldest !== undefined) scopes.delete(oldest);
+  }
+  scopes.delete(scope);
+  scopes.set(scope, core);
 }
 
 export function githubDebugSnapshot(scope: string): GitHubDebugSnapshot {
-  const usage = scopes.get(scope);
-  const second = Math.floor(Date.now() / 1000);
-  const core = usage?.core;
-  const buckets = usage?.buckets;
-  if (buckets) prune(buckets, second);
-  const requests = [...(buckets?.values() ?? [])].reduce(
-    (sum, amount) => sum + amount,
-    0,
-  );
+  const core = scopes.get(scope);
   return {
-    requestsPerSecond: requests / windowSeconds,
-    core: core?.reset !== undefined && core.reset <= second ? undefined : core,
+    core:
+      core?.reset !== undefined && core.reset * 1000 <= Date.now()
+        ? undefined
+        : core,
   };
 }
