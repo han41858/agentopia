@@ -197,6 +197,8 @@ svg {
   gap: clamp(12px, 2vw, 24px);
 }
 .kingdom-area {
+  --courtyard: oklch(84% 0.045 var(--kingdom-hue));
+  --accent: oklch(30% 0.07 var(--kingdom-hue));
   --mortar: color-mix(in srgb, var(--land) 32%, #16242a);
   --stone: color-mix(in srgb, var(--land) 67%, #5f6a71);
   position: relative;
@@ -216,9 +218,9 @@ svg {
   transform-origin: center top;
 }
 .kingdom-wall-masonry {
-  fill: color-mix(in srgb, var(--land) 15%, #142430);
+  fill: var(--courtyard);
   stroke: var(--mortar);
-  stroke-width: 10px;
+  stroke-width: 6px;
 }
 .kingdom-wall-crenels {
   fill: none;
@@ -229,7 +231,7 @@ svg {
 .kingdom-wall-edge {
   fill: none;
   stroke: var(--stone);
-  stroke-width: 5px;
+  stroke-width: 2px;
 }
 .kingdom {
   display: grid;
@@ -245,7 +247,7 @@ svg {
   text-align: center;
 }
 .kingdom:hover .kingdom-crest {
-  color: color-mix(in srgb, var(--accent), white 35%);
+  color: color-mix(in srgb, var(--accent), black 25%);
 }
 .kingdom-label {
   min-width: 0;
@@ -312,6 +314,13 @@ svg {
 .expedition.blocked {
   --accent: #ffb4aa;
   box-shadow: inset 0 0 0 1px #bd6c60;
+}
+.kingdom-area .expedition:hover,
+.kingdom-area .expedition[data-highlight='related'] {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+.kingdom-area .expedition.blocked {
+  --accent: #842e24;
 }
 .expedition.closed-issue {
   --accent: #bbc8d3;
@@ -1173,8 +1182,7 @@ svg {
 }
 .heritage-slot:hover,
 .heritage-slot:focus-visible {
-  background: #314338;
-  color: #fff0bb;
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
 }
 .heritage-building {
   display: flex;
@@ -1182,23 +1190,15 @@ svg {
   flex-direction: column;
   max-width: 100%;
 }
-.heritage-sprite {
-  position: relative;
-}
 .heritage-building .facility-sprite {
-  width: min(calc(18px + var(--heritage-tier) * 2.8px), 10vw);
-  height: calc(18px + var(--heritage-tier) * 3px);
+  width: min(calc(26px + var(--heritage-tier) * 2.4px), 11vw);
+  height: min(calc(26px + var(--heritage-tier) * 2.4px), 11vw);
   transition:
     width 250ms ease,
     height 250ms ease;
 }
-.heritage-building .heritage-emblem {
-  position: absolute;
-  right: -3px;
-  top: -3px;
-  border-radius: 2px;
-  color: currentColor;
-  background: #192d25;
+.heritage-building .facility-sprite-highlight {
+  fill: #fff0ba;
 }
 .heritage-plinth {
   width: 24px;
