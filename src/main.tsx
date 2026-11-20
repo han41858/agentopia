@@ -2281,10 +2281,10 @@ function App() {
                             (quest) => quest.runs.length,
                           )) && (
                           <span
-                            className="kingdom-guild-master"
+                            className="kingdom-party-leader"
                             role="img"
-                            aria-label="GitHub Actions · 길드 마스터"
-                            title="GitHub Actions · 길드 마스터"
+                            aria-label="GitHub Actions · 파티장"
+                            title="GitHub Actions · 파티장"
                           >
                             <Workflow size={14} aria-hidden="true" />
                           </span>
@@ -2370,7 +2370,7 @@ function App() {
         <footer className="world-footer">
           <ul className="expedition-legend" aria-label="기본 파티 구성">
             <li className="actions">
-              <Workflow size={14} aria-hidden="true" /> 길드 마스터
+              <Workflow size={14} aria-hidden="true" /> 파티장
             </li>
             <li className="codex">
               <AdventurerGlyph agent="codex" /> Codex
