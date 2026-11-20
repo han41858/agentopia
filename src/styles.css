@@ -202,11 +202,11 @@ svg {
   position: relative;
   isolation: isolate;
   width: max-content;
-  min-width: min(100%, 285px);
+  min-width: min(100%, 162px);
   max-width: min(100%, 720px);
-  padding: 12px clamp(10px, 2.5vw, 24px) 16px;
+  padding: 18px clamp(10px, 3.2vw, 26px) 22px;
   border: 8px solid var(--stone);
-  border-radius: 24px 24px 20px 20px;
+  border-radius: 46% / min(45%, 60px);
   background: color-mix(in srgb, var(--land) 15%, #142430);
   box-shadow:
     inset 0 0 0 2px var(--mortar),
@@ -216,8 +216,8 @@ svg {
 .kingdom-area::after {
   content: '';
   position: absolute;
-  inset-inline: 14px;
-  height: 7px;
+  inset-inline: 42%;
+  height: 6px;
   pointer-events: none;
   background: repeating-linear-gradient(
     90deg,
@@ -227,7 +227,7 @@ svg {
   );
 }
 .kingdom-area::before {
-  top: -12px;
+  top: -11px;
 }
 .kingdom-area::after {
   bottom: -8px;
@@ -1150,21 +1150,25 @@ svg {
   cursor: pointer;
 }
 
+.kingdom-area:has(.heritage-slot) {
+  min-width: min(100%, 285px);
+}
 .heritage-arc {
   display: grid;
-  grid-template-columns: repeat(7, minmax(0, 1fr));
-  width: min(400px, 100%);
-  min-height: 91px;
-  margin: 0 auto 5px;
-  position: relative;
+  grid-template-columns: repeat(var(--heritage-count), minmax(0, 1fr));
+  width: min(calc(var(--heritage-count) * 44px), 100%);
+  margin: 0 auto 2px;
+}
+.heritage-arc:empty {
+  min-height: 1px;
+  margin: 0 auto;
 }
 .heritage-slot {
-  --arc-drop: 31px;
   display: grid;
   place-items: end center;
   position: relative;
   align-self: start;
-  height: 53px;
+  height: 45px;
   width: 100%;
   min-width: 0;
   margin-top: var(--arc-drop);
@@ -1173,17 +1177,6 @@ svg {
   border-radius: 5px;
   background: transparent;
   color: #e4dbad;
-}
-.heritage-slot:nth-child(2),
-.heritage-slot:nth-child(6) {
-  --arc-drop: 15px;
-}
-.heritage-slot:nth-child(3),
-.heritage-slot:nth-child(5) {
-  --arc-drop: 4px;
-}
-.heritage-slot:nth-child(4) {
-  --arc-drop: 0px;
 }
 .heritage-slot:hover,
 .heritage-slot:focus-visible {
@@ -1213,10 +1206,6 @@ svg {
   border-radius: 2px;
   color: currentColor;
   background: #192d25;
-}
-.heritage-slot[data-known='false'] .facility-sprite {
-  opacity: 0.55;
-  filter: grayscale(1);
 }
 .heritage-plinth {
   width: 24px;

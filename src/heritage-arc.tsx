@@ -3,7 +3,6 @@ import type { CSSProperties } from 'react';
 import {
   Archive,
   BookOpen,
-  CircleHelp,
   Crown,
   Flag,
   Landmark,
@@ -156,27 +155,35 @@ export function HeritageArc({
   }, [slug, token, load, onLoad]);
 
   const data = snapshot?.token === token ? snapshot.data : undefined;
+  const visible = heritageKeys.flatMap((metric) => {
+    const record = data?.[metric];
+    const tier = heritageTier(metric, record?.count);
+    return record && tier >= 2 ? [{ metric, record, tier }] : [];
+  });
   return (
     <div
       ref={element}
       className="heritage-arc"
-      role="group"
-      aria-label={`${name}의 유산`}
+      role={visible.length ? 'group' : undefined}
+      aria-label={visible.length ? `${name}의 유산` : undefined}
+      style={{ '--heritage-count': visible.length } as CSSProperties}
     >
-      {heritageKeys.map((metric) => {
+      {visible.map(({ metric, record, tier }, index) => {
         const { title, kind, Emblem } = heritageBuildings[metric];
-        const record = data?.[metric];
-        const tier = heritageTier(metric, record?.count);
+        const midpoint = (visible.length - 1) / 2;
+        const offset = midpoint
+          ? Math.round(18 * (Math.abs(index - midpoint) / midpoint) ** 2)
+          : 0;
         return (
           <button
             key={metric}
             type="button"
             className="heritage-slot"
             data-metric={metric}
-            data-known={record !== undefined}
             data-tier={tier}
             title={title}
-            aria-label={record ? title : `${title} · 미확인`}
+            aria-label={title}
+            style={{ '--arc-drop': `${offset}px` } as CSSProperties}
             onClick={() => open(metric, record)}
           >
             <span
@@ -186,13 +193,9 @@ export function HeritageArc({
             >
               <span className="heritage-sprite">
                 <FacilityGlyph kind={kind} />
-                {record ? (
-                  <Emblem className="heritage-emblem" size={11} />
-                ) : (
-                  <CircleHelp className="heritage-emblem" size={11} />
-                )}
+                <Emblem className="heritage-emblem" size={11} />
               </span>
-              {tier > 1 && <span className="heritage-plinth" />}
+              <span className="heritage-plinth" />
               {tier > 3 && <span className="heritage-plinth upper" />}
             </span>
           </button>

@@ -401,6 +401,7 @@ function MonsterMarker({
           quest.activity && {
             ...quest.activity,
             reviews: undefined,
+            participants: undefined,
             opinion: undefined,
           }
         }
@@ -413,28 +414,30 @@ function MonsterMarker({
         />
       </ActivityAura>
       <small className="expedition-number">{`#${quest.number}`}</small>
-      <AdventurerParty
-        members={
-          quest.workPull === undefined
-            ? members
-            : members.filter((member) => !member.active && !member.fallen)
-        }
-        resting={resting}
-      />
-      <MonsterStatusIcons quest={quest} />
+      <AdventurerParty members={members} resting={resting} />
+      <MonsterStatusIcons quest={quest} hideCombat />
     </button>
   );
 }
 
-function MonsterStatusIcons({ quest }: { quest: Quest }) {
+function MonsterStatusIcons({
+  quest,
+  hideCombat = false,
+}: {
+  quest: Quest;
+  hideCombat?: boolean;
+}) {
   const StageIcon = glyph[quest.stage];
   return (
     <span className="monster-statuses" aria-hidden="true">
       {quest.state === 'closed' && <Check size={12} />}
       {quest.victory && <Trophy size={12} />}
-      {quest.stage !== 'idle' && quest.stage !== 'complete' && (
-        <StageIcon size={12} />
-      )}
+      {quest.stage !== 'idle' &&
+        quest.stage !== 'complete' &&
+        !(
+          hideCombat &&
+          (quest.stage === 'developing' || quest.stage === 'revising')
+        ) && <StageIcon size={12} />}
     </span>
   );
 }
