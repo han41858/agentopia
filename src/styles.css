@@ -1021,12 +1021,13 @@ svg {
   place-items: center;
   width: 32px;
   height: 28px;
-  border: 1px solid color-mix(in srgb, currentColor, #142430 55%);
+  border: 1px solid transparent;
   border-radius: 4px;
-  background: #242329;
+  background: transparent;
 }
 .facility-core[data-draft='true'] {
   border-style: dashed;
+  border-color: color-mix(in srgb, currentColor, #142430 55%);
 }
 .facility-tool,
 .facility-test,
