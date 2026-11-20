@@ -621,22 +621,6 @@ function KingdomMonsters({
   const priority = (quest: Quest) =>
     alerts.has(quest.stage) ? 2 : activeStages.has(quest.stage) ? 1 : 0;
   const comparePriority = (a: Quest, b: Quest) => priority(b) - priority(a);
-  if (highlight !== undefined) {
-    let current = byNumber.get(highlight);
-    while (current && !visible.has(current.number)) {
-      visible.add(current.number);
-      current =
-        current.parent === undefined ? undefined : byNumber.get(current.parent);
-    }
-  }
-  for (const number of related) {
-    let current = byNumber.get(number);
-    while (current && !visible.has(current.number)) {
-      visible.add(current.number);
-      current =
-        current.parent === undefined ? undefined : byNumber.get(current.parent);
-    }
-  }
   const roots = quests
     .filter(
       ({ number, parent }) =>
@@ -2133,10 +2117,7 @@ function App() {
               );
               const now = Date.now();
               const visibleFacilities = forges.filter(
-                (pull) =>
-                  !isHistoricFacility(pull.finishedAt, now) ||
-                  (localFocus?.kind === 'pull' &&
-                    localFocus.number === pull.number),
+                (pull) => !isHistoricFacility(pull.finishedAt, now),
               );
               const portalNames = new Set<string>();
               const portals = (report?.releases ?? []).filter((release) => {
