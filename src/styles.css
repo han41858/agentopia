@@ -356,9 +356,6 @@ svg {
   place-items: center;
   width: 22px;
   height: 22px;
-  border: 1px solid currentColor;
-  border-radius: 5px;
-  background: #15212f;
 }
 .adventurer-avatar {
   width: 20px;
@@ -385,10 +382,6 @@ svg {
 }
 .adventurer-glyph:not(.active) .adventurer-avatar {
   opacity: 0.67;
-}
-.adventurer-glyph.fallen {
-  color: #ffb4aa;
-  border-style: dashed;
 }
 .adventurer-glyph.fallen .adventurer-avatar {
   transform: rotate(-70deg) scale(0.8);
@@ -422,9 +415,6 @@ svg {
 }
 .adventurer-glyph.fallen {
   color: #ffb4aa;
-}
-.adventurer-glyph.active {
-  background: color-mix(in srgb, currentColor 24%, #15212f);
 }
 .adventurer-role {
   position: absolute;
@@ -1056,8 +1046,6 @@ svg {
   right: -6px;
 }
 .facility-worker .adventurer-glyph {
-  border-color: transparent;
-  background: transparent;
   filter: drop-shadow(0 1px 1px #10171c);
 }
 .facility-test {
