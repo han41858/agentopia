@@ -77,8 +77,12 @@ import type {
   HeritageMetric,
   HeritageRecord,
 } from '../server/heritage.ts';
-import { GitHubUsage } from './github-usage.tsx';
+import { GitHubUsage, publishGitHubUsage } from './github-usage.tsx';
 import { KingdomWall } from './kingdom-wall.tsx';
+import type {
+  GitHubDebugSnapshot,
+  RefreshConsumption,
+} from '../server/github-debug.ts';
 import './styles.css';
 
 function reportForges(report?: Report) {
@@ -658,11 +662,25 @@ async function request<T>(
   params: URLSearchParams,
   token: string,
   signal: AbortSignal,
+  onUsage?: (usage?: RefreshConsumption) => void,
 ): Promise<T> {
   const response = await fetch(`/api/github?${params}`, {
     signal,
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   });
+  const header = response.headers.get('X-Agentopia-GitHub-Usage');
+  let snapshot: GitHubDebugSnapshot | undefined;
+  if (header) {
+    try {
+      snapshot = JSON.parse(header) as GitHubDebugSnapshot;
+    } catch {
+      // Invalid diagnostics should not interrupt repository updates.
+    }
+  }
+  if (!signal.aborted) {
+    publishGitHubUsage(token, snapshot);
+    onUsage?.(snapshot?.refresh);
+  }
   const body = await response.json();
   if (!response.ok)
     throw new RequestError(
@@ -1769,6 +1787,10 @@ function App() {
   const [snapshots, setSnapshots] = useState<Record<string, Snapshot>>({});
   const [selected, setSelected] = useState<Region>();
   const [selectedQuest, setSelectedQuest] = useState<MapEntry>();
+  const [refreshUsage, setRefreshUsage] = useState<{
+    token: string;
+    usage: RefreshConsumption;
+  }>();
   const [selectedHeritage, setSelectedHeritage] = useState<HeritageSelection>();
   const [inspected, setInspected] = useState<MapEntry>();
   const updateSelectedHeritage = useCallback((slug: string, data: Heritage) => {
@@ -1845,7 +1867,9 @@ function App() {
     const slugs = new Set(worldRegions.map(({ slug }) => slug));
     for (const slug of jobs.keys()) if (!slugs.has(slug)) jobs.delete(slug);
     const pending = new Set<string>();
-    const forced = new Set<string>();
+    let forceRequested = false;
+    let nextBatch = 0;
+    let publishedBatch = 0;
     let timer: number | undefined;
 
     function schedule() {
@@ -1855,13 +1879,20 @@ function App() {
       const now = Date.now();
       const hidden = document.visibilityState !== 'visible';
       let next = Infinity;
-      for (const slug of slugs) {
-        if (pending.has(slug)) continue;
-        const job = jobs.get(slug);
-        const due = job ? refreshDue(job.last, job.interval, hidden) : now;
-        if (due <= now || forced.has(slug))
-          void sync(slug, forced.delete(slug));
-        else next = Math.min(next, due);
+      if (forceRequested) {
+        if (pending.size) return;
+        forceRequested = false;
+        void syncBatch([...slugs], true);
+      } else {
+        const dueSlugs: string[] = [];
+        for (const slug of slugs) {
+          if (pending.has(slug)) continue;
+          const job = jobs.get(slug);
+          const due = job ? refreshDue(job.last, job.interval, hidden) : now;
+          if (due <= now) dueSlugs.push(slug);
+          else next = Math.min(next, due);
+        }
+        if (dueSlugs.length) void syncBatch(dueSlugs, false);
       }
       setLoading(pending.size > 0);
       if (Number.isFinite(next)) {
@@ -1871,13 +1902,46 @@ function App() {
       }
     }
 
+    async function syncBatch(batch: string[], force: boolean) {
+      if (!batch.length) return;
+      const id = ++nextBatch;
+      const usages = await Promise.all(batch.map((slug) => sync(slug, force)));
+      if (controller.signal.aborted || id < publishedBatch) return;
+      publishedBatch = id;
+      const limits = new Set(
+        usages.flatMap((usage) =>
+          usage?.limit === undefined ? [] : [usage.limit],
+        ),
+      );
+      const consumed =
+        limits.size <= 1 &&
+        usages.every((usage) => usage?.consumed !== undefined)
+          ? usages.reduce((sum, usage) => sum + (usage?.consumed ?? 0), 0)
+          : undefined;
+      setRefreshUsage({
+        token,
+        usage: {
+          consumed,
+          limit: limits.size === 1 ? limits.values().next().value : undefined,
+        },
+      });
+    }
+
     async function sync(slug: string, force: boolean) {
       pending.add(slug);
       const previous = jobs.get(slug);
+      let usage: RefreshConsumption | undefined;
       try {
-        const params = new URLSearchParams({ repo: slug });
+        const params = new URLSearchParams({ repo: slug, measure: 'refresh' });
         if (force) params.set('refresh', '1');
-        const report = await request<Report>(params, token, controller.signal);
+        const report = await request<Report>(
+          params,
+          token,
+          controller.signal,
+          (measured) => {
+            usage = measured;
+          },
+        );
         if (controller.signal.aborted) return;
         const prior = previous?.report && partyStates(previous.report);
         const current = partyStates(report);
@@ -1922,10 +1986,11 @@ function App() {
         pending.delete(slug);
         schedule();
       }
+      return usage;
     }
 
     refresh.current = () => {
-      for (const slug of slugs) forced.add(slug);
+      forceRequested = true;
       schedule();
     };
     schedule();
@@ -2060,7 +2125,12 @@ function App() {
                   aria-hidden="true"
                 />
               </button>
-              <GitHubUsage token={token} />
+              <GitHubUsage
+                token={token}
+                refresh={
+                  refreshUsage?.token === token ? refreshUsage.usage : undefined
+                }
+              />
             </div>
           </div>
         </header>

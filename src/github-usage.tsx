@@ -1,5 +1,9 @@
 import { useEffect, useId, useRef, useState } from 'react';
-import type { GitHubDebugSnapshot } from '../server/github-debug.ts';
+import type {
+  CoreUsage,
+  GitHubDebugSnapshot,
+  RefreshConsumption,
+} from '../server/github-debug.ts';
 
 const formatNumber = (value?: number) => value?.toLocaleString('ko-KR') ?? '—';
 const resetTime = new Intl.DateTimeFormat('ko-KR', {
@@ -8,11 +12,24 @@ const resetTime = new Intl.DateTimeFormat('ko-KR', {
   timeZone: 'Asia/Seoul',
 });
 
-export function GitHubUsage({ token }: { token: string }) {
-  const [reading, setReading] = useState<{
-    token: string;
-    snapshot?: GitHubDebugSnapshot;
-  }>();
+type UsageListener = (token: string, snapshot?: GitHubDebugSnapshot) => void;
+const usageListeners = new Set<UsageListener>();
+
+export function publishGitHubUsage(
+  token: string,
+  snapshot?: GitHubDebugSnapshot,
+) {
+  for (const listener of usageListeners) listener(token, snapshot);
+}
+
+export function GitHubUsage({
+  token,
+  refresh,
+}: {
+  token: string;
+  refresh?: RefreshConsumption;
+}) {
+  const [reading, setReading] = useState<{ token: string; core?: CoreUsage }>();
   const [hover, setHover] = useState(false);
   const [focus, setFocus] = useState(false);
   const [pinned, setPinned] = useState(false);
@@ -21,49 +38,30 @@ export function GitHubUsage({ token }: { token: string }) {
   const open = hover || focus || pinned;
 
   useEffect(() => {
-    const controller = new AbortController();
-    let timer: number | undefined;
-    let pending = false;
-    let available = true;
-    async function poll() {
-      window.clearTimeout(timer);
-      if (!available || pending || document.hidden || controller.signal.aborted)
+    const update: UsageListener = (scope, snapshot) => {
+      if (scope !== token) return;
+      if (!snapshot) {
+        setReading(undefined);
         return;
-      pending = true;
-      try {
-        const response = await fetch('/api/github?debug=usage', {
-          signal: controller.signal,
-          headers: token ? { Authorization: `Bearer ${token}` } : {},
-        });
-        if (controller.signal.aborted) return;
-        if (response.status === 404) {
-          available = false;
-          setReading(undefined);
-        } else if (response.ok) {
-          const snapshot: GitHubDebugSnapshot = await response.json();
-          if (!controller.signal.aborted) setReading({ token, snapshot });
-        } else {
-          setReading((current) =>
-            current?.token === token ? { token } : undefined,
-          );
-        }
-      } catch {
-        if (!controller.signal.aborted)
-          setReading((current) =>
-            current?.token === token ? { token } : undefined,
-          );
-      } finally {
-        pending = false;
-        if (available && !document.hidden && !controller.signal.aborted)
-          timer = window.setTimeout(poll, 2500);
       }
-    }
-    void poll();
-    document.addEventListener('visibilitychange', poll);
+      const core = snapshot.core;
+      setReading((previous) => {
+        const old = previous?.token === token ? previous.core : undefined;
+        const fresh = old?.reset !== undefined && old.reset * 1000 > Date.now();
+        const older =
+          fresh &&
+          (core?.reset === undefined ||
+            core.reset < old.reset! ||
+            (core.reset === old.reset && (core.used ?? -1) < (old.used ?? -1)));
+        return {
+          token,
+          core: older ? old : (core ?? (fresh ? old : undefined)),
+        };
+      });
+    };
+    usageListeners.add(update);
     return () => {
-      controller.abort();
-      window.clearTimeout(timer);
-      document.removeEventListener('visibilitychange', poll);
+      usageListeners.delete(update);
     };
   }, [token]);
 
@@ -90,8 +88,11 @@ export function GitHubUsage({ token }: { token: string }) {
   }, [open]);
 
   if (!reading || reading.token !== token) return null;
-  const { snapshot } = reading;
-  const { limit, used, remaining, reset } = snapshot?.core ?? {};
+  const core = reading.core;
+  const { limit, used, remaining, reset } =
+    core?.reset !== undefined && core.reset * 1000 <= Date.now()
+      ? {}
+      : (core ?? {});
   const measuredUsed =
     used ??
     (limit !== undefined && remaining !== undefined && remaining <= limit
@@ -101,7 +102,11 @@ export function GitHubUsage({ token }: { token: string }) {
     limit && measuredUsed !== undefined
       ? `${((100 * measuredUsed) / limit).toFixed(1)}%`
       : '—';
-  const rate = snapshot ? `${snapshot.requestsPerSecond.toFixed(1)}/s` : '—';
+  const refreshLimit = refresh?.limit ?? limit;
+  const rate =
+    refresh?.consumed !== undefined && refreshLimit
+      ? `+${((100 * refresh.consumed) / refreshLimit).toFixed(1)}%`
+      : '—';
   const resetLabel =
     reset !== undefined && reset <= 8.64e12
       ? resetTime.format(reset * 1000)
@@ -133,8 +138,10 @@ export function GitHubUsage({ token }: { token: string }) {
       {open && (
         <div id={label} className="github-usage-tooltip" role="tooltip">
           <dl>
-            <dt>최근 60초 평균</dt>
-            <dd>{rate}</dd>
+            <dt>직전 갱신 소비량</dt>
+            <dd>
+              {formatNumber(refresh?.consumed)} · {rate}
+            </dd>
             <dt>Core API 전체 한도</dt>
             <dd>{formatNumber(limit)}</dd>
             <dt>사용량</dt>
