@@ -1291,7 +1291,10 @@ svg {
   display: flex;
   flex-wrap: wrap;
   justify-content: center;
-  gap: 6px;
+  gap: 6px 3px;
+}
+.branch-road-row > .branch-road-node {
+  margin-inline: 13.5px;
 }
 .branch-bridge {
   display: grid;

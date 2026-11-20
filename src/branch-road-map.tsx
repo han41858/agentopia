@@ -1,4 +1,4 @@
-import { useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useId, useLayoutEffect, useRef, useState } from 'react';
 import {
   GitBranch,
   GitFork,
@@ -45,64 +45,86 @@ function roadPath(start: Point, destination: Point) {
   return `M${start.x} ${fromY} V${elbow} H${destination.x} V${toY}`;
 }
 
-const emptyPulls: BranchPull[] = [];
+export function placeBranchRoads(
+  inventory: BranchInventory,
+  pulls: BranchPull[] = [],
+) {
+  const roads = buildBranchRoads(inventory, pulls);
+  const { palace, plaza, bridge } = branchCenters(inventory, pulls);
+  const nonPalace = roads.filter((road) => road.role !== 'palace');
+  const byName = new Map(nonPalace.map((road) => [road.name, road]));
+  const chosen = new Map<string, BranchRoad>();
+  for (const road of nonPalace) {
+    if (chosen.size >= 6) break;
+    chosen.set(road.name, road);
+    let parent = road.parent;
+    while (parent && !chosen.has(parent) && chosen.size < 6) {
+      const target = byName.get(parent);
+      if (!target) break;
+      chosen.set(parent, target);
+      parent = target.parent;
+    }
+  }
+  const visible = [...chosen.values()];
+  const branches = visible.filter((road) => road.role === 'road');
+  const branchNames = new Set(branches.map((road) => road.name));
+  const rows: BranchRoad[][] = [];
+  const palaceRoad = roads.find((road) => road.role === 'palace');
+  const plazaRoad = visible.find((road) => road.role === 'plaza');
+  const facilityOrder = new Map<number, number>();
+  function rank(road?: BranchRoad) {
+    for (const pull of road?.pulls ?? []) {
+      if (!pull.merged) facilityOrder.set(pull.number, facilityOrder.size);
+    }
+  }
+  function visit(road: BranchRoad, depth: number) {
+    (rows[depth] ??= []).push(road);
+    rank(road);
+    for (const child of branches) {
+      if (child.parent === road.name) visit(child, depth + 1);
+    }
+  }
+  rank(palaceRoad);
+  rank(plazaRoad);
+  for (const root of branches) {
+    if (!root.parent || !branchNames.has(root.parent)) visit(root, 0);
+  }
+  return {
+    roads,
+    palace,
+    plaza,
+    bridge,
+    palaceRoad,
+    plazaRoad,
+    visible,
+    rows,
+    facilityOrder,
+    showMore: inventory.partial || visible.length < nonPalace.length,
+    partial: inventory.partial,
+  };
+}
 
 export function BranchRoadMap({
-  inventory,
-  pulls = emptyPulls,
+  placement,
   highlightedPull,
   open,
 }: {
-  inventory: BranchInventory;
-  pulls?: BranchPull[];
+  placement: ReturnType<typeof placeBranchRoads>;
   highlightedPull?: number;
   open: (selection: RoadSelection) => void;
 }) {
-  const roads = useMemo(
-    () => buildBranchRoads(inventory, pulls),
-    [inventory, pulls],
-  );
-  const { visible, overflow } = useMemo(() => {
-    const nonPalace = roads.filter((road) => road.role !== 'palace');
-    const byName = new Map(nonPalace.map((road) => [road.name, road]));
-    const visible = new Map<string, BranchRoad>();
-    for (const road of nonPalace) {
-      if (visible.size >= 6) break;
-      visible.set(road.name, road);
-      let parent = road.parent;
-      while (parent && !visible.has(parent) && visible.size < 6) {
-        const target = byName.get(parent);
-        if (!target) break;
-        visible.set(parent, target);
-        parent = target.parent;
-      }
-    }
-    return {
-      visible: [...visible.values()],
-      overflow: nonPalace.filter((road) => !visible.has(road.name)),
-    };
-  }, [roads]);
-  const { palace, plaza, bridge } = branchCenters(inventory, pulls);
-  const palaceRoad = roads.find((road) => road.role === 'palace');
-  const plazaRoad = visible.find((road) => road.role === 'plaza');
-  const rows = useMemo(() => {
-    const branches = new Map(
-      visible
-        .filter((road) => road.role === 'road')
-        .map((road) => [road.name, road]),
-    );
-    const levels: BranchRoad[][] = [];
-    for (const road of branches.values()) {
-      let depth = 0;
-      let parent = road.parent ? branches.get(road.parent) : undefined;
-      while (parent) {
-        depth++;
-        parent = parent.parent ? branches.get(parent.parent) : undefined;
-      }
-      (levels[depth] ??= []).push(road);
-    }
-    return levels;
-  }, [visible]);
+  const {
+    roads,
+    palace,
+    plaza,
+    bridge,
+    palaceRoad,
+    plazaRoad,
+    visible,
+    rows,
+    showMore,
+    partial,
+  } = placement;
   const row = useRef<HTMLDivElement>(null);
   const mask = useId();
   const [layout, setLayout] = useState<Layout>();
@@ -199,7 +221,6 @@ export function BranchRoadMap({
     };
   }, [palace, plaza, bridge, palaceRoad, visible]);
 
-  const showMore = overflow.length > 0 || inventory.partial;
   if (
     !visible.length &&
     !showMore &&
@@ -318,7 +339,7 @@ export function BranchRoadMap({
               className="branch-road-node branch-road-more"
               aria-label="브랜치 목록"
               title="브랜치 목록"
-              onClick={() => open({ roads, partial: inventory.partial })}
+              onClick={() => open({ roads, partial })}
             >
               <MoreHorizontal size={16} aria-hidden="true" />
             </button>

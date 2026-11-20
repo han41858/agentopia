@@ -83,8 +83,7 @@ import type {
   GitHubDebugSnapshot,
   RefreshConsumption,
 } from '../server/github-debug.ts';
-import { branchCenters } from '../server/branch-roads.ts';
-import { BranchRoadMap } from './branch-road-map.tsx';
+import { BranchRoadMap, placeBranchRoads } from './branch-road-map.tsx';
 import type { RoadSelection } from './branch-road-map.tsx';
 import './styles.css';
 
@@ -2120,6 +2119,18 @@ function App() {
     setSelectedQuest(undefined);
   }
 
+  const roadPlacements = useMemo(() => {
+    const placements = new Map<string, ReturnType<typeof placeBranchRoads>>();
+    for (const [slug, { report }] of Object.entries(snapshots)) {
+      if (report?.branchInventory)
+        placements.set(
+          slug,
+          placeBranchRoads(report.branchInventory, report.branchPulls),
+        );
+    }
+    return placements;
+  }, [snapshots]);
+
   const hasData = worldRegions.some(({ slug }) => snapshots[slug]?.report);
   const tokenStatus = getTokenStatus(
     hasData,
@@ -2236,7 +2247,16 @@ function App() {
                       ?.issues
                   : [],
               );
-              const visibleFacilities = forges.filter(isCurrentFacility);
+              const placement = roadPlacements.get(region.slug);
+              const visibleFacilities = forges
+                .filter(isCurrentFacility)
+                .sort(
+                  (left, right) =>
+                    (placement?.facilityOrder.get(left.number) ??
+                      Number.MAX_SAFE_INTEGER) -
+                    (placement?.facilityOrder.get(right.number) ??
+                      Number.MAX_SAFE_INTEGER),
+                );
               return (
                 <section
                   className="kingdom-region"
@@ -2264,9 +2284,7 @@ function App() {
                       className="kingdom"
                       data-road-palace=""
                       title={
-                        report?.branchInventory
-                          ? `왕궁 · ${branchCenters(report.branchInventory, report.branchPulls ?? []).palace}`
-                          : undefined
+                        placement ? `왕궁 · ${placement.palace}` : undefined
                       }
                       onClick={() => select(region)}
                     >
@@ -2295,10 +2313,9 @@ function App() {
                         <strong>{region.name}</strong>
                       </span>
                     </button>
-                    {report?.branchInventory && (
+                    {placement && (
                       <BranchRoadMap
-                        inventory={report.branchInventory}
-                        pulls={report.branchPulls}
+                        placement={placement}
                         highlightedPull={
                           localFocus?.kind === 'pull'
                             ? localFocus.number
