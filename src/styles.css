@@ -371,9 +371,6 @@ svg {
   background-size: 500% 100%;
   background-repeat: no-repeat;
 }
-.party-sprite.actions {
-  background-position: 75% 0;
-}
 .party-sprite.release {
   background-position: 0 0;
 }
@@ -1040,19 +1037,7 @@ svg {
   background: transparent;
   filter: drop-shadow(0 1px 1px #10171c);
 }
-.facility-worker {
-  position: absolute;
-  top: -8px;
-  right: -6px;
-}
-.facility-worker .adventurer-glyph {
-  filter: drop-shadow(0 1px 1px #10171c);
-}
-.facility-test {
-  position: absolute;
-  top: -4px;
-  left: -3px;
-  color: #c9e9ff;
+.working-party-leader {
   animation: forge-test 1.6s ease-in-out infinite;
 }
 .facility-core > .aura-opinion {
@@ -1061,10 +1046,6 @@ svg {
   left: -5px;
   padding: 1px;
   background: #242329;
-}
-.facility-core > .aura-opinion ~ .facility-test {
-  top: auto;
-  bottom: -4px;
 }
 .facility-marker[data-stage='developing'] .facility-tool,
 .facility-marker[data-stage='revising'] .facility-tool {

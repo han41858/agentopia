@@ -72,26 +72,46 @@ export function MonsterGlyph({
 
 type PartyGlyphProps = { size?: number; className?: string };
 
-function PartySprite({
-  role,
-  size = 20,
-  className = '',
-}: PartyGlyphProps & { role: 'actions' | 'release' }) {
+export function PartyLeaderGlyph({ size = 20, className }: PartyGlyphProps) {
   return (
-    <span
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 20 20"
+      shapeRendering="crispEdges"
+      className={className}
       aria-hidden="true"
-      className={`adventurer-avatar party-sprite ${role} ${className}`}
-      style={{ width: size, height: size }}
-    />
+    >
+      {/* Blue officer's cap with a gold band, above an uncovered face. */}
+      <path
+        fill="#26354c"
+        d="M5 2h8v1h2v4h-1v3h-2v2h3v1h2v4h-4v3h-3v-3H9v3H6v-3H3v-4h2v-1h3v-2H6V8H5z"
+      />
+      <path fill="#609ec8" d="M6 3h7v1h1v2H5V4h1z M5 12h3l2 2 2-2h2v4H5z" />
+      <path
+        fill="#f5cf77"
+        d="M5 5h9v1H5z M6 12h2v1H6z M12 12h2v1h-2z M8 15h4v1H8z"
+      />
+      <path
+        fill="#f1bc92"
+        d="M7 7h6v3h-1v1H8v-1H7z M3 14h2v2H3z M15 13h2v2h-2z"
+      />
+      <path fill="#48384a" d="M8 8h1v1H8z M11 8h1v1h-1z" />
+    </svg>
   );
 }
 
-export function PartyLeaderGlyph(props: PartyGlyphProps) {
-  return <PartySprite role="actions" {...props} />;
-}
-
-export function PortalKeeperGlyph(props: PartyGlyphProps) {
-  return <PartySprite role="release" {...props} />;
+export function PortalKeeperGlyph({
+  size = 20,
+  className = '',
+}: PartyGlyphProps) {
+  return (
+    <span
+      aria-hidden="true"
+      className={`adventurer-avatar party-sprite release ${className}`}
+      style={{ width: size, height: size }}
+    />
+  );
 }
 
 export function AdventurerGlyph({
@@ -131,16 +151,23 @@ export function AdventurerParty({
   members,
   resting,
   detailed = false,
+  leader = false,
   forge = false,
 }: {
   members: Adventurer[];
   resting: string;
   detailed?: boolean;
+  leader?: boolean;
   forge?: boolean;
 }) {
-  if (!members.length) return null;
+  if (!leader && !members.length) return null;
   return (
     <span className={`adventurer-party${detailed ? ' detailed' : ''}`}>
+      {leader && (
+        <span className="adventurer" title="GitHub Actions · 파티장 · CI">
+          <PartyLeaderGlyph className="working-party-leader" />
+        </span>
+      )}
       {members.map((member) => (
         <span
           className="adventurer"

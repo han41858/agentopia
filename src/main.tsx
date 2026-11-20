@@ -523,10 +523,6 @@ function FacilityMarker({
   const activeMembers = members.filter(
     (member) => member.active && !member.fallen,
   );
-  const worker =
-    (working || reviewing) && activeMembers.length === 1
-      ? activeMembers[0]
-      : undefined;
   const quality = pull.quality === 'ci' || pull.stage === 'ci';
   const label = [
     `${name} PR #${pull.number}`,
@@ -570,22 +566,12 @@ function FacilityMarker({
           {pull.stage === 'idle' && (
             <Construction className="facility-build" size={13} />
           )}
-          {worker && (
-            <span className="facility-worker">
-              <AdventurerGlyph
-                agent={worker.agent}
-                active={worker.active}
-                forge
-              />
-            </span>
-          )}
           {!activeMembers.length && working && (
             <Tool className="facility-tool" size={13} />
           )}
           {!activeMembers.length && reviewing && (
             <ScrollText className="facility-tool" size={13} />
           )}
-          {quality && <PartyLeaderGlyph className="facility-test" size={18} />}
           {pull.stage === 'merging' && (
             <GitPullRequest className="facility-result" size={13} />
           )}
@@ -596,9 +582,8 @@ function FacilityMarker({
       </ActivityAura>
       <small className="expedition-number">{`PR #${pull.number}`}</small>
       <AdventurerParty
-        members={
-          worker ? members.filter((member) => member !== worker) : members
-        }
+        members={members}
+        leader={quality}
         resting="대기"
         forge
       />
