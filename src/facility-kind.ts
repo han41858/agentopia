@@ -27,10 +27,9 @@ export function facilityKind(title: string): FacilityKind {
   return kindsByMoji[first] ?? 'workshop';
 }
 
-const mapHistoryWindow = 24 * 60 * 60_000;
-
-export function isHistoricFacility(finishedAt?: string, now = Date.now()) {
-  return (
-    finishedAt !== undefined && now - Date.parse(finishedAt) >= mapHistoryWindow
-  );
+export function isCurrentFacility(pull: {
+  merged?: boolean;
+  cancelled?: boolean;
+}) {
+  return !pull.merged && !pull.cancelled;
 }
