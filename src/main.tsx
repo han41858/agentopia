@@ -63,7 +63,11 @@ import type {
   Discussion,
   PullActivity,
 } from '../server/activity.ts';
-import { ActivityAura, monsterGrowth } from './activity-effects.tsx';
+import {
+  ActivityAura,
+  monsterGrowth,
+  ReviewOpinionBadge,
+} from './activity-effects.tsx';
 import { nextRefreshInterval, refreshDue } from './refresh.ts';
 import { facilities, FacilityGlyph } from './facility-art.tsx';
 import { facilityKind, isCurrentFacility } from './facility-kind.ts';
@@ -533,13 +537,16 @@ function FacilityMarker({
       {pulse !== undefined && (
         <span key={pulse} className="party-pulse" aria-hidden="true" />
       )}
-      <ActivityAura activity={pull.activity}>
+      <ActivityAura
+        activity={pull.activity && { ...pull.activity, opinion: undefined }}
+      >
         <span
           className="facility-core"
           data-draft={pull.draft}
           aria-hidden="true"
         >
           <FacilityGlyph kind={kind} />
+          <ReviewOpinionBadge opinion={pull.activity?.opinion?.state} />
           {pull.stage === 'idle' && (
             <Construction className="facility-build" size={13} />
           )}

@@ -1058,6 +1058,17 @@ svg {
   color: #c9e9ff;
   animation: forge-test 1.6s ease-in-out infinite;
 }
+.facility-core > .aura-opinion {
+  position: absolute;
+  top: -5px;
+  left: -5px;
+  padding: 1px;
+  background: #242329;
+}
+.facility-core > .aura-opinion ~ .facility-test {
+  top: auto;
+  bottom: -4px;
+}
 .facility-marker[data-stage='developing'] .facility-tool,
 .facility-marker[data-stage='revising'] .facility-tool {
   transform-origin: bottom right;

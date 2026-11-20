@@ -28,7 +28,6 @@ export function ActivityAura({
   );
   const runes = effectCount(activity?.reviews);
   const participants = Math.min(3, activity?.participants ?? 0);
-  const opinion = activity?.opinion?.state;
   return (
     <span className="activity-aura" aria-hidden="true">
       {discussion > 0 && (
@@ -53,17 +52,22 @@ export function ActivityAura({
           ))}
         </span>
       )}
-      {opinion && (
-        <span
-          className={`aura-opinion ${opinion === 'APPROVED' ? 'approved' : 'changes'}`}
-        >
-          {opinion === 'APPROVED' ? (
-            <Check size={12} />
-          ) : (
-            <ShieldAlert size={12} />
-          )}
-        </span>
-      )}
+      <ReviewOpinionBadge opinion={activity?.opinion?.state} />
+    </span>
+  );
+}
+
+export function ReviewOpinionBadge({
+  opinion,
+}: {
+  opinion?: NonNullable<ActivityProfile['opinion']>['state'];
+}) {
+  if (!opinion) return null;
+  return (
+    <span
+      className={`aura-opinion ${opinion === 'APPROVED' ? 'approved' : 'changes'}`}
+    >
+      {opinion === 'APPROVED' ? <Check size={12} /> : <ShieldAlert size={12} />}
     </span>
   );
 }
