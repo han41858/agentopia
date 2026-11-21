@@ -2,10 +2,6 @@ import type { ReactNode } from 'react';
 import { Check, MessageCircle, ShieldAlert, Sparkles } from 'lucide-react';
 import type { ActivityProfile } from '../server/activity.ts';
 
-export function monsterGrowth(commits = 0) {
-  return Math.min(17, Math.round(3 * Math.log2(1 + commits)));
-}
-
 function effectCount(count = 0) {
   return count > 0 ? Math.min(3, 1 + Math.floor(Math.log10(count))) : 0;
 }

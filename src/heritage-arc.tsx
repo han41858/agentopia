@@ -1,3 +1,4 @@
+import { heritageSize } from './object-sizes.ts';
 import { useEffect, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
 import { heritageKeys } from '../server/heritage.ts';
@@ -157,12 +158,12 @@ export function HeritageArc({
             }
             onClick={() => open(metric, record)}
           >
-            <span
-              className="heritage-building"
-              style={{ '--heritage-tier': tier } as CSSProperties}
-              aria-hidden="true"
-            >
-              <WorldArt sprite={sprite} className="facility-sprite" />
+            <span className="heritage-building" aria-hidden="true">
+              <WorldArt
+                sprite={sprite}
+                size={heritageSize(tier)}
+                className="facility-sprite"
+              />
               {tier >= 2 && <span className="heritage-plinth" />}
               {tier > 3 && <span className="heritage-plinth upper" />}
             </span>

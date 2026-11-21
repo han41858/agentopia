@@ -1,3 +1,4 @@
+import { objectSizes } from './object-sizes.ts';
 import { WorldArt, type WorldSprite } from './world-art.tsx';
 import {
   BookOpen,
@@ -35,6 +36,10 @@ export const facilities = {
 
 export function FacilityGlyph({ kind }: { kind: FacilityKind }) {
   return (
-    <WorldArt sprite={facilities[kind].sprite} className="facility-sprite" />
+    <WorldArt
+      size={objectSizes.facility}
+      sprite={facilities[kind].sprite}
+      className="facility-sprite"
+    />
   );
 }

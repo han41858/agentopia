@@ -20,6 +20,8 @@ import legacyArchive from '../assets/kingdom/legacy-archive.svg';
 import legacyHallOfHeroes from '../assets/kingdom/legacy-hall-of-heroes.svg';
 import legacyMonument from '../assets/kingdom/legacy-monument.svg';
 import legacySageLibrary from '../assets/kingdom/legacy-sage-library.svg';
+import plaza from '../assets/kingdom/plaza.svg';
+import moatBridge from '../assets/kingdom/moat-bridge.svg';
 import palace from '../assets/kingdom/palace.svg';
 
 const images = {
@@ -46,17 +48,19 @@ const images = {
   legacyMonument,
   legacySageLibrary,
   palace,
+  plaza,
+  moatBridge,
 } as const;
 
 export type WorldSprite = keyof typeof images;
 
 export function WorldArt({
   sprite,
-  size = 48,
+  size,
   className,
 }: {
   sprite: WorldSprite;
-  size?: number;
+  size: number;
   className?: string;
 }) {
   return (

@@ -1,3 +1,5 @@
+import { objectSizes, heritageSize } from './object-sizes.ts';
+import { heritageTier } from './heritage-scale.ts';
 import { WorldArt } from './world-art.tsx';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties, FormEvent, ReactNode } from 'react';
@@ -62,11 +64,7 @@ import type {
   Discussion,
   PullActivity,
 } from '../server/activity.ts';
-import {
-  ActivityAura,
-  monsterGrowth,
-  ReviewOpinionBadge,
-} from './activity-effects.tsx';
+import { ActivityAura, ReviewOpinionBadge } from './activity-effects.tsx';
 import { nextRefreshInterval, refreshDue } from './refresh.ts';
 import { facilities, FacilityGlyph } from './facility-art.tsx';
 import { facilityKind, isCurrentFacility } from './facility-kind.ts';
@@ -398,6 +396,7 @@ function MonsterMarker({
 
   return (
     <button
+      data-road-issue={quest.number}
       className={`expedition monster-marker${boss ? ' boss-marker' : ''}${alerts.has(quest.stage) ? ' blocked' : ''}${defeated ? ' closed-issue' : ''}`}
       aria-label={`${boss ? '보스 몬스터' : '몬스터'} #${quest.number} · ${quest.title} · ${status}${activityEffectsLabel(quest.activity)}`}
       title={`${quest.title} · ${status}`}
@@ -424,7 +423,7 @@ function MonsterMarker({
           boss={boss}
           defeated={defeated}
           reopened={quest.reopened}
-          growth={monsterGrowth(quest.activity?.commits)}
+          commits={quest.activity?.commits}
         />
       </ActivityAura>
       <small className="expedition-number">{`#${quest.number}`}</small>
@@ -593,6 +592,7 @@ function FacilityMarker({
 
 function KingdomMonsters({
   quests,
+  issueOrder,
   pulses,
   label,
   openQuest,
@@ -601,6 +601,7 @@ function KingdomMonsters({
   inspect,
 }: {
   quests: Quest[];
+  issueOrder: Map<number, number>;
   pulses?: Record<string, number>;
   label: string;
   openQuest: (quest: Quest) => void;
@@ -620,7 +621,9 @@ function KingdomMonsters({
 
   const priority = (quest: Quest) =>
     alerts.has(quest.stage) ? 2 : activeStages.has(quest.stage) ? 1 : 0;
-  const comparePriority = (a: Quest, b: Quest) => priority(b) - priority(a);
+  const comparePriority = (a: Quest, b: Quest) =>
+    (issueOrder.get(a.number) ?? Infinity) -
+      (issueOrder.get(b.number) ?? Infinity) || priority(b) - priority(a);
   const roots = openQuests
     .filter(({ parent }) => parent === undefined || !visible.has(parent))
     .sort(comparePriority);
@@ -1144,7 +1147,7 @@ function QuestDetail({
               boss={Boolean(quest.subIssueCount)}
               defeated={quest.state === 'closed'}
               reopened={quest.reopened}
-              growth={monsterGrowth(quest.activity?.commits)}
+              commits={quest.activity?.commits}
             />
           </ActivityAura>
           <small className="expedition-number">{`#${quest.number}`}</small>
@@ -1790,7 +1793,11 @@ function HeritageDetail({
   return (
     <Dialog title={title} close={close}>
       <div className="facility-detail">
-        <WorldArt sprite={sprite} className="facility-sprite" />
+        <WorldArt
+          sprite={sprite}
+          size={heritageSize(heritageTier(metric, record?.count))}
+          className="facility-sprite"
+        />
         <span>{region.name}</span>
       </div>
       <dl className="heritage-total">
@@ -2107,7 +2114,7 @@ function App() {
   const roadPlacements = useMemo(() => {
     const placements = new Map<string, ReturnType<typeof placeBranchRoads>>();
     for (const [slug, { report }] of Object.entries(snapshots)) {
-      if (report?.branchInventory)
+      if (report)
         placements.set(
           slug,
           placeBranchRoads(report.branchInventory, report.branchPulls),
@@ -2242,6 +2249,12 @@ function App() {
                     (placement?.facilityOrder.get(right.number) ??
                       Number.MAX_SAFE_INTEGER),
                 );
+              const issueOrder = new Map<number, number>();
+              visibleFacilities.forEach((pull, index) => {
+                for (const issue of pull.issues ?? []) {
+                  if (!issueOrder.has(issue)) issueOrder.set(issue, index);
+                }
+              });
               return (
                 <section
                   className="kingdom-region"
@@ -2269,11 +2282,17 @@ function App() {
                       className="kingdom"
                       data-road-palace=""
                       title={
-                        placement ? `왕궁 · ${placement.palace}` : undefined
+                        placement?.palace
+                          ? `왕궁 · ${placement.palace}`
+                          : undefined
                       }
                       onClick={() => select(region)}
                     >
-                      <WorldArt sprite="palace" className="kingdom-crest" />
+                      <WorldArt
+                        sprite="palace"
+                        size={objectSizes.palace}
+                        className="kingdom-crest"
+                      />
                       <span className="kingdom-label">
                         <strong>{region.name}</strong>
                       </span>
@@ -2281,6 +2300,11 @@ function App() {
                     {placement && (
                       <BranchRoadMap
                         placement={placement}
+                        highlightedIssue={
+                          localFocus?.kind !== 'pull'
+                            ? localFocus?.number
+                            : undefined
+                        }
                         highlightedPull={
                           localFocus?.kind === 'pull'
                             ? localFocus.number
@@ -2297,7 +2321,11 @@ function App() {
                         aria-label={`${region.name} 왕국 내부`}
                       >
                         {visibleFacilities.map((item) => (
-                          <li key={item.number} data-road-pr={item.number}>
+                          <li
+                            key={item.number}
+                            data-road-pr={item.number}
+                            data-road-issues={item.issues?.join(' ')}
+                          >
                             <FacilityMarker
                               pull={item}
                               open={() => openPull(region, item)}
@@ -2328,6 +2356,7 @@ function App() {
                   {report && (
                     <KingdomMonsters
                       quests={report.quests}
+                      issueOrder={issueOrder}
                       pulses={snapshot?.pulses}
                       label={`${region.name} 왕국 외부 몬스터`}
                       highlight={

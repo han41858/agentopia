@@ -1,3 +1,4 @@
+import { branchIssueNumber } from './branch-roads.ts';
 import type { BranchInventory, BranchPull } from './branch-roads.ts';
 import { summarizeActivity } from './activity.ts';
 import type { ActivityProfile, PullActivity } from './activity.ts';
@@ -230,9 +231,7 @@ export function runIssue(run: Run) {
 
 export function pullIssue(pull: Pull, region: Region) {
   if (pull.head.repo?.full_name.toLowerCase() !== region.slug) return;
-  const branch = /^ai\/issue-(\d+)-(codex|claude)$/.exec(pull.head.ref);
-  if (!branch) return;
-  return Number(branch[1]);
+  return branchIssueNumber(pull.head.ref);
 }
 
 export function pullActor(login?: string, type?: string): Agent | undefined {

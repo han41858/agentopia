@@ -1,3 +1,8 @@
+export function branchIssueNumber(name: string) {
+  const match = /^ai\/issue-(\d+)-(codex|claude)$/.exec(name);
+  return match ? Number(match[1]) : undefined;
+}
+
 export type BranchInventory = {
   defaultBranch: string;
   names: string[];

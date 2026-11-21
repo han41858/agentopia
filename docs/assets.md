@@ -1,6 +1,6 @@
 # SVG 도감
 
-월드맵과 상세 화면은 같은 SVG 원본을 사용합니다. 캐릭터의 기본 표시 크기는 48×48px입니다. 몬스터는 연결된 커밋 수에 따라 커지며, 유산은 누적 지표에 따라 성장합니다. 파일명을 누르면 원본을 열 수 있습니다.
+월드맵과 상세 화면은 같은 SVG 원본을 사용합니다. 데스크톱 기준 왕궁은 96px, 개발 광장은 80px, PR 시설은 48px입니다. Codex·Claude는 28px, 파티장·포탈 관리자는 32px입니다. 연결된 커밋 수에 따라 일반 몬스터는 32~56px, 보스는 64~80px로 자랍니다. 유산은 누적 지표에 따라 40~88px로 성장합니다. 모바일에서는 월드맵 전체에 같은 배율을 적용합니다. 파일명을 누르면 원본을 열 수 있습니다.
 
 ## 캐릭터와 몬스터
 
@@ -18,6 +18,8 @@
 | 미리보기                                                    | 이름        | 표시 기준                       | 원본                                                                     |
 | ----------------------------------------------------------- | ----------- | ------------------------------- | ------------------------------------------------------------------------ |
 | ![왕궁](../assets/kingdom/palace.svg)                       | 왕궁        | 저장소의 중심                   | [palace.svg](../assets/kingdom/palace.svg)                               |
+| ![광장](../assets/kingdom/plaza.svg)                        | 개발 광장   | 개발 브랜치의 중심              | [plaza.svg](../assets/kingdom/plaza.svg)                                 |
+| ![해자와 다리](../assets/kingdom/moat-bridge.svg)           | 해자와 다리 | 왕궁과 개발 광장 사이           | [moat-bridge.svg](../assets/kingdom/moat-bridge.svg)                     |
 | ![완공 기념비](../assets/kingdom/legacy-monument.svg)       | 완공 기념비 | 머지된 PR                       | [legacy-monument.svg](../assets/kingdom/legacy-monument.svg)             |
 | ![영웅의 전당](../assets/kingdom/legacy-hall-of-heroes.svg) | 영웅의 전당 | completed 사유로 종료된 이슈    | [legacy-hall-of-heroes.svg](../assets/kingdom/legacy-hall-of-heroes.svg) |
 | ![기록 보관소](../assets/kingdom/legacy-archive.svg)        | 기록 보관소 | 이슈·PR 대화와 코드 인라인 댓글 | [legacy-archive.svg](../assets/kingdom/legacy-archive.svg)               |
