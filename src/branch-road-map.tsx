@@ -33,6 +33,13 @@ type Layout = {
   width: number;
   height: number;
   paths: Path[];
+  artwork: {
+    src: string;
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  }[];
   obstacles: { x: number; y: number; width: number; height: number }[];
 };
 
@@ -174,12 +181,41 @@ export function BranchRoadMap({
             node.dataset.roadNode,
             point(node.querySelector('.branch-junction') ?? node),
           );
+      // Roads enter the transparent margins of the artwork; the SVG mask
+      // below trims them to the painted edge of the bridge, plaza or facility.
+      const middle = (element: Element): Point => {
+        const rect = box(element);
+        const y = rect.y + rect.height / 2;
+        return { x: rect.x + rect.width / 2, top: y, bottom: y };
+      };
+      const plazaArt = area.querySelector('[data-road-role="plaza"] img');
+      if (plaza && plazaArt) nodes.set(plaza, middle(plazaArt));
       const facilities = new Map(
         [...area.querySelectorAll<HTMLElement>('[data-road-pr]')].map(
-          (node) => [Number(node.dataset.roadPr), point(node)] as const,
+          (node) => {
+            const marker = point(node);
+            const art = node.querySelector('.facility-sprite');
+            if (art) marker.top = middle(art).top;
+            return [Number(node.dataset.roadPr), marker] as const;
+          },
         ),
       );
       const paths: Path[] = [];
+      const crossing = area.querySelector('.branch-bridge');
+      if (bridge && palaceNode && crossing && plaza && plazaArt) {
+        paths.push(
+          {
+            key: 'approach-to-bridge',
+            from: plaza,
+            d: roadPath(point(palaceNode), middle(crossing)),
+          },
+          {
+            key: 'approach-to-plaza',
+            from: plaza,
+            d: roadPath(middle(crossing), middle(plazaArt)),
+          },
+        );
+      }
       for (const road of palaceRoad ? [palaceRoad, ...visible] : visible) {
         const start = nodes.get(road.name);
         if (!start) continue;
@@ -265,9 +301,17 @@ export function BranchRoadMap({
         width: bounds.width,
         height: bounds.height,
         paths,
+        artwork: [
+          ...area.querySelectorAll<HTMLImageElement>(
+            '.branch-bridge, [data-road-role="plaza"] img, .facility-core img',
+          ),
+        ].map((img) => ({
+          src: img.currentSrc || img.src,
+          ...box(img),
+        })),
         obstacles: [
           ...area.querySelectorAll(
-            '.heritage-slot, .kingdom, .branch-junction, [data-road-role=plaza], .branch-road-more, .branch-bridge, .facility-marker, .monster-marker',
+            '.heritage-slot, .kingdom, .branch-junction, .branch-road-more, .facility-marker .expedition-number, .facility-marker .adventurer-party, .facility-core > :not(img), .monster-marker',
           ),
         ].map(box),
       };
@@ -392,6 +436,14 @@ export function BranchRoadMap({
                   height={layout.height}
                   fill="white"
                 />
+                {layout.artwork.map(({ src, ...rect }, i) => (
+                  <image
+                    key={i}
+                    href={src}
+                    {...rect}
+                    style={{ filter: 'brightness(0)' }}
+                  />
+                ))}
                 {layout.obstacles.map(({ x, y, width, height }, i) => (
                   <rect
                     key={i}
@@ -442,7 +494,11 @@ export function BranchRoadMap({
       {plazaRoad && (
         <div className="branch-plaza">
           {bridge && (
-            <WorldArt sprite="moatBridge" className="branch-bridge" size={96} />
+            <WorldArt
+              sprite="moatBridge"
+              className="branch-bridge"
+              size={objectSizes.moatBridge}
+            />
           )}
           {roadButton(plazaRoad)}
         </div>

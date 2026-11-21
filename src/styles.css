@@ -1267,6 +1267,7 @@ svg {
 }
 .branch-bridge {
   display: block;
+  max-width: 100%;
   height: auto;
 }
 .branch-road-node[data-road-role='plaza'] {
@@ -1285,31 +1286,6 @@ svg {
   border: 1px solid #ddc78d;
   border-radius: 50%;
   background: #51684d;
-}
-.branch-road-node {
-  margin-inline: 13.5px;
-}
-.branch-bridge {
-  display: grid;
-  place-items: center;
-  width: min(80px, 80%);
-  height: 10px;
-  background: linear-gradient(
-    transparent 2px,
-    #6caeaa5e 2px 8px,
-    transparent 8px
-  );
-}
-.branch-bridge > span {
-  width: 13px;
-  height: 12px;
-  border-inline: 2px solid #8e7753;
-  background: repeating-linear-gradient(#d7bd87 0 3px, #af9166 3px 4px);
-}
-.branch-road-node[data-road-role='plaza'] {
-  width: auto;
-  height: auto;
-  border-color: #d0b987a0;
 }
 .branch-road-node {
   display: grid;
@@ -1337,8 +1313,9 @@ svg {
 }
 .branch-road-lines path {
   fill: none;
-  stroke: #cbb5818d;
-  stroke-width: 1.5px;
+  stroke: #cbb581be;
+  stroke-width: 2px;
+  stroke-linecap: round;
   stroke-linejoin: round;
 }
 .branch-road-lines path[data-merged='true'] {

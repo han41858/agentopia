@@ -2,6 +2,7 @@
 export const objectSizes = {
   palace: 96,
   plaza: 64,
+  moatBridge: 192,
   facility: 48,
   adventurer: 28,
   officer: 32,
