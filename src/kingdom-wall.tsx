@@ -2,13 +2,14 @@ import { useId, useLayoutEffect, useRef } from 'react';
 
 export function KingdomWall() {
   const ref = useRef<SVGSVGElement>(null);
+  const outline = useRef<SVGPathElement>(null);
+  const shapeId = useId();
   const exteriorMask = useId();
 
   useLayoutEffect(() => {
     const wall = ref.current;
     const area = wall?.parentElement;
     if (!wall || !area) return;
-    const shapes = wall.querySelectorAll('rect[x="8"]');
     const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
     let previous: { width: number; height: number } | undefined;
     let motion: Animation | undefined;
@@ -26,12 +27,19 @@ export function KingdomWall() {
       const insideWidth = Math.max(1, width - 16);
       const insideHeight = Math.max(1, height - 16);
       wall.setAttribute('viewBox', `0 0 ${width} ${height}`);
-      for (const shape of shapes) {
-        shape.setAttribute('width', String(insideWidth));
-        shape.setAttribute('height', String(insideHeight));
-        shape.setAttribute('rx', String(insideWidth * 0.48));
-        shape.setAttribute('ry', String(Math.min(insideHeight * 0.48, 104)));
-      }
+      const rx = insideWidth * 0.48;
+      const ry = Math.min(insideHeight * 0.48, 104);
+      const right = 8 + insideWidth;
+      const bottom = 8 + insideHeight;
+      outline.current?.setAttribute(
+        'd',
+        [
+          `M8 ${bottom} V${8 + ry}`,
+          `A${rx} ${ry} 0 0 1 ${8 + rx} 8 H${right - rx}`,
+          `A${rx} ${ry} 0 0 1 ${right} ${8 + ry}`,
+          `V${bottom} H8 Z`,
+        ].join(' '),
+      );
       motion?.cancel();
       if (
         previous &&
@@ -73,6 +81,7 @@ export function KingdomWall() {
       aria-hidden="true"
     >
       <defs>
+        <path ref={outline} id={shapeId} />
         <mask
           id={exteriorMask}
           x="0"
@@ -82,17 +91,16 @@ export function KingdomWall() {
           maskUnits="userSpaceOnUse"
         >
           <rect width="100%" height="100%" fill="white" />
-          <rect x="8" y="8" fill="black" />
+          <use href={`#${shapeId}`} fill="black" />
         </mask>
       </defs>
-      <rect
+      <use
+        href={`#${shapeId}`}
         className="kingdom-wall-crenels"
-        x="8"
-        y="8"
         mask={`url(#${exteriorMask})`}
       />
-      <rect className="kingdom-wall-masonry" x="8" y="8" />
-      <rect className="kingdom-wall-edge" x="8" y="8" />
+      <use href={`#${shapeId}`} className="kingdom-wall-masonry" />
+      <use href={`#${shapeId}`} className="kingdom-wall-edge" />
     </svg>
   );
 }
