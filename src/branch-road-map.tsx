@@ -1,3 +1,4 @@
+import { objectSizes } from './object-sizes.ts';
 import { useId, useLayoutEffect, useRef, useState } from 'react';
 import {
   GitBranch,
@@ -259,7 +260,10 @@ export function BranchRoadMap({
         onBlur={() => setActive(undefined)}
         onClick={() => open({ roads: [road], partial: false })}
       >
-        <Icon size={15} aria-hidden="true" />
+        <Icon
+          size={road.role === 'plaza' ? objectSizes.plaza : 15}
+          aria-hidden="true"
+        />
       </button>
     );
   }

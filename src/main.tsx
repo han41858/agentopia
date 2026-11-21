@@ -1,3 +1,5 @@
+import { objectSizes, heritageSize } from './object-sizes.ts';
+import { heritageTier } from './heritage-scale.ts';
 import { WorldArt } from './world-art.tsx';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties, FormEvent, ReactNode } from 'react';
@@ -62,11 +64,7 @@ import type {
   Discussion,
   PullActivity,
 } from '../server/activity.ts';
-import {
-  ActivityAura,
-  monsterGrowth,
-  ReviewOpinionBadge,
-} from './activity-effects.tsx';
+import { ActivityAura, ReviewOpinionBadge } from './activity-effects.tsx';
 import { nextRefreshInterval, refreshDue } from './refresh.ts';
 import { facilities, FacilityGlyph } from './facility-art.tsx';
 import { facilityKind, isCurrentFacility } from './facility-kind.ts';
@@ -424,7 +422,7 @@ function MonsterMarker({
           boss={boss}
           defeated={defeated}
           reopened={quest.reopened}
-          growth={monsterGrowth(quest.activity?.commits)}
+          commits={quest.activity?.commits}
         />
       </ActivityAura>
       <small className="expedition-number">{`#${quest.number}`}</small>
@@ -1144,7 +1142,7 @@ function QuestDetail({
               boss={Boolean(quest.subIssueCount)}
               defeated={quest.state === 'closed'}
               reopened={quest.reopened}
-              growth={monsterGrowth(quest.activity?.commits)}
+              commits={quest.activity?.commits}
             />
           </ActivityAura>
           <small className="expedition-number">{`#${quest.number}`}</small>
@@ -1790,7 +1788,11 @@ function HeritageDetail({
   return (
     <Dialog title={title} close={close}>
       <div className="facility-detail">
-        <WorldArt sprite={sprite} className="facility-sprite" />
+        <WorldArt
+          sprite={sprite}
+          size={heritageSize(heritageTier(metric, record?.count))}
+          className="facility-sprite"
+        />
         <span>{region.name}</span>
       </div>
       <dl className="heritage-total">
@@ -2273,7 +2275,11 @@ function App() {
                       }
                       onClick={() => select(region)}
                     >
-                      <WorldArt sprite="palace" className="kingdom-crest" />
+                      <WorldArt
+                        sprite="palace"
+                        size={objectSizes.palace}
+                        className="kingdom-crest"
+                      />
                       <span className="kingdom-label">
                         <strong>{region.name}</strong>
                       </span>

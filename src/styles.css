@@ -181,6 +181,9 @@ svg {
   margin-top: 4px;
 }
 .map-viewport {
+  --map-scale: 1;
+  --map-hit-size: calc(44px / var(--map-scale));
+  zoom: var(--map-scale);
   grid-template-columns: minmax(0, 1fr);
   display: grid;
   grid-auto-rows: max-content;
@@ -354,8 +357,6 @@ svg {
   display: inline-grid;
   position: relative;
   place-items: center;
-  width: 48px;
-  height: 48px;
 }
 .adventurer-glyph:not(.active) .adventurer-avatar {
   opacity: 0.67;
@@ -880,11 +881,19 @@ svg {
 }
 
 @media (max-width: 640px) {
+  .map-viewport {
+    --map-scale: 0.8;
+  }
   .quest-row {
     flex-wrap: wrap;
   }
   .quest-row > span:first-child {
     flex-basis: 100%;
+  }
+}
+@media (max-width: 380px) {
+  .map-viewport {
+    --map-scale: 0.65;
   }
 }
 @media (prefers-reduced-motion: reduce) {
@@ -1117,13 +1126,24 @@ svg {
   cursor: pointer;
 }
 
+.map-viewport .expedition,
+.map-viewport .adventurer {
+  min-width: var(--map-hit-size);
+  min-height: var(--map-hit-size);
+}
+.kingdom-area:has(.kingdom-workshops) {
+  padding-bottom: 68px;
+}
 .kingdom-area:has(.heritage-slot) {
+  padding-top: 60px;
+  padding-inline: 40px;
   min-width: min(100%, 285px);
 }
 .heritage-arc {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  width: min(176px, 100%);
+  width: max-content;
+  column-gap: 4px;
   margin: 0 auto 2px;
 }
 .heritage-arc:empty {
@@ -1136,9 +1156,9 @@ svg {
   place-items: end center;
   position: relative;
   align-self: start;
-  height: 45px;
+  min-height: var(--map-hit-size);
   width: 100%;
-  min-width: 0;
+  min-width: var(--map-hit-size);
   margin-top: var(--arc-drop);
   padding: 0 0 2px;
   border: 0;
@@ -1157,8 +1177,6 @@ svg {
   max-width: 100%;
 }
 .heritage-building .facility-sprite {
-  width: min(calc(26px + var(--heritage-tier) * 2.4px), 11vw);
-  height: min(calc(26px + var(--heritage-tier) * 2.4px), 11vw);
   transition:
     width 250ms ease,
     height 250ms ease;
@@ -1264,7 +1282,8 @@ svg {
   background: repeating-linear-gradient(#d7bd87 0 3px, #af9166 3px 4px);
 }
 .branch-road-node[data-road-role='plaza'] {
-  width: 36px;
+  width: auto;
+  height: auto;
   border-color: #d0b987a0;
 }
 .branch-road-node {

@@ -52,11 +52,11 @@ export type WorldSprite = keyof typeof images;
 
 export function WorldArt({
   sprite,
-  size = 48,
+  size,
   className,
 }: {
   sprite: WorldSprite;
-  size?: number;
+  size: number;
   className?: string;
 }) {
   return (

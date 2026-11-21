@@ -1,3 +1,4 @@
+import { objectSizes, monsterSize } from './object-sizes.ts';
 import { WorldArt } from './world-art.tsx';
 import { Hammer, ScrollText, Swords, X } from 'lucide-react';
 import type { Adventurer, AdventurerRole, Agent } from '../server/model.ts';
@@ -16,9 +17,9 @@ export function MonsterGlyph({
   boss = false,
   defeated = false,
   reopened = false,
-  growth = 0,
+  commits = 0,
 }) {
-  const size = (boss ? 54 : 48) + growth;
+  const size = monsterSize(boss, commits);
   return (
     <span
       className={`monster-glyph${boss ? ' boss' : ''}${defeated ? ' defeated' : ''}${reopened ? ' revived' : ''}`}
@@ -31,14 +32,26 @@ export function MonsterGlyph({
   );
 }
 
-type PartyGlyphProps = { size?: number; className?: string };
+type PartyGlyphProps = { className?: string };
 
-export function PartyLeaderGlyph(props: PartyGlyphProps) {
-  return <WorldArt sprite="partyLeader" {...props} />;
+export function PartyLeaderGlyph({ className }: PartyGlyphProps) {
+  return (
+    <WorldArt
+      sprite="partyLeader"
+      size={objectSizes.officer}
+      className={className}
+    />
+  );
 }
 
-export function PortalKeeperGlyph(props: PartyGlyphProps) {
-  return <WorldArt sprite="portalKeeper" {...props} />;
+export function PortalKeeperGlyph({ className }: PartyGlyphProps) {
+  return (
+    <WorldArt
+      sprite="portalKeeper"
+      size={objectSizes.officer}
+      className={className}
+    />
+  );
 }
 
 export function AdventurerGlyph({
@@ -61,6 +74,7 @@ export function AdventurerGlyph({
     >
       <WorldArt
         sprite={agent === 'codex' ? 'adventurerCodex' : 'adventurerClaude'}
+        size={objectSizes.adventurer}
         className="adventurer-avatar"
       />
       {active && <RoleIcon className="adventurer-role" size={10} />}
