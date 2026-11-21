@@ -1006,9 +1006,7 @@ svg {
   width: 100%;
   position: relative;
   max-width: 100%;
-  margin-top: 3px;
-  padding: 3px 4px;
-  border-top: 1px dashed color-mix(in srgb, var(--land), transparent 30%);
+  padding-inline: 4px;
   background: radial-gradient(
     ellipse at top,
     color-mix(in srgb, var(--land) 12%, transparent),
@@ -1143,10 +1141,7 @@ svg {
   row-gap: 1px;
 }
 .kingdom-area:has(.kingdom-workshops) {
-  padding-bottom: 68px;
-}
-.kingdom-area:has(.kingdom-workshops > :only-child) {
-  padding-bottom: 18px;
+  padding-bottom: 12px;
 }
 .kingdom-area:has(.heritage-slot) {
   padding-top: 60px;
