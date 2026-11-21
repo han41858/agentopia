@@ -1314,7 +1314,7 @@ svg {
 .branch-road-lines path {
   fill: none;
   stroke: #cbb581be;
-  stroke-width: 2px;
+  stroke-width: 2.75px;
   stroke-linecap: round;
   stroke-linejoin: round;
 }
@@ -1323,7 +1323,7 @@ svg {
 }
 .branch-road-lines path[data-active='true'] {
   stroke: #ffdfa0;
-  stroke-width: 2.5px;
+  stroke-width: 3.5px;
 }
 .branch-road-details {
   display: grid;

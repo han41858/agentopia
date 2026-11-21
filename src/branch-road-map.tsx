@@ -33,6 +33,7 @@ type Layout = {
   width: number;
   height: number;
   paths: Path[];
+  roadTop: number;
   artwork: {
     src: string;
     x: number;
@@ -182,7 +183,7 @@ export function BranchRoadMap({
             point(node.querySelector('.branch-junction') ?? node),
           );
       // Roads enter the transparent margins of the artwork; the SVG mask
-      // below trims them to the painted edge of the bridge, plaza or facility.
+      // below trims them to the painted edge of the plaza or facility.
       const middle = (element: Element): Point => {
         const rect = box(element);
         const y = rect.y + rect.height / 2;
@@ -201,21 +202,6 @@ export function BranchRoadMap({
         ),
       );
       const paths: Path[] = [];
-      const crossing = area.querySelector('.branch-bridge');
-      if (bridge && palaceNode && crossing && plaza && plazaArt) {
-        paths.push(
-          {
-            key: 'approach-to-bridge',
-            from: plaza,
-            d: roadPath(point(palaceNode), middle(crossing)),
-          },
-          {
-            key: 'approach-to-plaza',
-            from: plaza,
-            d: roadPath(middle(crossing), middle(plazaArt)),
-          },
-        );
-      }
       for (const road of palaceRoad ? [palaceRoad, ...visible] : visible) {
         const start = nodes.get(road.name);
         if (!start) continue;
@@ -301,9 +287,10 @@ export function BranchRoadMap({
         width: bounds.width,
         height: bounds.height,
         paths,
+        roadTop: bridge && plazaArt ? middle(plazaArt).top : 0,
         artwork: [
           ...area.querySelectorAll<HTMLImageElement>(
-            '.branch-bridge, [data-road-role="plaza"] img, .facility-core img',
+            '[data-road-role="plaza"] img, .facility-core img',
           ),
         ].map((img) => ({
           src: img.currentSrc || img.src,
@@ -434,6 +421,7 @@ export function BranchRoadMap({
                 <rect
                   width={layout.width}
                   height={layout.height}
+                  y={layout.roadTop}
                   fill="white"
                 />
                 {layout.artwork.map(({ src, ...rect }, i) => (
