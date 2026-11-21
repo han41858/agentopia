@@ -1,3 +1,4 @@
+import type { BranchInventory, BranchPull } from './branch-roads.ts';
 import { summarizeActivity } from './activity.ts';
 import type { ActivityProfile, PullActivity } from './activity.ts';
 
@@ -136,6 +137,8 @@ export type Report = {
   quests: Quest[];
   pullQuests?: PullQuest[];
   forges?: PullQuest[];
+  branchInventory?: BranchInventory;
+  branchPulls?: BranchPull[];
   releases: (Source & { stage: Stage })[];
   updatedAt: string;
   warnings: string[];
@@ -161,7 +164,8 @@ export type Pull = {
   draft: boolean;
   body: string | null;
   user?: { login: string; type?: string };
-  head: { ref: string; sha: string; repo?: { full_name: string } };
+  head: { ref: string; sha: string; repo?: { full_name: string } | null };
+  base?: { ref: string; repo?: { full_name: string } | null };
   merge_commit_sha?: string;
   merged_at?: string | null;
   closed_at?: string | null;

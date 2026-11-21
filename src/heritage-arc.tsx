@@ -6,34 +6,33 @@ import type {
   HeritageMetric,
   HeritageRecord,
 } from '../server/heritage.ts';
-import { FacilityGlyph } from './facility-art.tsx';
-import type { FacilityKind } from './facility-kind.ts';
+import { WorldArt, type WorldSprite } from './world-art.tsx';
 import { heritageTier } from './heritage-scale.ts';
 
 export const heritageBuildings = {
   mergedPulls: {
     title: '완공 기념비',
     label: '머지된 PR',
-    kind: 'guard',
+    sprite: 'legacyMonument',
   },
   resolvedIssues: {
     title: '영웅의 전당',
     label: '해결된 이슈',
-    kind: 'workshop',
+    sprite: 'legacyHallOfHeroes',
   },
   reviews: {
     title: '현자의 서고',
     label: '전체 리뷰',
-    kind: 'library',
+    sprite: 'legacySageLibrary',
   },
   comments: {
     title: '기록 보관소',
     label: '전체 댓글',
-    kind: 'wall',
+    sprite: 'legacyArchive',
   },
 } satisfies Record<
   HeritageMetric,
-  { title: string; label: string; kind: FacilityKind }
+  { title: string; label: string; sprite: WorldSprite }
 >;
 
 const historyInterval = 30 * 60_000;
@@ -127,7 +126,7 @@ export function HeritageArc({
   const data = snapshot?.token === token ? snapshot.data : undefined;
   const visible = heritageKeys.flatMap((metric, index) => {
     const record = data?.[metric];
-    return record ? [{ metric, index, record }] : [];
+    return record && record.count > 0 ? [{ metric, index, record }] : [];
   });
   return (
     <div
@@ -138,7 +137,7 @@ export function HeritageArc({
     >
       {visible.map(({ metric, index, record }) => {
         const tier = heritageTier(metric, record.count);
-        const { title, kind } = heritageBuildings[metric];
+        const { title, sprite } = heritageBuildings[metric];
         const offset =
           index === 0 || index === heritageKeys.length - 1 ? 12 : 0;
         return (
@@ -163,7 +162,7 @@ export function HeritageArc({
               style={{ '--heritage-tier': tier } as CSSProperties}
               aria-hidden="true"
             >
-              <FacilityGlyph kind={kind} />
+              <WorldArt sprite={sprite} className="facility-sprite" />
               {tier >= 2 && <span className="heritage-plinth" />}
               {tier > 3 && <span className="heritage-plinth upper" />}
             </span>

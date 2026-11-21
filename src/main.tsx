@@ -1,9 +1,8 @@
+import { WorldArt } from './world-art.tsx';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties, FormEvent, ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 import {
-  Castle,
-  FlaskConical,
   Construction,
   ClipboardCheck,
   GitCommitHorizontal,
@@ -20,14 +19,12 @@ import {
   Plus,
   RefreshCw,
   RotateCcw,
-  Rocket,
   ScrollText,
   Swords,
   Skull,
   Trophy,
   DoorOpen,
   Ticket,
-  Workflow,
   X,
 } from 'lucide-react';
 import {
@@ -53,6 +50,8 @@ import type {
 import {
   AdventurerGlyph,
   AdventurerParty,
+  PartyLeaderGlyph,
+  PortalKeeperGlyph,
   agentNames,
   MonsterGlyph,
   partyLabel,
@@ -83,6 +82,8 @@ import type {
   GitHubDebugSnapshot,
   RefreshConsumption,
 } from '../server/github-debug.ts';
+import { BranchRoadMap, placeBranchRoads } from './branch-road-map.tsx';
+import type { RoadSelection } from './branch-road-map.tsx';
 import './styles.css';
 
 function reportForges(report?: Report) {
@@ -150,6 +151,10 @@ function reportSnapshot(report: Report, previous?: Snapshot): Snapshot {
   );
   report = {
     ...report,
+    branchInventory: report.branchInventory ?? oldReport.branchInventory,
+    branchPulls: missingPulls
+      ? (oldReport.branchPulls ?? report.branchPulls)
+      : report.branchPulls,
     releases:
       missingDeployments && !report.releases.length
         ? oldReport.releases
@@ -336,8 +341,8 @@ const glyph = {
   developing: Swords,
   revising: RotateCcw,
   reviewing: ScrollText,
-  ci: Workflow,
-  deploying: Rocket,
+  ci: PartyLeaderGlyph,
+  deploying: PortalKeeperGlyph,
   merging: GitPullRequest,
   complete: Trophy,
   returned: DoorOpen,
@@ -518,16 +523,13 @@ function FacilityMarker({
   const activeMembers = members.filter(
     (member) => member.active && !member.fallen,
   );
-  const worker =
-    (working || reviewing) && activeMembers.length === 1
-      ? activeMembers[0]
-      : undefined;
   const quality = pull.quality === 'ci' || pull.stage === 'ci';
   const label = [
     `${name} PR #${pull.number}`,
     pull.title,
     pullActivity(pull),
     pullStatus(pull),
+    quality ? 'GitHub Actions · 파티장 · CI' : undefined,
     ...activeMembers.map((member) => partyLabel(member, '대기')),
     ...(pull.issues ?? []).map((number) => `이슈 #${number}`),
   ]
@@ -564,22 +566,12 @@ function FacilityMarker({
           {pull.stage === 'idle' && (
             <Construction className="facility-build" size={13} />
           )}
-          {worker && (
-            <span className="facility-worker">
-              <AdventurerGlyph
-                agent={worker.agent}
-                active={worker.active}
-                forge
-              />
-            </span>
-          )}
           {!activeMembers.length && working && (
             <Tool className="facility-tool" size={13} />
           )}
           {!activeMembers.length && reviewing && (
             <ScrollText className="facility-tool" size={13} />
           )}
-          {quality && <FlaskConical className="facility-test" size={13} />}
           {pull.stage === 'merging' && (
             <GitPullRequest className="facility-result" size={13} />
           )}
@@ -590,9 +582,8 @@ function FacilityMarker({
       </ActivityAura>
       <small className="expedition-number">{`PR #${pull.number}`}</small>
       <AdventurerParty
-        members={
-          worker ? members.filter((member) => member !== worker) : members
-        }
+        members={members}
+        leader={quality}
         resting="대기"
         forge
       />
@@ -879,7 +870,7 @@ function Dialog({
           <X size={20} />
         </button>
       </div>
-      {children}
+      <div className="dialog-body">{children}</div>
     </dialog>
   );
 }
@@ -1795,11 +1786,11 @@ function HeritageDetail({
   close: () => void;
 }) {
   const { region, metric, record } = selection;
-  const { title, label, kind } = heritageBuildings[metric];
+  const { title, label, sprite } = heritageBuildings[metric];
   return (
     <Dialog title={title} close={close}>
       <div className="facility-detail">
-        <FacilityGlyph kind={kind} />
+        <WorldArt sprite={sprite} className="facility-sprite" />
         <span>{region.name}</span>
       </div>
       <dl className="heritage-total">
@@ -1832,6 +1823,11 @@ function App() {
   const [refreshUsage, setRefreshUsage] = useState<{
     token: string;
     usage: RefreshConsumption;
+    stale: boolean;
+  }>();
+  const [selectedRoad, setSelectedRoad] = useState<{
+    region: Region;
+    selection: RoadSelection;
   }>();
   const [selectedHeritage, setSelectedHeritage] = useState<HeritageSelection>();
   const [inspected, setInspected] = useState<MapEntry>();
@@ -1862,7 +1858,15 @@ function App() {
   });
   const refreshJobs = useRef<{
     token: string;
-    jobs: Map<string, { last: number; interval: number; report?: Report }>;
+    jobs: Map<
+      string,
+      {
+        last: number;
+        interval: number;
+        report?: Report;
+        branchCheckedAt?: number;
+      }
+    >;
   }>({ token, jobs: new Map() });
   const [showConnect, setShowConnect] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
@@ -1889,6 +1893,7 @@ function App() {
       const next = readSettings();
       refreshJobs.current.jobs.clear();
       setSelectedHeritage(undefined);
+      setSelectedRoad(undefined);
       setSettings(next);
       setSnapshots({});
       setSelected(undefined);
@@ -1960,22 +1965,40 @@ function App() {
         usages.every((usage) => usage?.consumed !== undefined)
           ? usages.reduce((sum, usage) => sum + (usage?.consumed ?? 0), 0)
           : undefined;
-      setRefreshUsage({
-        token,
-        usage: {
-          consumed,
-          limit: limits.size === 1 ? limits.values().next().value : undefined,
-        },
+      setRefreshUsage((previous) => {
+        const last = previous?.token === token ? previous.usage : undefined;
+        if (consumed === undefined)
+          return {
+            token,
+            usage: last ?? {},
+            stale: last?.consumed !== undefined,
+          };
+        return {
+          token,
+          usage: {
+            consumed,
+            limit:
+              limits.size === 1 ? limits.values().next().value : last?.limit,
+          },
+          stale: false,
+        };
       });
     }
 
     async function sync(slug: string, force: boolean) {
       pending.add(slug);
       const previous = jobs.get(slug);
+      const checkBranches =
+        force ||
+        Date.now() - (previous?.branchCheckedAt ?? -Infinity) >= 120_000;
+      const branchCheckedAt = checkBranches
+        ? Date.now()
+        : previous?.branchCheckedAt;
       let usage: RefreshConsumption | undefined;
       try {
         const params = new URLSearchParams({ repo: slug, measure: 'refresh' });
         if (force) params.set('refresh', '1');
+        if (checkBranches) params.set('branches', '1');
         const report = await request<Report>(
           params,
           token,
@@ -2003,7 +2026,7 @@ function App() {
           Boolean(active) || report.warnings.length > 0,
           changed,
         );
-        jobs.set(slug, { last: Date.now(), report, interval });
+        jobs.set(slug, { last: Date.now(), report, interval, branchCheckedAt });
         setSnapshots((current) => ({
           ...current,
           [slug]: reportSnapshot(report, current[slug]),
@@ -2014,6 +2037,7 @@ function App() {
           last: Date.now(),
           interval: refreshInterval,
           report: previous?.report,
+          branchCheckedAt,
         });
         setSnapshots((current) => ({
           ...current,
@@ -2055,6 +2079,7 @@ function App() {
     setSnapshots({});
     setSelectedQuest(undefined);
     setSelectedHeritage(undefined);
+    setSelectedRoad(undefined);
     setLoading(true);
   }
 
@@ -2078,6 +2103,18 @@ function App() {
     setSelected(undefined);
     setSelectedQuest(undefined);
   }
+
+  const roadPlacements = useMemo(() => {
+    const placements = new Map<string, ReturnType<typeof placeBranchRoads>>();
+    for (const [slug, { report }] of Object.entries(snapshots)) {
+      if (report?.branchInventory)
+        placements.set(
+          slug,
+          placeBranchRoads(report.branchInventory, report.branchPulls),
+        );
+    }
+    return placements;
+  }, [snapshots]);
 
   const hasData = worldRegions.some(({ slug }) => snapshots[slug]?.report);
   const tokenStatus = getTokenStatus(
@@ -2114,7 +2151,7 @@ function App() {
         <header className="world-header">
           <div className="world-heading">
             <span className="crest" aria-hidden="true">
-              <Castle size={22} />
+              <WorldArt sprite="palace" size={22} />
             </span>
             <h1 id="world-title" className="brand">
               Agentopia
@@ -2172,6 +2209,9 @@ function App() {
                 refresh={
                   refreshUsage?.token === token ? refreshUsage.usage : undefined
                 }
+                refreshStale={
+                  refreshUsage?.token === token && refreshUsage.stale
+                }
               />
             </div>
           </div>
@@ -2192,7 +2232,16 @@ function App() {
                       ?.issues
                   : [],
               );
-              const visibleFacilities = forges.filter(isCurrentFacility);
+              const placement = roadPlacements.get(region.slug);
+              const visibleFacilities = forges
+                .filter(isCurrentFacility)
+                .sort(
+                  (left, right) =>
+                    (placement?.facilityOrder.get(left.number) ??
+                      Number.MAX_SAFE_INTEGER) -
+                    (placement?.facilityOrder.get(right.number) ??
+                      Number.MAX_SAFE_INTEGER),
+                );
               return (
                 <section
                   className="kingdom-region"
@@ -2216,39 +2265,39 @@ function App() {
                         setSelectedHeritage({ region, metric, record })
                       }
                     />
-                    <button className="kingdom" onClick={() => select(region)}>
-                      <span className="kingdom-guild">
-                        <Castle
-                          className="kingdom-crest"
-                          size={34}
-                          strokeWidth={1.5}
-                          aria-hidden="true"
-                        />
-                        {(forges.some((forge) => forge.runs.length) ||
-                          report?.quests.some(
-                            (quest) => quest.runs.length,
-                          )) && (
-                          <span
-                            className="kingdom-guild-master"
-                            role="img"
-                            aria-label="GitHub Actions · 길드 마스터"
-                            title="GitHub Actions · 길드 마스터"
-                          >
-                            <Workflow size={14} aria-hidden="true" />
-                          </span>
-                        )}
-                      </span>
+                    <button
+                      className="kingdom"
+                      data-road-palace=""
+                      title={
+                        placement ? `왕궁 · ${placement.palace}` : undefined
+                      }
+                      onClick={() => select(region)}
+                    >
+                      <WorldArt sprite="palace" className="kingdom-crest" />
                       <span className="kingdom-label">
                         <strong>{region.name}</strong>
                       </span>
                     </button>
+                    {placement && (
+                      <BranchRoadMap
+                        placement={placement}
+                        highlightedPull={
+                          localFocus?.kind === 'pull'
+                            ? localFocus.number
+                            : undefined
+                        }
+                        open={(selection) =>
+                          setSelectedRoad({ region, selection })
+                        }
+                      />
+                    )}
                     {visibleFacilities.length > 0 && (
                       <ul
                         className="expeditions kingdom-workshops"
                         aria-label={`${region.name} 왕국 내부`}
                       >
                         {visibleFacilities.map((item) => (
-                          <li key={item.number}>
+                          <li key={item.number} data-road-pr={item.number}>
                             <FacilityMarker
                               pull={item}
                               open={() => openPull(region, item)}
@@ -2304,7 +2353,7 @@ function App() {
         <footer className="world-footer">
           <ul className="expedition-legend" aria-label="기본 파티 구성">
             <li className="actions">
-              <Workflow size={14} aria-hidden="true" /> 길드 마스터
+              <PartyLeaderGlyph /> 파티장
             </li>
             <li className="codex">
               <AdventurerGlyph agent="codex" /> Codex
@@ -2313,7 +2362,7 @@ function App() {
               <AdventurerGlyph agent="claude" /> Claude
             </li>
             <li className="release">
-              <Rocket size={14} aria-hidden="true" /> 포탈 관리자
+              <PortalKeeperGlyph /> 포탈 관리자
             </li>
           </ul>
         </footer>
@@ -2359,6 +2408,40 @@ function App() {
           selection={selectedHeritage}
           close={() => setSelectedHeritage(undefined)}
         />
+      )}
+      {selectedRoad && (
+        <Dialog
+          title={
+            selectedRoad.selection.roads.length === 1
+              ? selectedRoad.selection.roads[0].name
+              : '브랜치 도로망'
+          }
+          close={() => setSelectedRoad(undefined)}
+        >
+          {selectedRoad.selection.partial && (
+            <p>브랜치 목록의 첫 페이지와 열린 PR에서 확인한 경로입니다.</p>
+          )}
+          <ul className="branch-road-details">
+            {selectedRoad.selection.roads.map((road) => (
+              <li key={road.name}>
+                <strong>{road.name}</strong>
+                {road.role === 'palace' && <small>왕궁</small>}
+                {road.role === 'plaza' && <small>개발 광장</small>}
+                {road.parent && <small>관측된 PR 대상 · {road.parent}</small>}
+                {road.pulls.map((pull) => (
+                  <OutLink
+                    key={pull.number}
+                    item={{
+                      title: `PR #${pull.number} · ${pull.base}`,
+                      status: pull.merged ? '머지됨' : '열림',
+                      url: `https://github.com/${selectedRoad.region.slug}/pull/${pull.number}`,
+                    }}
+                  />
+                ))}
+              </li>
+            ))}
+          </ul>
+        </Dialog>
       )}
       {selectedQuest && pull && (
         <PullDetail

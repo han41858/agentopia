@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48">
+  <title>파티장</title>
+  <g stroke="#231a3d" stroke-width="2" stroke-linejoin="round" stroke-linecap="round">
+    <path d="M34 43V5" fill="none" />
+    <polygon points="34,6 46,6 42.500,11.500 46,17 34,17" fill="#f2b84b" />
+    <rect x="10" y="27" width="16" height="16" rx="5" fill="#3f6fd8" />
+    <circle cx="18" cy="19" r="8" fill="#f6d7b8" />
+    <path d="M8 15q10-10 20 0l2 3H6z" fill="#2b2350" />
+  </g>
+  <g fill="#231a3d">
+    <circle cx="15" cy="21" r="1.300" />
+    <circle cx="21" cy="21" r="1.300" />
+  </g>
+</svg>

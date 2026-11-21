@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48">
+  <title>Codex</title>
+  <g stroke="#231a3d" stroke-width="2" stroke-linejoin="round" stroke-linecap="round">
+    <path d="M37 41l2-19" fill="none" />
+    <rect x="34" y="15" width="10" height="7" rx="1.500" fill="#cfd8e3" />
+    <rect x="13" y="27" width="16" height="16" rx="5" fill="#2fb5a0" />
+    <circle cx="21" cy="19" r="8" fill="#f6d7b8" />
+    <path d="M11 19v-2a10 10 0 0 1 20 0v2z" fill="#cfd8e3" />
+    <path d="M21 7q1-4 6-4q-2 2-2 5z" fill="#f2b84b" stroke-width="1.500" />
+  </g>
+  <g fill="#231a3d">
+    <circle cx="18" cy="22.500" r="1.300" />
+    <circle cx="24" cy="22.500" r="1.300" />
+  </g>
+</svg>

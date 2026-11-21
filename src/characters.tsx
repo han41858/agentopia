@@ -1,4 +1,5 @@
-import { Bug, Crown, Hammer, ScrollText, Swords, X } from 'lucide-react';
+import { WorldArt } from './world-art.tsx';
+import { Hammer, ScrollText, Swords, X } from 'lucide-react';
 import type { Adventurer, AdventurerRole, Agent } from '../server/model.ts';
 
 export const agentNames: Record<Agent, string> = {
@@ -17,17 +18,27 @@ export function MonsterGlyph({
   reopened = false,
   growth = 0,
 }) {
+  const size = (boss ? 54 : 48) + growth;
   return (
     <span
       className={`monster-glyph${boss ? ' boss' : ''}${defeated ? ' defeated' : ''}${reopened ? ' revived' : ''}`}
       aria-hidden="true"
     >
-      {boss && <Crown className="monster-crown" size={12} />}
-      <Bug size={(boss ? 25 : 21) + growth} strokeWidth={1.7} />
+      <WorldArt sprite={boss ? 'monsterBoss' : 'monster'} size={size} />
       {defeated && <X className="monster-remains" size={11} />}
       {reopened && <span className="monster-revival" />}
     </span>
   );
+}
+
+type PartyGlyphProps = { size?: number; className?: string };
+
+export function PartyLeaderGlyph(props: PartyGlyphProps) {
+  return <WorldArt sprite="partyLeader" {...props} />;
+}
+
+export function PortalKeeperGlyph(props: PartyGlyphProps) {
+  return <WorldArt sprite="portalKeeper" {...props} />;
 }
 
 export function AdventurerGlyph({
@@ -48,7 +59,10 @@ export function AdventurerGlyph({
       className={`adventurer-glyph ${agent}${active ? ` active ${active}` : ''}${fallen ? ' fallen' : ''}${forge ? ' crafting' : ''}`}
       aria-hidden="true"
     >
-      <span className="adventurer-avatar" />
+      <WorldArt
+        sprite={agent === 'codex' ? 'adventurerCodex' : 'adventurerClaude'}
+        className="adventurer-avatar"
+      />
       {active && <RoleIcon className="adventurer-role" size={10} />}
     </span>
   );
@@ -67,16 +81,23 @@ export function AdventurerParty({
   members,
   resting,
   detailed = false,
+  leader = false,
   forge = false,
 }: {
   members: Adventurer[];
   resting: string;
   detailed?: boolean;
+  leader?: boolean;
   forge?: boolean;
 }) {
-  if (!members.length) return null;
+  if (!leader && !members.length) return null;
   return (
     <span className={`adventurer-party${detailed ? ' detailed' : ''}`}>
+      {leader && (
+        <span className="adventurer" title="GitHub Actions · 파티장 · CI">
+          <PartyLeaderGlyph className="working-party-leader" />
+        </span>
+      )}
       {members.map((member) => (
         <span
           className="adventurer"

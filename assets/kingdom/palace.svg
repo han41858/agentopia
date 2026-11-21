@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48">
+  <title>왕궁</title>
+  <g stroke="#231a3d" stroke-width="2" stroke-linejoin="round" stroke-linecap="round">
+    <rect x="6" y="24" width="10" height="19" fill="#d9d2c5" />
+    <rect x="32" y="24" width="10" height="19" fill="#d9d2c5" />
+    <polygon points="4,24 11,14 18,24" fill="#f2b84b" />
+    <polygon points="30,24 37,14 44,24" fill="#f2b84b" />
+    <rect x="15" y="17" width="18" height="26" fill="#f1ece2" />
+    <polygon points="12,17 24,4 36,17" fill="#f2b84b" />
+    <path d="M20 43v-8a4 4 0 0 1 8 0v8z" fill="#231a3d" />
+  </g>
+</svg>
