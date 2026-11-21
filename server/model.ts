@@ -95,6 +95,7 @@ export type Quest = {
   activity?: ActivityProfile;
   reopened?: boolean;
   workPull?: number;
+  workReviewer?: Agent;
   issueComments?: number;
   subIssueCount?: number;
   parent?: number;
@@ -127,6 +128,7 @@ export type PullQuest = Source & {
 };
 
 export type PullLinks = {
+  reviewParticipants?: Agent[];
   activity?: PullActivity;
   issues: number[];
   activities?: ActivityCounts;
@@ -377,7 +379,17 @@ export function makeForges(
       const workers = new Map<Agent, Adventurer>();
       for (const quest of relatedWork) {
         for (const member of quest.adventurers ?? []) {
-          if (!member.active && !member.fallen) continue;
+          if (!member.active && !member.fallen) {
+            if (
+              member.agent === quest.workReviewer &&
+              !workers.has(member.agent)
+            )
+              workers.set(member.agent, {
+                agent: member.agent,
+                roles: ['review'],
+              });
+            continue;
+          }
           const previous = workers.get(member.agent);
           workers.set(member.agent, {
             ...member,
@@ -389,6 +401,12 @@ export function makeForges(
               Boolean(member.fallen || previous?.fallen),
           });
         }
+      }
+      for (const agent of review?.reviewParticipants ??
+        (review?.reviewer ? [review.reviewer] : [])) {
+        const member: Adventurer = workers.get(agent) ?? { agent, roles: [] };
+        if (!member.roles.includes('review')) member.roles.push('review');
+        workers.set(agent, member);
       }
       const adventurers = [...workers.values()];
       const quality =
@@ -493,8 +511,18 @@ export function makeQuests(
     number,
     { state: AutomationState; comment: Comment }
   >();
+  const pastReviewers = new Map<number, Set<Agent>>();
   for (const comment of comments) {
     const state = readState(comment, region);
+    if (
+      state?.reviewer &&
+      ['codex', 'claude'].includes(state.reviewer) &&
+      (state.reviewInProgress || state.reviews?.length)
+    ) {
+      const reviewers = pastReviewers.get(state.issue) ?? new Set<Agent>();
+      reviewers.add(state.reviewer);
+      pastReviewers.set(state.issue, reviewers);
+    }
     const previous = state && records.get(state.issue);
     if (
       state &&
@@ -719,7 +747,14 @@ export function makeQuests(
           (state?.status === 'developing' || state?.status === 'revising'),
       );
     const submittedReviewer = pull && pullLinks.get(pull.number)?.reviewer;
-    if (submittedReviewer) addAdventurer(submittedReviewer, 'review', false);
+    for (const agent of pastReviewers.get(issue.number) ?? [])
+      addAdventurer(agent, 'review', false);
+    for (const item of issuePulls) {
+      const link = pullLinks.get(item.number);
+      for (const agent of link?.reviewParticipants ??
+        (link?.reviewer ? [link.reviewer] : []))
+        addAdventurer(agent, 'review', false);
+    }
     const reviewRecorded = Boolean(
       state?.reviewInProgress || state?.reviews?.length,
     );
@@ -785,6 +820,13 @@ export function makeQuests(
           ? true
           : undefined,
       victory,
+      workReviewer:
+        workPull &&
+        state?.reviewer &&
+        (state.reviewInProgress === workPull.head.sha ||
+          state.reviews?.some((review) => review.head === workPull.head.sha))
+          ? state.reviewer
+          : undefined,
       workPull:
         matchingRun && issue.state === 'open' ? workPull?.number : undefined,
       adventurers: [...adventurers.values()],

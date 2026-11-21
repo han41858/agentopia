@@ -287,7 +287,7 @@ async function listRepositories(
   };
 }
 
-type Login = { login: string };
+type Login = { login: string; __typename?: string };
 type NativeDiscussion = {
   totalCount?: number;
   nodes?: { author: Login | null }[];
@@ -373,7 +373,7 @@ async function nativePullLinks(region: Region, token: string, pulls: Pull[]) {
         ? `fragment ActivitySample on PullRequest {
       commits(first: 35) { nodes { commit { oid } } }
       comments(last: 25) { nodes { author { login } } }
-      reviews(last: 25, states: [APPROVED, CHANGES_REQUESTED, COMMENTED, DISMISSED]) { nodes { author { login } } }
+      reviews(last: 25, states: [APPROVED, CHANGES_REQUESTED, COMMENTED, DISMISSED]) { nodes { author { login __typename } } }
     }`
         : ''
     }`;
@@ -458,6 +458,17 @@ async function nativePullLinks(region: Region, token: string, pulls: Pull[]) {
       },
       reviewer,
       review: reviewer ? latest.state : undefined,
+      reviewParticipants: [
+        ...new Set(
+          [
+            ...reviewers,
+            ...pull.latestReviews.nodes.filter((entry) => entry.submittedAt),
+          ].flatMap(({ author }) => {
+            const agent = pullActor(author?.login, author?.__typename);
+            return agent ? [agent] : [];
+          }),
+        ),
+      ],
     });
   }
   const reopened = new Set(

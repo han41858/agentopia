@@ -37,6 +37,7 @@ import {
   stages,
 } from '../server/model.ts';
 import type {
+  Adventurer,
   ActivityCounts,
   ActivityKind,
   ActivityPage,
@@ -136,6 +137,26 @@ function partyStates(report: Report) {
   ]);
 }
 
+// A bounded refresh can omit an older review. Only carry its participation
+// forward; activity and failure always come from the current observation.
+function retainReviewers(
+  current: Adventurer[] = [],
+  previous: Adventurer[] = [],
+) {
+  const members = [...current];
+  for (const prior of previous) {
+    if (!prior.roles.includes('review')) continue;
+    const index = members.findIndex((member) => member.agent === prior.agent);
+    if (index < 0) members.push({ agent: prior.agent, roles: ['review'] });
+    else if (!members[index].roles.includes('review'))
+      members[index] = {
+        ...members[index],
+        roles: [...members[index].roles, 'review'],
+      };
+  }
+  return members;
+}
+
 function reportSnapshot(report: Report, previous?: Snapshot): Snapshot {
   if (!previous?.report) return { report };
   const oldReport = previous.report;
@@ -147,6 +168,16 @@ function reportSnapshot(report: Report, previous?: Snapshot): Snapshot {
   const prior = new Map(
     previous.report.quests.map((quest) => [quest.number, quest]),
   );
+  const oldForges = new Map(
+    reportForges(oldReport).map((pull) => [pull.number, pull]),
+  );
+  const freshForges = reportForges(report).map((pull) => ({
+    ...pull,
+    adventurers: retainReviewers(
+      pull.adventurers,
+      oldForges.get(pull.number)?.adventurers,
+    ),
+  }));
   report = {
     ...report,
     branchInventory: report.branchInventory ?? oldReport.branchInventory,
@@ -159,7 +190,7 @@ function reportSnapshot(report: Report, previous?: Snapshot): Snapshot {
         : report.releases,
     forges: missingPulls
       ? [
-          ...reportForges(report),
+          ...freshForges,
           ...reportForges(oldReport)
             .filter(
               (pull) =>
@@ -178,7 +209,7 @@ function reportSnapshot(report: Report, previous?: Snapshot): Snapshot {
               quality: pull.quality === 'ci' ? undefined : pull.quality,
             })),
         ]
-      : reportForges(report),
+      : freshForges,
     quests: report.quests.map((quest) => {
       const old = prior.get(quest.number);
       if (old && (missingPulls || missingRuns || missingLinks)) {
@@ -214,6 +245,10 @@ function reportSnapshot(report: Report, previous?: Snapshot): Snapshot {
             : {}),
         };
       }
+      quest = {
+        ...quest,
+        adventurers: retainReviewers(quest.adventurers, old?.adventurers),
+      };
       return quest.state === 'open' &&
         !quest.reopened &&
         (old?.state === 'closed' || old?.reopened)
