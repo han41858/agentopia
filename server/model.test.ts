@@ -875,6 +875,36 @@ test('forges represent many-to-many links and activate only the uniquely matched
   );
 });
 
+test('completed reviews keep resting reviewers on the reviewed PR and its issues', () => {
+  const links = new Map([
+    [20, { issues: [2], reviewParticipants: ['claude' as const] }],
+  ]);
+  const reviewed = { ...pull, head: { ...pull.head, ref: 'feature/work' } };
+  const unrelated = { ...reviewed, number: 21 };
+  const quests = makeQuests(
+    commitTrail,
+    [issue(2)],
+    [reviewed, unrelated],
+    [],
+    [],
+    new Map(),
+    [],
+    links,
+  );
+  const [forge, other] = makeForges(
+    commitTrail,
+    [reviewed, unrelated],
+    [],
+    links,
+    quests,
+  );
+  const resting = [{ agent: 'claude', roles: ['review'] }];
+  assert.deepEqual(quests[0].adventurers, resting);
+  assert.deepEqual(forge.adventurers, resting);
+  assert.equal(forge.stage, 'idle');
+  assert.deepEqual(other.adventurers, []);
+});
+
 test('facility classification uses the leading GitMoji and keeps a neutral default', () => {
   assert.deepEqual(
     ['✨', '🐛', '💄', '📝', '✅', '⚡️', '♻️', '🔒', '🚀'].map((emoji) =>

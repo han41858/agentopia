@@ -275,11 +275,17 @@ svg {
 }
 .expeditions > .guild-branch,
 .guild-parties > .guild-branch {
-  flex-basis: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: center;
+  column-gap: 3px;
 }
 .guild-parties {
-  margin: 6px 0 0 7px;
-  padding: 2px 0 0 7px;
+  margin: 0;
+  padding: 0 0 0 4px;
+  justify-content: center;
+  max-width: 100%;
   border-inline-start: 2px solid #948666;
 }
 .expedition {
@@ -997,10 +1003,11 @@ svg {
   max-width: min(100%, 720px);
 }
 .kingdom-fields {
+  width: 100%;
   position: relative;
   max-width: 100%;
-  margin-top: 10px;
-  padding: 6px 8px 3px;
+  margin-top: 3px;
+  padding: 3px 4px;
   border-top: 1px dashed color-mix(in srgb, var(--land), transparent 30%);
   background: radial-gradient(
     ellipse at top,
@@ -1014,6 +1021,7 @@ svg {
 }
 .kingdom-fields > .expeditions {
   margin-top: 0;
+  row-gap: 2px;
 }
 .facility-core {
   position: relative;
@@ -1128,13 +1136,17 @@ svg {
   cursor: pointer;
 }
 
-.map-viewport .expedition,
-.map-viewport .adventurer {
+.map-viewport .expedition {
   min-width: var(--map-hit-size);
   min-height: var(--map-hit-size);
+  padding-block: 2px;
+  row-gap: 1px;
 }
 .kingdom-area:has(.kingdom-workshops) {
   padding-bottom: 68px;
+}
+.kingdom-area:has(.kingdom-workshops > :only-child) {
+  padding-bottom: 18px;
 }
 .kingdom-area:has(.heritage-slot) {
   padding-top: 60px;
