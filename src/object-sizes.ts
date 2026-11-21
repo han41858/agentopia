@@ -1,7 +1,7 @@
 // Desktop CSS pixels. The map scales as one unit on small screens.
 export const objectSizes = {
   palace: 96,
-  plaza: 64,
+  plaza: 80,
   moatBridge: 192,
   facility: 48,
   adventurer: 28,

@@ -1260,15 +1260,24 @@ svg {
   gap: 8px;
   width: 100%;
 }
+.branch-plaza {
+  row-gap: 0;
+}
+.branch-plaza img {
+  display: block;
+  height: auto;
+}
+.branch-bridge + .branch-road-node {
+  /* Bring the painted edges together across both SVGs' transparent margins. */
+  margin-block-start: -14px;
+}
 .branch-road-row {
   display: grid;
   width: 100%;
   justify-items: center;
 }
 .branch-bridge {
-  display: block;
   max-width: 100%;
-  height: auto;
 }
 .branch-road-node[data-road-role='plaza'] {
   width: auto;
