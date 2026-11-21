@@ -985,6 +985,8 @@ svg {
 }
 
 .kingdom-region {
+  position: relative;
+  isolation: isolate;
   --land: oklch(66% 0.09 var(--kingdom-hue));
   --accent: oklch(86% 0.11 var(--kingdom-hue));
   display: grid;
@@ -1248,6 +1250,9 @@ svg {
   gap: 9px;
   margin: 3px auto 14px;
 }
+.branch-roads:empty {
+  margin: 0;
+}
 .branch-plaza,
 .branch-road-tiers {
   display: grid;
@@ -1255,36 +1260,41 @@ svg {
   gap: 8px;
   width: 100%;
 }
-.branch-road-row {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 6px 3px;
+.branch-plaza {
+  row-gap: 0;
 }
-.branch-road-row > .branch-road-node {
-  margin-inline: 13.5px;
+.branch-plaza img {
+  display: block;
+  height: auto;
+}
+.branch-bridge + .branch-road-node {
+  /* Bring the painted edges together across both SVGs' transparent margins. */
+  margin-block-start: -14px;
+}
+.branch-road-row {
+  display: grid;
+  width: 100%;
+  justify-items: center;
 }
 .branch-bridge {
-  display: grid;
-  place-items: center;
-  width: min(80px, 80%);
-  height: 10px;
-  background: linear-gradient(
-    transparent 2px,
-    #6caeaa5e 2px 8px,
-    transparent 8px
-  );
-}
-.branch-bridge > span {
-  width: 13px;
-  height: 12px;
-  border-inline: 2px solid #8e7753;
-  background: repeating-linear-gradient(#d7bd87 0 3px, #af9166 3px 4px);
+  max-width: 100%;
 }
 .branch-road-node[data-road-role='plaza'] {
   width: auto;
   height: auto;
-  border-color: #d0b987a0;
+  border: none;
+  background: transparent;
+}
+.branch-road-node[data-road-role='road'] {
+  background: transparent;
+  border: none;
+}
+.branch-junction {
+  width: 7px;
+  height: 7px;
+  border: 1px solid #ddc78d;
+  border-radius: 50%;
+  background: #51684d;
 }
 .branch-road-node {
   display: grid;
@@ -1305,15 +1315,16 @@ svg {
 .branch-road-lines {
   position: absolute;
   inset: 0;
-  z-index: -1;
+  z-index: 1;
   width: 100%;
   height: 100%;
   pointer-events: none;
 }
 .branch-road-lines path {
   fill: none;
-  stroke: #cbb5818d;
-  stroke-width: 1.5px;
+  stroke: #cbb581be;
+  stroke-width: 2.75px;
+  stroke-linecap: round;
   stroke-linejoin: round;
 }
 .branch-road-lines path[data-merged='true'] {
@@ -1321,7 +1332,7 @@ svg {
 }
 .branch-road-lines path[data-active='true'] {
   stroke: #ffdfa0;
-  stroke-width: 2.5px;
+  stroke-width: 3.5px;
 }
 .branch-road-details {
   display: grid;
