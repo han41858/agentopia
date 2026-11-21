@@ -985,6 +985,8 @@ svg {
 }
 
 .kingdom-region {
+  position: relative;
+  isolation: isolate;
   --land: oklch(66% 0.09 var(--kingdom-hue));
   --accent: oklch(86% 0.11 var(--kingdom-hue));
   display: grid;
@@ -1248,6 +1250,9 @@ svg {
   gap: 9px;
   margin: 3px auto 14px;
 }
+.branch-roads:empty {
+  margin: 0;
+}
 .branch-plaza,
 .branch-road-tiers {
   display: grid;
@@ -1256,12 +1261,32 @@ svg {
   width: 100%;
 }
 .branch-road-row {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 6px 3px;
+  display: grid;
+  width: 100%;
+  justify-items: center;
 }
-.branch-road-row > .branch-road-node {
+.branch-bridge {
+  display: block;
+  height: auto;
+}
+.branch-road-node[data-road-role='plaza'] {
+  width: auto;
+  height: auto;
+  border: none;
+  background: transparent;
+}
+.branch-road-node[data-road-role='road'] {
+  background: transparent;
+  border: none;
+}
+.branch-junction {
+  width: 7px;
+  height: 7px;
+  border: 1px solid #ddc78d;
+  border-radius: 50%;
+  background: #51684d;
+}
+.branch-road-node {
   margin-inline: 13.5px;
 }
 .branch-bridge {
@@ -1305,7 +1330,7 @@ svg {
 .branch-road-lines {
   position: absolute;
   inset: 0;
-  z-index: -1;
+  z-index: 1;
   width: 100%;
   height: 100%;
   pointer-events: none;

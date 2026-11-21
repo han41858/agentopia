@@ -1,13 +1,13 @@
 import { objectSizes } from './object-sizes.ts';
 import { useId, useLayoutEffect, useRef, useState } from 'react';
+import { MoreHorizontal } from 'lucide-react';
+import { createPortal } from 'react-dom';
+import { WorldArt } from './world-art.tsx';
 import {
-  GitBranch,
-  GitFork,
-  Landmark,
-  MoreHorizontal,
-  Signpost,
-} from 'lucide-react';
-import { branchCenters, buildBranchRoads } from '../server/branch-roads.ts';
+  branchCenters,
+  branchIssueNumber,
+  buildBranchRoads,
+} from '../server/branch-roads.ts';
 import type {
   BranchInventory,
   BranchPull,
@@ -24,6 +24,8 @@ type Path = {
   key: string;
   from: string;
   pull?: number;
+  issue?: number;
+  secondary?: boolean;
   merged?: boolean;
   d: string;
 };
@@ -37,21 +39,23 @@ type Layout = {
 function roadPath(start: Point, destination: Point) {
   if (Math.abs(start.top - destination.top) < 3) {
     const lane = Math.min(start.top, destination.top) - 5;
-    return `M${start.x} ${start.top} V${lane} H${destination.x} V${destination.top}`;
+    return `M${start.x} ${start.top} C${start.x} ${lane - 8} ${destination.x} ${lane - 8} ${destination.x} ${destination.top}`;
   }
   const descending = start.bottom <= destination.top;
   const fromY = descending ? start.bottom : start.top;
   const toY = descending ? destination.top : destination.bottom;
-  const elbow = (fromY + toY) / 2;
-  return `M${start.x} ${fromY} V${elbow} H${destination.x} V${toY}`;
+  const middle = (fromY + toY) / 2;
+  return `M${start.x} ${fromY} C${start.x} ${middle} ${destination.x} ${middle} ${destination.x} ${toY}`;
 }
 
 export function placeBranchRoads(
-  inventory: BranchInventory,
+  inventory: BranchInventory | undefined,
   pulls: BranchPull[] = [],
 ) {
-  const roads = buildBranchRoads(inventory, pulls);
-  const { palace, plaza, bridge } = branchCenters(inventory, pulls);
+  const roads = inventory ? buildBranchRoads(inventory, pulls) : [];
+  const { palace, plaza, bridge } = inventory
+    ? branchCenters(inventory, pulls)
+    : {};
   const nonPalace = roads.filter((road) => road.role !== 'palace');
   const byName = new Map(nonPalace.map((road) => [road.name, road]));
   const chosen = new Map<string, BranchRoad>();
@@ -78,8 +82,10 @@ export function placeBranchRoads(
       if (!pull.merged) facilityOrder.set(pull.number, facilityOrder.size);
     }
   }
+  const lanes = new Map<string, number>();
   function visit(road: BranchRoad, depth: number) {
     (rows[depth] ??= []).push(road);
+    lanes.set(road.name, lanes.size + 1);
     rank(road);
     for (const child of branches) {
       if (child.parent === road.name) visit(child, depth + 1);
@@ -99,19 +105,22 @@ export function placeBranchRoads(
     plazaRoad,
     visible,
     rows,
+    lanes,
     facilityOrder,
-    showMore: inventory.partial || visible.length < nonPalace.length,
-    partial: inventory.partial,
+    showMore: Boolean(inventory?.partial) || visible.length < nonPalace.length,
+    partial: Boolean(inventory?.partial),
   };
 }
 
 export function BranchRoadMap({
   placement,
   highlightedPull,
+  highlightedIssue,
   open,
 }: {
   placement: ReturnType<typeof placeBranchRoads>;
   highlightedPull?: number;
+  highlightedIssue?: number;
   open: (selection: RoadSelection) => void;
 }) {
   const {
@@ -128,12 +137,14 @@ export function BranchRoadMap({
   } = placement;
   const row = useRef<HTMLDivElement>(null);
   const mask = useId();
+  const [region, setRegion] = useState<HTMLElement | null>(null);
   const [layout, setLayout] = useState<Layout>();
   const [active, setActive] = useState<string>();
 
   useLayoutEffect(() => {
-    const area = row.current?.parentElement;
+    const area = row.current?.closest<HTMLElement>('.kingdom-region');
     if (!area) return;
+    setRegion(area);
     function measure() {
       if (!area) return;
       const bounds = area.getBoundingClientRect();
@@ -156,10 +167,13 @@ export function BranchRoadMap({
       };
       const nodes = new Map<string, Point>();
       const palaceNode = area.querySelector('[data-road-palace]');
-      if (palaceNode) nodes.set(palace, point(palaceNode));
+      if (palace && palaceNode) nodes.set(palace, point(palaceNode));
       for (const node of area.querySelectorAll<HTMLElement>('[data-road-node]'))
         if (node.dataset.roadNode)
-          nodes.set(node.dataset.roadNode, point(node));
+          nodes.set(
+            node.dataset.roadNode,
+            point(node.querySelector('.branch-junction') ?? node),
+          );
       const facilities = new Map(
         [...area.querySelectorAll<HTMLElement>('[data-road-pr]')].map(
           (node) => [Number(node.dataset.roadPr), point(node)] as const,
@@ -192,13 +206,68 @@ export function BranchRoadMap({
             });
         }
       }
+      const issues = new Map(
+        [...area.querySelectorAll<HTMLElement>('[data-road-issue]')].map(
+          (node) => [Number(node.dataset.roadIssue), point(node)] as const,
+        ),
+      );
+      const pullBranches = new Map(
+        roads.flatMap((road) =>
+          road.pulls.map((pull) => [pull.number, road.name] as const),
+        ),
+      );
+      // Keep the overview ordered on both banks. Additional many-to-many
+      // connections appear when either endpoint is inspected.
+      let lastIndex = -1;
+      const issueRanks = new Map([...issues.keys()].map((id, i) => [id, i]));
+      for (const node of area.querySelectorAll<HTMLElement>(
+        '[data-road-issues]',
+      )) {
+        const pull = Number(node.dataset.roadPr);
+        const start = facilities.get(pull);
+        if (!start) continue;
+        const targets = (node.dataset.roadIssues ?? '')
+          .split(' ')
+          .map(Number)
+          .filter((id) => issues.has(id))
+          .sort((a, b) => issueRanks.get(a)! - issueRanks.get(b)!);
+        for (const issue of targets) {
+          const index = issueRanks.get(issue)!;
+          const secondary = index < lastIndex;
+          if (!secondary) lastIndex = index;
+          paths.push({
+            key: `pr-${pull}-issue-${issue}`,
+            from: pullBranches.get(pull) ?? '',
+            pull,
+            issue,
+            secondary,
+            d: roadPath(start, issues.get(issue)!),
+          });
+        }
+      }
+      for (const road of visible) {
+        const issue = branchIssueNumber(road.name);
+        if (issue === undefined || !issues.has(issue)) continue;
+        if (
+          paths.some((path) => path.from === road.name && path.issue === issue)
+        )
+          continue;
+        const start = nodes.get(road.name);
+        if (start)
+          paths.push({
+            key: `branch-${road.name}-issue-${issue}`,
+            from: road.name,
+            issue,
+            d: roadPath(start, issues.get(issue)!),
+          });
+      }
       const next = {
         width: bounds.width,
         height: bounds.height,
         paths,
         obstacles: [
           ...area.querySelectorAll(
-            '.heritage-slot, .kingdom, .branch-road-node, .branch-bridge, .facility-marker',
+            '.heritage-slot, .kingdom, .branch-junction, [data-road-role=plaza], .branch-road-more, .branch-bridge, .facility-marker, .monster-marker',
           ),
         ].map(box),
       };
@@ -209,39 +278,64 @@ export function BranchRoadMap({
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(area);
+    const courtyard = area.querySelector('.kingdom-area');
+    if (courtyard) observer.observe(courtyard);
     const workshops = area.querySelector('.kingdom-workshops');
     if (workshops) observer.observe(workshops);
     const changes = new MutationObserver((records) => {
-      if (records.some((record) => record.target instanceof HTMLUListElement))
+      if (
+        records.some(
+          (record) =>
+            record.type === 'attributes' ||
+            record.target instanceof HTMLUListElement ||
+            record.target === area,
+        )
+      )
         measure();
     });
-    changes.observe(area, { childList: true, subtree: true });
+    changes.observe(area, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ['data-road-issues'],
+    });
     return () => {
       observer.disconnect();
       changes.disconnect();
     };
-  }, [palace, plaza, bridge, palaceRoad, visible]);
+  }, [palace, plaza, bridge, palaceRoad, visible, roads]);
 
-  if (
-    !visible.length &&
-    !showMore &&
-    !palaceRoad?.pulls.some((pull) => !pull.merged)
-  )
-    return null;
+  const focusedPulls = new Set<number>();
+  if (highlightedPull !== undefined) focusedPulls.add(highlightedPull);
+  const focusedBranches = new Set<string>();
+  const parents = new Map(roads.map((road) => [road.name, road.parent]));
+  function trace(name: string | undefined) {
+    while (name && !focusedBranches.has(name)) {
+      focusedBranches.add(name);
+      name = parents.get(name);
+    }
+  }
+  trace(active);
+  if (highlightedIssue !== undefined) {
+    for (const path of layout?.paths ?? []) {
+      if (path.issue !== highlightedIssue) continue;
+      trace(path.from);
+      if (path.pull !== undefined) focusedPulls.add(path.pull);
+    }
+  }
+  for (const road of visible) {
+    if (road.pulls.some((pull) => focusedPulls.has(pull.number)))
+      trace(road.name);
+  }
+
   function roadButton(road: BranchRoad) {
-    const Icon =
-      road.role === 'plaza'
-        ? Landmark
-        : road.parent
-          ? GitFork
-          : road.pulls.some((pull) => !pull.merged)
-            ? GitBranch
-            : Signpost;
+    const lane = placement.lanes.get(road.name);
     return (
       <button
         key={road.name}
         type="button"
         className="branch-road-node"
+        style={{ gridColumn: lane }}
         data-road-node={road.name}
         data-road-role={road.role}
         aria-label={
@@ -260,10 +354,11 @@ export function BranchRoadMap({
         onBlur={() => setActive(undefined)}
         onClick={() => open({ roads: [road], partial: false })}
       >
-        <Icon
-          size={road.role === 'plaza' ? objectSizes.plaza : 15}
-          aria-hidden="true"
-        />
+        {road.role === 'plaza' ? (
+          <WorldArt sprite="plaza" size={objectSizes.plaza} />
+        ) : (
+          <span className="branch-junction" />
+        )}
       </button>
     );
   }
@@ -274,58 +369,80 @@ export function BranchRoadMap({
       role="group"
       aria-label="브랜치 도로망"
     >
-      {layout && (
-        <svg
-          className="branch-road-lines"
-          viewBox={`0 0 ${layout.width} ${layout.height}`}
-          preserveAspectRatio="none"
-          aria-hidden="true"
-        >
-          <defs>
-            <mask
-              id={mask}
-              maskUnits="userSpaceOnUse"
-              x="0"
-              y="0"
-              width={layout.width}
-              height={layout.height}
-            >
-              <rect width={layout.width} height={layout.height} fill="white" />
-              {layout.obstacles.map(({ x, y, width, height }, i) => (
+      {layout &&
+        region &&
+        createPortal(
+          <svg
+            className="branch-road-lines"
+            viewBox={`0 0 ${layout.width} ${layout.height}`}
+            preserveAspectRatio="none"
+            aria-hidden="true"
+          >
+            <defs>
+              <mask
+                id={mask}
+                maskUnits="userSpaceOnUse"
+                x="0"
+                y="0"
+                width={layout.width}
+                height={layout.height}
+              >
                 <rect
-                  key={i}
-                  x={x - 1}
-                  y={y - 1}
-                  width={width + 2}
-                  height={height + 2}
-                  rx="3"
-                  fill="black"
+                  width={layout.width}
+                  height={layout.height}
+                  fill="white"
                 />
-              ))}
-            </mask>
-          </defs>
-          <g mask={`url(#${mask})`}>
-            {layout.paths.map((path) => (
-              <path
-                key={path.key}
-                d={path.d}
-                data-merged={path.merged}
-                data-active={
-                  active === path.from ||
-                  (highlightedPull !== undefined &&
-                    highlightedPull === path.pull)
-                }
-              />
-            ))}
-          </g>
-        </svg>
-      )}
+                {layout.obstacles.map(({ x, y, width, height }, i) => (
+                  <rect
+                    key={i}
+                    x={x - 1}
+                    y={y - 1}
+                    width={width + 2}
+                    height={height + 2}
+                    rx="3"
+                    fill="black"
+                  />
+                ))}
+              </mask>
+            </defs>
+            <g mask={`url(#${mask})`}>
+              {layout.paths
+                .filter((path) => {
+                  if (path.issue === undefined) return true;
+                  if (highlightedIssue !== undefined)
+                    return path.issue === highlightedIssue;
+                  if (highlightedPull !== undefined)
+                    return path.pull === highlightedPull;
+                  if (active) return path.from === active;
+                  return !path.secondary;
+                })
+                .map((path) => (
+                  <path
+                    key={path.key}
+                    d={path.d}
+                    data-merged={path.merged}
+                    data-active={
+                      (highlightedIssue !== undefined &&
+                        path.issue === highlightedIssue) ||
+                      (path.pull === undefined &&
+                        focusedBranches.has(path.from)) ||
+                      active === path.from ||
+                      (path.issue === undefined &&
+                        path.pull !== undefined &&
+                        focusedPulls.has(path.pull)) ||
+                      (highlightedPull !== undefined &&
+                        highlightedPull === path.pull)
+                    }
+                  />
+                ))}
+            </g>
+          </svg>,
+          region,
+        )}
       {plazaRoad && (
         <div className="branch-plaza">
           {bridge && (
-            <span className="branch-bridge" aria-hidden="true">
-              <span />
-            </span>
+            <WorldArt sprite="moatBridge" className="branch-bridge" size={96} />
           )}
           {roadButton(plazaRoad)}
         </div>
@@ -333,7 +450,13 @@ export function BranchRoadMap({
       {(rows.length > 0 || showMore) && (
         <div className="branch-road-tiers">
           {rows.map((roadsAtDepth, depth) => (
-            <div className="branch-road-row" key={depth}>
+            <div
+              className="branch-road-row"
+              key={depth}
+              style={{
+                gridTemplateColumns: `repeat(${placement.lanes.size}, minmax(0,1fr))`,
+              }}
+            >
               {roadsAtDepth.map(roadButton)}
             </div>
           ))}

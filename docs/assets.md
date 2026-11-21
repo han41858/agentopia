@@ -18,6 +18,8 @@
 | 미리보기                                                    | 이름        | 표시 기준                       | 원본                                                                     |
 | ----------------------------------------------------------- | ----------- | ------------------------------- | ------------------------------------------------------------------------ |
 | ![왕궁](../assets/kingdom/palace.svg)                       | 왕궁        | 저장소의 중심                   | [palace.svg](../assets/kingdom/palace.svg)                               |
+| ![광장](../assets/kingdom/plaza.svg)                        | 개발 광장   | 개발 브랜치의 중심              | [plaza.svg](../assets/kingdom/plaza.svg)                                 |
+| ![해자와 다리](../assets/kingdom/moat-bridge.svg)           | 해자와 다리 | 왕궁과 개발 광장 사이           | [moat-bridge.svg](../assets/kingdom/moat-bridge.svg)                     |
 | ![완공 기념비](../assets/kingdom/legacy-monument.svg)       | 완공 기념비 | 머지된 PR                       | [legacy-monument.svg](../assets/kingdom/legacy-monument.svg)             |
 | ![영웅의 전당](../assets/kingdom/legacy-hall-of-heroes.svg) | 영웅의 전당 | completed 사유로 종료된 이슈    | [legacy-hall-of-heroes.svg](../assets/kingdom/legacy-hall-of-heroes.svg) |
 | ![기록 보관소](../assets/kingdom/legacy-archive.svg)        | 기록 보관소 | 이슈·PR 대화와 코드 인라인 댓글 | [legacy-archive.svg](../assets/kingdom/legacy-archive.svg)               |

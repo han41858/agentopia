@@ -396,6 +396,7 @@ function MonsterMarker({
 
   return (
     <button
+      data-road-issue={quest.number}
       className={`expedition monster-marker${boss ? ' boss-marker' : ''}${alerts.has(quest.stage) ? ' blocked' : ''}${defeated ? ' closed-issue' : ''}`}
       aria-label={`${boss ? '보스 몬스터' : '몬스터'} #${quest.number} · ${quest.title} · ${status}${activityEffectsLabel(quest.activity)}`}
       title={`${quest.title} · ${status}`}
@@ -591,6 +592,7 @@ function FacilityMarker({
 
 function KingdomMonsters({
   quests,
+  issueOrder,
   pulses,
   label,
   openQuest,
@@ -599,6 +601,7 @@ function KingdomMonsters({
   inspect,
 }: {
   quests: Quest[];
+  issueOrder: Map<number, number>;
   pulses?: Record<string, number>;
   label: string;
   openQuest: (quest: Quest) => void;
@@ -618,7 +621,9 @@ function KingdomMonsters({
 
   const priority = (quest: Quest) =>
     alerts.has(quest.stage) ? 2 : activeStages.has(quest.stage) ? 1 : 0;
-  const comparePriority = (a: Quest, b: Quest) => priority(b) - priority(a);
+  const comparePriority = (a: Quest, b: Quest) =>
+    (issueOrder.get(a.number) ?? Infinity) -
+      (issueOrder.get(b.number) ?? Infinity) || priority(b) - priority(a);
   const roots = openQuests
     .filter(({ parent }) => parent === undefined || !visible.has(parent))
     .sort(comparePriority);
@@ -2109,7 +2114,7 @@ function App() {
   const roadPlacements = useMemo(() => {
     const placements = new Map<string, ReturnType<typeof placeBranchRoads>>();
     for (const [slug, { report }] of Object.entries(snapshots)) {
-      if (report?.branchInventory)
+      if (report)
         placements.set(
           slug,
           placeBranchRoads(report.branchInventory, report.branchPulls),
@@ -2244,6 +2249,12 @@ function App() {
                     (placement?.facilityOrder.get(right.number) ??
                       Number.MAX_SAFE_INTEGER),
                 );
+              const issueOrder = new Map<number, number>();
+              visibleFacilities.forEach((pull, index) => {
+                for (const issue of pull.issues ?? []) {
+                  if (!issueOrder.has(issue)) issueOrder.set(issue, index);
+                }
+              });
               return (
                 <section
                   className="kingdom-region"
@@ -2271,7 +2282,9 @@ function App() {
                       className="kingdom"
                       data-road-palace=""
                       title={
-                        placement ? `왕궁 · ${placement.palace}` : undefined
+                        placement?.palace
+                          ? `왕궁 · ${placement.palace}`
+                          : undefined
                       }
                       onClick={() => select(region)}
                     >
@@ -2287,6 +2300,11 @@ function App() {
                     {placement && (
                       <BranchRoadMap
                         placement={placement}
+                        highlightedIssue={
+                          localFocus?.kind !== 'pull'
+                            ? localFocus?.number
+                            : undefined
+                        }
                         highlightedPull={
                           localFocus?.kind === 'pull'
                             ? localFocus.number
@@ -2303,7 +2321,11 @@ function App() {
                         aria-label={`${region.name} 왕국 내부`}
                       >
                         {visibleFacilities.map((item) => (
-                          <li key={item.number} data-road-pr={item.number}>
+                          <li
+                            key={item.number}
+                            data-road-pr={item.number}
+                            data-road-issues={item.issues?.join(' ')}
+                          >
                             <FacilityMarker
                               pull={item}
                               open={() => openPull(region, item)}
@@ -2334,6 +2356,7 @@ function App() {
                   {report && (
                     <KingdomMonsters
                       quests={report.quests}
+                      issueOrder={issueOrder}
                       pulses={snapshot?.pulses}
                       label={`${region.name} 왕국 외부 몬스터`}
                       highlight={
