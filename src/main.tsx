@@ -485,6 +485,7 @@ function MonsterStatusIcons({
       {quest.victory && <Trophy size={12} />}
       {quest.stage !== 'idle' &&
         quest.stage !== 'complete' &&
+        quest.stage !== 'returned' &&
         !(
           hideCombat &&
           (quest.stage === 'developing' || quest.stage === 'revising')

@@ -397,6 +397,9 @@ svg {
   background: #15212f;
   border-radius: 2px;
 }
+.expedition .adventurer-party {
+  flex-wrap: nowrap;
+}
 .adventurer-party.detailed {
   gap: 8px;
   justify-content: flex-start;
