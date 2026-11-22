@@ -1,17 +1,14 @@
 # 개발과 배포
 
-[로컬 실행 방법](../README.md#시작하기)에 따라 개발 서버를 시작합니다. Vite와 Vercel은 같은 읽기 전용 API 핸들러를 사용합니다. 실데이터를 조회하는 환경에서는 `api.github.com`에 접근할 수 있어야 합니다.
+[로컬 실행 방법](../README.md#시작하기)에 따라 개발 서버를 시작합니다. Vite와 Vercel은 같은 읽기 전용 API 핸들러를 사용합니다. 실데이터를 조회하는 환경에서는 `api.github.com`에 접근할 수 있어야 합니다. GitHub 조회 코드는 요청을 분기하는 `server/github.ts`와 기능별 `server/github-*.ts`로 나뉩니다.
 
-| 작업                           | 위치                                                                                                                                                                                    |
-| ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| API 요청 분기                  | [server/github.ts](../server/github.ts)                                                                                                                                                 |
-| GitHub 요청과 캐시             | [server/github-client.ts](../server/github-client.ts), [server/github-query.ts](../server/github-query.ts)                                                                              |
-| 저장소 리포트 조회             | [server/github-report.ts](../server/github-report.ts), [server/github-pull-links.ts](../server/github-pull-links.ts)                                                                    |
-| 활동·유산·저장소 목록 조회     | [server/github-activity.ts](../server/github-activity.ts), [server/github-heritage.ts](../server/github-heritage.ts), [server/github-repositories.ts](../server/github-repositories.ts) |
-| GitHub 기록에서 작업 상태 판정 | [server/model.ts](../server/model.ts)                                                                                                                                                   |
-| API 진입점                     | [api/github.ts](../api/github.ts)                                                                                                                                                       |
-| 월드맵과 상세 화면             | [src/main.tsx](../src/main.tsx)                                                                                                                                                         |
-| SVG 원본과 화면 연결           | [SVG 도감](assets.md)                                                                                                                                                                   |
+| 작업                           | 위치                                    |
+| ------------------------------ | --------------------------------------- |
+| GitHub 요청과 캐시             | [server/github.ts](../server/github.ts) |
+| GitHub 기록에서 작업 상태 판정 | [server/model.ts](../server/model.ts)   |
+| API 진입점                     | [api/github.ts](../api/github.ts)       |
+| 월드맵과 상세 화면             | [src/main.tsx](../src/main.tsx)         |
+| SVG 원본과 화면 연결           | [SVG 도감](assets.md)                   |
 
 ## 검증
 
