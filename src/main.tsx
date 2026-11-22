@@ -1327,6 +1327,7 @@ function PullDetail({
   openIssue: (number: number) => boolean;
 }) {
   const kind = facilityKind(pull.title);
+  const iconLabel = facilities[kind].name + (pull.draft ? ' · 초안 PR' : '');
   const author = pull.author && agentNames[pull.author];
   const reviewer = pull.reviewer && agentNames[pull.reviewer];
   const { activity, status } = useActivitySummary({
@@ -1352,11 +1353,15 @@ function PullDetail({
   );
   return (
     <Dialog
-      className="pull-dialog"
+      className={pull.draft ? 'pull-dialog draft' : 'pull-dialog'}
       title={`PR #${pull.number}`}
       titleHref={pull.url}
       showLinkIcon={false}
-      titleIcon={<FacilityGlyph kind={kind} />}
+      titleIcon={
+        <span role="img" aria-label={iconLabel} title={iconLabel}>
+          <FacilityGlyph kind={kind} />
+        </span>
+      }
       headingActions={counters}
       close={close}
     >

@@ -1368,6 +1368,13 @@ svg {
 .pull-dialog .dialog-title-link {
   white-space: nowrap;
 }
+.pull-dialog.draft .dialog-title-link {
+  text-decoration: underline dotted;
+  text-underline-offset: 4px;
+}
+.pull-dialog .dialog-title-link [role='img'] {
+  display: inline-flex;
+}
 .pull-dialog .dialog-title-link img {
   width: 28px;
   height: 28px;
@@ -1386,5 +1393,13 @@ svg {
   .pull-dialog .dialog-title-link {
     gap: 3px;
     font-size: 18px;
+  }
+}
+
+@media (pointer: coarse) {
+  .pull-dialog .activity-counter {
+    min-width: 44px;
+    min-height: 44px;
+    justify-content: center;
   }
 }
