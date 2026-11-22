@@ -313,10 +313,6 @@ svg {
     opacity: 1;
   }
 }
-.expedition:hover,
-.expedition[data-highlight] {
-  background: color-mix(in srgb, var(--accent) 14%, transparent);
-}
 .expedition.blocked {
   --accent: #ffb4aa;
   box-shadow: inset 0 0 0 1px #bd6c60;
@@ -1116,14 +1112,6 @@ svg {
 .facility-marker.blocked .facility-result {
   color: #ffb3a6;
 }
-.expedition[data-highlight='selected'] {
-  outline: 2px solid #fae9a7;
-  outline-offset: 1px;
-}
-.expedition[data-highlight='related'] {
-  outline: 2px dashed #fae9a7;
-  outline-offset: 1px;
-}
 @keyframes forge-hammer {
   45% {
     transform: rotate(35deg) translateY(2px);
@@ -1212,7 +1200,6 @@ svg {
   background: transparent;
   color: #e4dbad;
 }
-.heritage-slot:hover,
 .heritage-slot:focus-visible {
   background: color-mix(in srgb, var(--accent) 14%, transparent);
 }
@@ -1342,7 +1329,6 @@ svg {
   background: #24392e;
   color: #e5d6ab;
 }
-.branch-road-node:hover,
 .branch-road-node[data-active='true'] {
   border-color: #fae9a7;
   color: #fff2c2;
@@ -1356,11 +1342,23 @@ svg {
 .branch-road-node[data-road-role='plaza']:focus-visible img {
   filter: drop-shadow(0 0 3px #fae9a7);
 }
+.map-viewport button {
+  --map-highlight-fill: color-mix(in srgb, var(--accent) 14%, transparent);
+  --map-highlight-outline: 2px solid #fae9a7;
+}
+.map-viewport .expedition[data-highlight] {
+  background: var(--map-highlight-fill);
+  outline: var(--map-highlight-outline);
+  outline-offset: 1px;
+}
+.map-viewport .expedition[data-highlight='related'] {
+  outline-style: dashed;
+}
 @media (hover: hover) {
-  .kingdom:hover,
-  .branch-road-node[data-road-role='plaza']:hover {
-    background: color-mix(in srgb, var(--accent) 18%, transparent);
-    outline: 2px solid #fae9a7;
+  .map-viewport button:hover {
+    background: var(--map-highlight-fill);
+    outline: var(--map-highlight-outline);
+    outline-offset: 1px;
   }
 }
 .branch-road-lines {
