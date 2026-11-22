@@ -1530,6 +1530,7 @@ function RegionDetail({
   remove: () => void;
   close: () => void;
 }) {
+  const [confirmRemoval, setConfirmRemoval] = useState(false);
   const quests = snapshot?.report?.quests ?? [];
   const known = new Set(quests.map((quest) => quest.number));
   const roots = quests.filter(
@@ -1571,7 +1572,7 @@ function RegionDetail({
     );
   }
 
-  return (
+  const palace = (
     <Dialog
       title={region.slug}
       className="palace-dialog"
@@ -1590,7 +1591,7 @@ function RegionDetail({
           </a>
           <button
             className="icon-button remove-region"
-            onClick={remove}
+            onClick={() => setConfirmRemoval(true)}
             aria-label="월드맵에서 제거"
             title="월드맵에서 제거"
           >
@@ -1651,6 +1652,27 @@ function RegionDetail({
         </>
       )}
     </Dialog>
+  );
+  return (
+    <>
+      {palace}
+      {confirmRemoval && (
+        <Dialog title="월드맵에서 제거" close={() => setConfirmRemoval(false)}>
+          <p>{region.slug} 저장소를 월드맵에서 제거할까요?</p>
+          <div className="removal-actions">
+            <button
+              className="text-button"
+              onClick={() => setConfirmRemoval(false)}
+            >
+              취소
+            </button>
+            <button className="primary remove-region" onClick={remove}>
+              제거
+            </button>
+          </div>
+        </Dialog>
+      )}
+    </>
   );
 }
 

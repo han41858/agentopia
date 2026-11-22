@@ -740,13 +740,20 @@ svg {
   flex: 1;
   margin-right: 4px;
 }
-.icon-button.remove-region {
+.icon-button.remove-region,
+.primary.remove-region {
   background: #632f38;
   border-color: #a65c65;
   color: #ffe1dc;
 }
-.icon-button.remove-region:hover {
+.icon-button.remove-region:hover,
+.primary.remove-region:hover {
   background: #803743;
+}
+.removal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 16px;
 }
 .dialog-body {
   min-height: 0;
