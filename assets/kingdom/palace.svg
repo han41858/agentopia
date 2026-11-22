@@ -1,6 +1,11 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48">
   <title>왕궁</title>
-  <g stroke="#231a3d" stroke-width="2" stroke-linejoin="round" stroke-linecap="round">
+  <style>
+    * {
+      vector-effect: non-scaling-stroke;
+    }
+  </style>
+  <g stroke="#231a3d" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round">
     <rect x="6" y="24" width="10" height="19" fill="#d9d2c5" />
     <rect x="32" y="24" width="10" height="19" fill="#d9d2c5" />
     <polygon points="4,24 11,14 18,24" fill="#f2b84b" />

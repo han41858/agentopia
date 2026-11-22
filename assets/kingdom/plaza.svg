@@ -1,13 +1,18 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 72" width="96" height="72">
   <title>개발 광장 — dev</title>
-  <g stroke="#231a3d" stroke-width="2" stroke-linejoin="round" stroke-linecap="round">
+  <style>
+    * {
+      vector-effect: non-scaling-stroke;
+    }
+  </style>
+  <g stroke="#231a3d" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round">
     <ellipse cx="48" cy="40" rx="45" ry="28" fill="#b3aa9c" />
     <ellipse cx="48" cy="40" rx="39" ry="23" fill="#d9d2c5" stroke="none" />
     <ellipse cx="48" cy="41" rx="28" ry="16" fill="none" stroke="#b3aa9c" stroke-dasharray="5 4" />
     <path d="M35 40v5a13 7 0 0 0 26 0v-5z" fill="#f1ece2" />
     <ellipse cx="48" cy="40" rx="13" ry="7" fill="#8fd4f2" />
     <rect x="46" y="27" width="4" height="13" fill="#f1ece2" />
-    <path d="M42 27q-4 5-3 11M54 27q4 5 3 11" fill="none" stroke="#bfe9ff" stroke-width="1.500" />
+    <path d="M42 27q-4 5-3 11M54 27q4 5 3 11" fill="none" stroke="#bfe9ff" stroke-width="1.125" />
     <ellipse cx="48" cy="27" rx="6.500" ry="2.800" fill="#8fd4f2" />
   </g>
 </svg>

@@ -1,6 +1,11 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48">
   <title>훈련장 — 테스트·검증</title>
-  <g stroke="#231a3d" stroke-width="2" stroke-linejoin="round" stroke-linecap="round">
+  <style>
+    * {
+      vector-effect: non-scaling-stroke;
+    }
+  </style>
+  <g stroke="#231a3d" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round">
     <path d="M10 43l6-11 6 11" fill="none" />
     <circle cx="16" cy="21" r="12" fill="#ffffff" />
     <circle cx="16" cy="21" r="7" fill="#d6455d" />
