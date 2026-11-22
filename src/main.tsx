@@ -831,6 +831,7 @@ function ResultLink({ item }: { item: Source }) {
 function Dialog({
   title,
   titleHref,
+  showLinkIcon = true,
   titleIcon,
   headingActions,
   className,
@@ -839,6 +840,7 @@ function Dialog({
 }: {
   title: string;
   titleHref?: string;
+  showLinkIcon?: boolean;
   titleIcon?: ReactNode;
   headingActions?: ReactNode;
   className?: string;
@@ -907,7 +909,8 @@ function Dialog({
               rel="noreferrer"
             >
               {titleIcon}
-              {title} <ExternalLink size={15} aria-hidden="true" />
+              {title}
+              {showLinkIcon && <ExternalLink size={15} aria-hidden="true" />}
             </a>
           ) : (
             title
@@ -1352,6 +1355,7 @@ function PullDetail({
       className="pull-dialog"
       title={`PR #${pull.number}`}
       titleHref={pull.url}
+      showLinkIcon={false}
       titleIcon={<FacilityGlyph kind={kind} />}
       headingActions={counters}
       close={close}
