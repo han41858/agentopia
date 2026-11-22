@@ -24,7 +24,6 @@ import {
   Swords,
   Skull,
   Trophy,
-  DoorOpen,
   Ticket,
   X,
 } from 'lucide-react';
@@ -381,7 +380,7 @@ const glyph = {
   deploying: PortalKeeperGlyph,
   merging: GitPullRequest,
   complete: Trophy,
-  returned: DoorOpen,
+  returned: null,
   failed: Skull,
   attention: Flag,
 };
@@ -448,48 +447,32 @@ function MonsterMarker({
       {pulse !== undefined && (
         <span key={pulse} className="party-pulse" aria-hidden="true" />
       )}
-      <ActivityAura
-        activity={
-          quest.activity && {
-            ...quest.activity,
-            reviews: undefined,
-            opinion: undefined,
-          }
-        }
-      >
-        <MonsterGlyph
-          boss={boss}
-          defeated={defeated}
-          reopened={quest.reopened}
-          commits={quest.activity?.commits}
-        />
-      </ActivityAura>
+      <MonsterGlyph
+        boss={boss}
+        defeated={defeated}
+        reopened={quest.reopened}
+        commits={quest.activity?.commits}
+      />
       <small className="expedition-number">{`#${quest.number}`}</small>
-      <AdventurerParty members={members} resting={resting} />
-      <MonsterStatusIcons quest={quest} hideCombat />
+      <AdventurerParty
+        members={members}
+        resting={resting}
+        leader={quest.stage === 'ci' ? 'active' : undefined}
+        deploying={quest.stage === 'deploying'}
+      />
     </button>
   );
 }
 
-function MonsterStatusIcons({
-  quest,
-  hideCombat = false,
-}: {
-  quest: Quest;
-  hideCombat?: boolean;
-}) {
+function MonsterStatusIcons({ quest }: { quest: Quest }) {
   const StageIcon = glyph[quest.stage];
   return (
     <span className="monster-statuses" aria-hidden="true">
       {quest.state === 'closed' && <Check size={12} />}
       {quest.victory && <Trophy size={12} />}
-      {quest.stage !== 'idle' &&
-        quest.stage !== 'complete' &&
-        quest.stage !== 'returned' &&
-        !(
-          hideCombat &&
-          (quest.stage === 'developing' || quest.stage === 'revising')
-        ) && <StageIcon size={12} />}
+      {quest.stage !== 'idle' && quest.stage !== 'complete' && StageIcon && (
+        <StageIcon size={12} />
+      )}
     </span>
   );
 }
@@ -761,13 +744,13 @@ function Badge({ stage, label }: { stage: Stage; label?: string }) {
   if (alerts.has(stage) || stage === 'complete' || stage === 'ci') {
     return (
       <span className={`badge ${stage}`} role="img" aria-label={description}>
-        <Icon size={14} aria-hidden="true" />
+        {Icon && <Icon size={14} aria-hidden="true" />}
       </span>
     );
   }
   return (
     <span className={`badge ${stage}`}>
-      <Icon size={14} aria-hidden="true" />
+      {Icon && <Icon size={14} aria-hidden="true" />}
       {description}
     </span>
   );
