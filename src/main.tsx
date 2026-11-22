@@ -1,7 +1,5 @@
-import { objectSizes } from './object-sizes.ts';
 import { WorldArt } from './world-art.tsx';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { CSSProperties } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Plus, RefreshCw, Ticket } from 'lucide-react';
 import { repositoryRegion } from '../server/model.ts';
@@ -11,21 +9,11 @@ import {
   PartyLeaderGlyph,
   PortalKeeperGlyph,
 } from './characters.tsx';
-import { nextRefreshInterval, refreshDue } from './refresh.ts';
-import { isCurrentFacility } from './facility-kind.ts';
-import { HeritageArc } from './heritage-arc.tsx';
 import type { Heritage } from '../server/heritage.ts';
 import { GitHubUsage } from './github-usage.tsx';
-import { KingdomWall } from './kingdom-wall.tsx';
-import type { RefreshConsumption } from '../server/github-debug.ts';
-import { BranchRoadMap, placeBranchRoads } from './branch-road-map.tsx';
-import type { RoadSelection } from './branch-road-map.tsx';
-import {
-  reportForges,
-  partyStates,
-  reportSnapshot,
-  activeStages,
-} from './snapshot.ts';
+import { placeBranchRoads } from './branch-road-map.tsx';
+import type { RoadPlacement } from './branch-road-map.tsx';
+import { reportForges } from './snapshot.ts';
 import type { Snapshot } from './snapshot.ts';
 import {
   getTokenStatus,
@@ -34,8 +22,6 @@ import {
   settingsKey,
   readSettings,
 } from './settings.ts';
-import { RequestError, request, requestHeritage } from './request.ts';
-import { kingdomHue, FacilityMarker, KingdomMonsters } from './map-markers.tsx';
 import type { MapEntry } from './map-markers.tsx';
 import { OutLink, Dialog } from './dialog.tsx';
 import {
@@ -47,6 +33,10 @@ import {
 } from './detail-dialogs.tsx';
 import type { HeritageSelection } from './detail-dialogs.tsx';
 import { TokenDialog, RepositoryDialog } from './settings-dialogs.tsx';
+import { KingdomRegion } from './kingdom-region.tsx';
+import type { RoadTarget } from './kingdom-region.tsx';
+import { useRegionRefresh } from './use-region-refresh.ts';
+import type { RefreshJobs, RefreshUsage } from './use-region-refresh.ts';
 import './styles.css';
 
 function App() {
@@ -59,15 +49,8 @@ function App() {
   const [snapshots, setSnapshots] = useState<Record<string, Snapshot>>({});
   const [selected, setSelected] = useState<Region>();
   const [selectedQuest, setSelectedQuest] = useState<MapEntry>();
-  const [refreshUsage, setRefreshUsage] = useState<{
-    token: string;
-    usage: RefreshConsumption;
-    stale: boolean;
-  }>();
-  const [selectedRoad, setSelectedRoad] = useState<{
-    region: Region;
-    selection: RoadSelection | 'plaza';
-  }>();
+  const [refreshUsage, setRefreshUsage] = useState<RefreshUsage>();
+  const [selectedRoad, setSelectedRoad] = useState<RoadTarget>();
   const [selectedHeritage, setSelectedHeritage] = useState<HeritageSelection>();
   const [inspected, setInspected] = useState<MapEntry>();
   const updateSelectedHeritage = useCallback((slug: string, data: Heritage) => {
@@ -77,7 +60,7 @@ function App() {
       return record ? { ...current, record } : current;
     });
   }, []);
-  function inspect(entry: MapEntry, active: boolean) {
+  const inspect = useCallback((entry: MapEntry, active: boolean) => {
     setInspected((current) =>
       active
         ? entry
@@ -87,7 +70,7 @@ function App() {
           ? undefined
           : current,
     );
-  }
+  }, []);
   const refresh = useRef<(() => void) | null>(null);
   const [loading, setLoading] = useState(true);
   const refreshInterval = token ? 20_000 : 60_000;
@@ -95,18 +78,7 @@ function App() {
     duration: refreshInterval,
     key: 0,
   });
-  const refreshJobs = useRef<{
-    token: string;
-    jobs: Map<
-      string,
-      {
-        last: number;
-        interval: number;
-        report?: Report;
-        branchCheckedAt?: number;
-      }
-    >;
-  }>({ token, jobs: new Map() });
+  const refreshJobs = useRef<RefreshJobs>({ token, jobs: new Map() });
   const [showConnect, setShowConnect] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
 
@@ -145,168 +117,17 @@ function App() {
     return () => window.removeEventListener('storage', restoreSettings);
   }, [token]);
 
-  useEffect(() => {
-    const controller = new AbortController();
-    if (refreshJobs.current.token !== token)
-      refreshJobs.current = { token, jobs: new Map() };
-    const jobs = refreshJobs.current.jobs;
-    const slugs = new Set(worldRegions.map(({ slug }) => slug));
-    for (const slug of jobs.keys()) if (!slugs.has(slug)) jobs.delete(slug);
-    const pending = new Set<string>();
-    let forceRequested = false;
-    let nextBatch = 0;
-    let publishedBatch = 0;
-    let timer: number | undefined;
-
-    function schedule() {
-      window.clearTimeout(timer);
-      if (controller.signal.aborted) return;
-      setLoading(pending.size > 0);
-      const now = Date.now();
-      const hidden = document.visibilityState !== 'visible';
-      let next = Infinity;
-      if (forceRequested) {
-        if (pending.size) return;
-        forceRequested = false;
-        void syncBatch([...slugs], true);
-      } else {
-        const dueSlugs: string[] = [];
-        for (const slug of slugs) {
-          if (pending.has(slug)) continue;
-          const job = jobs.get(slug);
-          const due = job ? refreshDue(job.last, job.interval, hidden) : now;
-          if (due <= now) dueSlugs.push(slug);
-          else next = Math.min(next, due);
-        }
-        if (dueSlugs.length) void syncBatch(dueSlugs, false);
-      }
-      setLoading(pending.size > 0);
-      if (Number.isFinite(next)) {
-        const duration = Math.max(1, next - now);
-        timer = window.setTimeout(schedule, duration);
-        setProgress((previous) => ({ duration, key: previous.key + 1 }));
-      }
-    }
-
-    async function syncBatch(batch: string[], force: boolean) {
-      if (!batch.length) return;
-      const id = ++nextBatch;
-      const usages = await Promise.all(batch.map((slug) => sync(slug, force)));
-      if (controller.signal.aborted || id < publishedBatch) return;
-      publishedBatch = id;
-      const limits = new Set(
-        usages.flatMap((usage) =>
-          usage?.limit === undefined ? [] : [usage.limit],
-        ),
-      );
-      const consumed =
-        limits.size <= 1 &&
-        usages.every((usage) => usage?.consumed !== undefined)
-          ? usages.reduce((sum, usage) => sum + (usage?.consumed ?? 0), 0)
-          : undefined;
-      setRefreshUsage((previous) => {
-        const last = previous?.token === token ? previous.usage : undefined;
-        if (consumed === undefined)
-          return {
-            token,
-            usage: last ?? {},
-            stale: last?.consumed !== undefined,
-          };
-        return {
-          token,
-          usage: {
-            consumed,
-            limit:
-              limits.size === 1 ? limits.values().next().value : last?.limit,
-          },
-          stale: false,
-        };
-      });
-    }
-
-    async function sync(slug: string, force: boolean) {
-      pending.add(slug);
-      const previous = jobs.get(slug);
-      const checkBranches =
-        force ||
-        Date.now() - (previous?.branchCheckedAt ?? -Infinity) >= 120_000;
-      const branchCheckedAt = checkBranches
-        ? Date.now()
-        : previous?.branchCheckedAt;
-      let usage: RefreshConsumption | undefined;
-      try {
-        const params = new URLSearchParams({ repo: slug, measure: 'refresh' });
-        if (force) params.set('refresh', '1');
-        if (checkBranches) params.set('branches', '1');
-        const report = await request<Report>(
-          params,
-          token,
-          controller.signal,
-          (measured) => {
-            usage = measured;
-          },
-        );
-        if (controller.signal.aborted) return;
-        const prior = previous?.report && partyStates(previous.report);
-        const current = partyStates(report);
-        const changed =
-          !prior ||
-          prior.size !== current.size ||
-          [...current].some(([key, value]) => prior.get(key) !== value) ||
-          JSON.stringify(previous?.report?.releases) !==
-            JSON.stringify(report.releases);
-        const active =
-          report.quests.some(({ stage }) => activeStages.has(stage)) ||
-          reportForges(report).some(({ stage }) => activeStages.has(stage)) ||
-          report.releases.some(({ stage }) => activeStages.has(stage));
-        const interval = nextRefreshInterval(
-          refreshInterval,
-          previous?.interval ?? refreshInterval,
-          Boolean(active) || report.warnings.length > 0,
-          changed,
-        );
-        jobs.set(slug, { last: Date.now(), report, interval, branchCheckedAt });
-        setSnapshots((current) => ({
-          ...current,
-          [slug]: reportSnapshot(report, current[slug]),
-        }));
-      } catch (error) {
-        if (controller.signal.aborted) return;
-        jobs.set(slug, {
-          last: Date.now(),
-          interval: refreshInterval,
-          report: previous?.report,
-          branchCheckedAt,
-        });
-        setSnapshots((current) => ({
-          ...current,
-          [slug]: {
-            ...current[slug],
-            error: (error as Error).message,
-            httpStatus:
-              error instanceof RequestError ? error.status : undefined,
-          },
-        }));
-      } finally {
-        pending.delete(slug);
-        schedule();
-      }
-      return usage;
-    }
-
-    refresh.current = () => {
-      forceRequested = true;
-      schedule();
-    };
-    schedule();
-    document.addEventListener('visibilitychange', schedule);
-    return () => {
-      refresh.current = null;
-      document.removeEventListener('visibilitychange', schedule);
-      window.clearTimeout(timer);
-      controller.abort();
-    };
-  }, [token, worldRegions, refreshInterval]);
+  useRegionRefresh({
+    token,
+    worldRegions,
+    refreshInterval,
+    refresh,
+    refreshJobs,
+    setLoading,
+    setProgress,
+    setRefreshUsage,
+    setSnapshots,
+  });
 
   function setToken(value: string) {
     if (value === token) return;
@@ -322,10 +143,10 @@ function App() {
     setLoading(true);
   }
 
-  function select(region: Region) {
+  const select = useCallback((region: Region) => {
     setSelected(region);
     setSelectedQuest(undefined);
-  }
+  }, []);
 
   function removeRegion(region: Region) {
     setSettings((current) => ({
@@ -343,15 +164,39 @@ function App() {
     setSelectedQuest(undefined);
   }
 
+  const placementCache = useRef(
+    new Map<
+      string,
+      {
+        inventory: Report['branchInventory'];
+        pulls: Report['branchPulls'];
+        placement: RoadPlacement;
+      }
+    >(),
+  );
   const roadPlacements = useMemo(() => {
-    const placements = new Map<string, ReturnType<typeof placeBranchRoads>>();
+    // Reuse a region's placement while its branch data is the same object, so
+    // refreshing one repository does not re-measure the roads of the others.
+    const cache = placementCache.current;
+    const placements = new Map<string, RoadPlacement>();
     for (const [slug, { report }] of Object.entries(snapshots)) {
-      if (report)
-        placements.set(
-          slug,
-          placeBranchRoads(report.branchInventory, report.branchPulls),
-        );
+      if (!report) continue;
+      const cached = cache.get(slug);
+      const placement =
+        cached &&
+        cached.inventory === report.branchInventory &&
+        cached.pulls === report.branchPulls
+          ? cached.placement
+          : placeBranchRoads(report.branchInventory, report.branchPulls);
+      cache.set(slug, {
+        inventory: report.branchInventory,
+        pulls: report.branchPulls,
+        placement,
+      });
+      placements.set(slug, placement);
     }
+    for (const slug of [...cache.keys()])
+      if (!placements.has(slug)) cache.delete(slug);
     return placements;
   }, [snapshots]);
 
@@ -380,9 +225,9 @@ function App() {
         )
       : undefined;
 
-  function openPull(region: Region, item: PullQuest) {
+  const openPull = useCallback((region: Region, item: PullQuest) => {
     setSelectedQuest({ region, number: item.number, kind: 'pull' });
-  }
+  }, []);
 
   return (
     <>
@@ -459,160 +304,25 @@ function App() {
         <section className="map-viewport" aria-label="저장소 왕국">
           <div className="kingdoms">
             {worldRegions.map((region) => {
-              const snapshot = snapshots[region.slug];
-              const report = snapshot?.report;
-              const forges = reportForges(report);
               const focus = selectedQuest ?? inspected;
-              const localFocus =
-                focus?.region.slug === region.slug ? focus : undefined;
-              const related = new Set(
-                localFocus?.kind === 'pull'
-                  ? forges.find(({ number }) => number === localFocus.number)
-                      ?.issues
-                  : [],
-              );
-              const placement = roadPlacements.get(region.slug);
-              const visibleFacilities = forges
-                .filter(isCurrentFacility)
-                .sort(
-                  (left, right) =>
-                    (placement?.facilityOrder.get(left.number) ??
-                      Number.MAX_SAFE_INTEGER) -
-                    (placement?.facilityOrder.get(right.number) ??
-                      Number.MAX_SAFE_INTEGER),
-                );
-              const issueOrder = new Map<number, number>();
-              visibleFacilities.forEach((pull, index) => {
-                for (const issue of pull.issues ?? []) {
-                  if (!issueOrder.has(issue)) issueOrder.set(issue, index);
-                }
-              });
               return (
-                <section
-                  className="kingdom-region"
-                  aria-label={region.name}
+                <KingdomRegion
                   key={region.slug}
-                  style={
-                    {
-                      '--kingdom-hue': kingdomHue(region.slug),
-                    } as CSSProperties
+                  region={region}
+                  snapshot={snapshots[region.slug]}
+                  placement={roadPlacements.get(region.slug)}
+                  localFocus={
+                    focus?.region.slug === region.slug ? focus : undefined
                   }
-                >
-                  <div className="kingdom-area">
-                    <KingdomWall />
-                    <HeritageArc
-                      slug={region.slug}
-                      name={region.name}
-                      token={token}
-                      load={requestHeritage}
-                      onLoad={updateSelectedHeritage}
-                      open={(metric, record) =>
-                        setSelectedHeritage({ region, metric, record })
-                      }
-                    />
-                    <button
-                      className="kingdom"
-                      data-road-palace=""
-                      title={
-                        placement?.palace
-                          ? `왕궁 · ${placement.palace}`
-                          : undefined
-                      }
-                      onClick={() => select(region)}
-                    >
-                      <WorldArt
-                        sprite="palace"
-                        size={objectSizes.palace}
-                        className="kingdom-crest"
-                      />
-                      <span className="kingdom-label">
-                        <strong>{region.name}</strong>
-                      </span>
-                    </button>
-                    {placement && (
-                      <BranchRoadMap
-                        placement={placement}
-                        highlightedIssue={
-                          localFocus?.kind !== 'pull'
-                            ? localFocus?.number
-                            : undefined
-                        }
-                        highlightedPull={
-                          localFocus?.kind === 'pull'
-                            ? localFocus.number
-                            : undefined
-                        }
-                        open={(selection) =>
-                          setSelectedRoad({
-                            region,
-                            selection:
-                              selection.roads.length === 1 &&
-                              selection.roads[0].role === 'plaza'
-                                ? 'plaza'
-                                : selection,
-                          })
-                        }
-                      />
-                    )}
-                    {visibleFacilities.length > 0 && (
-                      <ul
-                        className="expeditions kingdom-workshops"
-                        aria-label={`${region.name} 왕국 내부`}
-                      >
-                        {visibleFacilities.map((item) => (
-                          <li
-                            key={item.number}
-                            data-road-pr={item.number}
-                            data-road-issues={item.issues?.join(' ')}
-                          >
-                            <FacilityMarker
-                              pull={item}
-                              open={() => openPull(region, item)}
-                              pulse={snapshot?.pulses?.[`pr-${item.number}`]}
-                              inspected={
-                                localFocus?.kind === 'pull' &&
-                                localFocus.number === item.number
-                              }
-                              related={
-                                localFocus !== undefined &&
-                                localFocus.kind !== 'pull' &&
-                                Boolean(
-                                  item.issues?.includes(localFocus.number),
-                                )
-                              }
-                              inspect={(active) =>
-                                inspect(
-                                  { region, number: item.number, kind: 'pull' },
-                                  active,
-                                )
-                              }
-                            />
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                  </div>
-                  {report && (
-                    <KingdomMonsters
-                      quests={report.quests}
-                      issueOrder={issueOrder}
-                      pulses={snapshot?.pulses}
-                      label={`${region.name} 왕국 외부 몬스터`}
-                      highlight={
-                        localFocus?.kind === undefined
-                          ? localFocus?.number
-                          : undefined
-                      }
-                      related={related}
-                      inspect={(number, active) =>
-                        inspect({ region, number }, active)
-                      }
-                      openQuest={(item) =>
-                        setSelectedQuest({ region, number: item.number })
-                      }
-                    />
-                  )}
-                </section>
+                  token={token}
+                  onHeritageLoad={updateSelectedHeritage}
+                  openHeritage={setSelectedHeritage}
+                  select={select}
+                  openRoad={setSelectedRoad}
+                  openPull={openPull}
+                  openQuest={setSelectedQuest}
+                  inspect={inspect}
+                />
               );
             })}
           </div>
