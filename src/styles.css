@@ -1364,6 +1364,9 @@ svg {
 }
 .pull-dialog .activity-counters {
   justify-content: flex-start;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  padding: 2px;
 }
 .pull-dialog .dialog-title-link {
   white-space: nowrap;
@@ -1380,6 +1383,7 @@ svg {
   height: 28px;
 }
 .pull-dialog .activity-counter {
+  flex: none;
   gap: 2px;
   padding: 3px;
 }
@@ -1387,8 +1391,16 @@ svg {
   outline: 1px solid currentColor;
 }
 @media (max-width: 420px) {
+  .pull-dialog {
+    width: calc(100% - 12px);
+    max-width: calc(100% - 12px);
+  }
   .pull-dialog .dialog-heading {
-    padding-inline: 10px;
+    gap: 3px;
+    padding-inline: 4px;
+  }
+  .pull-dialog .activity-counters {
+    gap: 0;
   }
   .pull-dialog .dialog-title-link {
     gap: 3px;
