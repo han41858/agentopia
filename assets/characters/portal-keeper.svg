@@ -1,12 +1,17 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48">
   <title>포털 관리자</title>
-  <g stroke="#231a3d" stroke-width="2" stroke-linejoin="round" stroke-linecap="round">
+  <style>
+    * {
+      vector-effect: non-scaling-stroke;
+    }
+  </style>
+  <g stroke="#231a3d" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round">
     <ellipse cx="33" cy="24" rx="11" ry="19" fill="#7b5cd6" />
     <ellipse cx="33" cy="24" rx="5" ry="10" fill="#cdbcff" stroke="none" />
     <path d="M16 10c-7 0-9 6-9 11L6 43h20l-1-22c0-5-2-11-9-11z" fill="#8fb4f2" />
     <circle cx="16" cy="21" r="6" fill="#f6d7b8" />
-    <path d="M14 24q2 1.500 4 0" fill="none" stroke-width="1.200" />
-    <circle cx="16" cy="32" r="2" fill="#f2b84b" stroke-width="1.500" />
+    <path d="M14 24q2 1.500 4 0" fill="none" stroke-width="0.9" />
+    <circle cx="16" cy="32" r="2" fill="#f2b84b" stroke-width="1.125" />
   </g>
   <g fill="#231a3d">
     <circle cx="13.500" cy="21" r="1.200" />

@@ -1,6 +1,11 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48">
   <title>현자의 서고</title>
-  <g stroke="#231a3d" stroke-width="2" stroke-linejoin="round" stroke-linecap="round">
+  <style>
+    * {
+      vector-effect: non-scaling-stroke;
+    }
+  </style>
+  <g stroke="#231a3d" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round">
     <rect x="16" y="20" width="16" height="23" fill="#f1ece2" />
     <polygon points="11,21 24,4 37,21" fill="#5c43b0" />
     <circle cx="24" cy="30" r="4" fill="#f2b84b" />

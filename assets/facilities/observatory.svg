@@ -1,11 +1,16 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48">
   <title>관측소(점성술사의 탑) — 데이터·운영</title>
-  <g stroke="#231a3d" stroke-width="2" stroke-linejoin="round" stroke-linecap="round">
+  <style>
+    * {
+      vector-effect: non-scaling-stroke;
+    }
+  </style>
+  <g stroke="#231a3d" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round">
     <rect x="13" y="22" width="18" height="21" fill="#d9d2c5" />
     <path d="M10 22q12-20 24 0z" fill="#3b2a7a" />
     <polygon points="25,25 38,10 42,13.500 29,29" fill="#f2b84b" />
     <path d="M19 43v-6a3 3 0 0 1 6 0v6z" fill="#231a3d" />
-    <path d="M9 4a5 5 0 1 0 5.500 7a4 4 0 0 1-5.500-7z" fill="#f2b84b" stroke-width="1.500" />
+    <path d="M9 4a5 5 0 1 0 5.500 7a4 4 0 0 1-5.500-7z" fill="#f2b84b" stroke-width="1.125" />
   </g>
   <g fill="#ffd978">
     <circle cx="19" cy="16" r="1.300" />

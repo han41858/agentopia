@@ -1,6 +1,11 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48">
   <title>도서관 — 문서·번역</title>
-  <g stroke="#231a3d" stroke-width="2" stroke-linejoin="round" stroke-linecap="round">
+  <style>
+    * {
+      vector-effect: non-scaling-stroke;
+    }
+  </style>
+  <g stroke="#231a3d" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round">
     <rect x="8" y="23" width="32" height="20" fill="#f1ece2" />
     <polygon points="4,23 24,10 44,23" fill="#3f6fd8" />
     <path d="M13 29q5.500-3 11 0q5.500-3 11 0v10q-5.500-3-11 0q-5.500-3-11 0z" fill="#fff6dc" />
