@@ -1356,3 +1356,35 @@ svg {
 .github-usage-tooltip small {
   display: block;
 }
+
+.pull-dialog .dialog-heading {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 6px;
+}
+.pull-dialog .activity-counters {
+  justify-content: flex-start;
+}
+.pull-dialog .dialog-title-link {
+  white-space: nowrap;
+}
+.pull-dialog .dialog-title-link img {
+  width: 28px;
+  height: 28px;
+}
+.pull-dialog .activity-counter {
+  gap: 2px;
+  padding: 3px;
+}
+.pull-dialog .activity-counter[aria-expanded='true'] {
+  outline: 1px solid currentColor;
+}
+@media (max-width: 420px) {
+  .pull-dialog .dialog-heading {
+    padding-inline: 10px;
+  }
+  .pull-dialog .dialog-title-link {
+    gap: 3px;
+    font-size: 18px;
+  }
+}
