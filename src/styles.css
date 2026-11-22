@@ -1349,16 +1349,17 @@ svg {
 }
 .kingdom,
 .branch-road-node[data-road-role='plaza'] {
-  background: color-mix(in srgb, var(--accent) 9%, transparent);
+  background: transparent;
   outline: none;
 }
-.kingdom:is(:hover, :focus-visible),
-.branch-road-node[data-road-role='plaza']:is(:hover, :focus-visible) {
-  background: color-mix(in srgb, var(--accent) 18%, transparent);
+.kingdom:focus-visible .kingdom-crest,
+.branch-road-node[data-road-role='plaza']:focus-visible img {
+  filter: drop-shadow(0 0 3px #fae9a7);
 }
 @media (hover: hover) {
   .kingdom:hover,
   .branch-road-node[data-road-role='plaza']:hover {
+    background: color-mix(in srgb, var(--accent) 18%, transparent);
     outline: 2px solid #fae9a7;
   }
 }
