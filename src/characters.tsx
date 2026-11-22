@@ -91,25 +91,36 @@ export function partyLabel(member: Adventurer, resting: string) {
   return `${agentNames[member.agent]} · ${task}`;
 }
 
+export function partyLeaderLabel(state: 'active' | 'resting') {
+  return `GitHub Actions · 파티장 · ${state === 'active' ? 'CI' : '대기'}`;
+}
+
 export function AdventurerParty({
   members,
   resting,
   detailed = false,
-  leader = false,
+  leader,
   forge = false,
 }: {
   members: Adventurer[];
   resting: string;
   detailed?: boolean;
-  leader?: boolean;
+  leader?: 'active' | 'resting';
   forge?: boolean;
 }) {
   if (!leader && !members.length) return null;
   return (
     <span className={`adventurer-party${detailed ? ' detailed' : ''}`}>
       {leader && (
-        <span className="adventurer" title="GitHub Actions · 파티장 · CI">
-          <PartyLeaderGlyph className="working-party-leader" />
+        <span className="adventurer" title={partyLeaderLabel(leader)}>
+          <PartyLeaderGlyph
+            className={
+              leader === 'active'
+                ? 'working-party-leader'
+                : 'resting-party-leader'
+            }
+          />
+          {detailed && <strong>{partyLeaderLabel(leader)}</strong>}
         </span>
       )}
       {members.map((member) => (
