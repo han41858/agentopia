@@ -8,9 +8,11 @@ function effectCount(count = 0) {
 
 export function ActivityAura({
   activity,
+  facility = false,
   children,
 }: {
   activity?: ActivityProfile;
+  facility?: boolean;
   children: ReactNode;
 }) {
   const discussion = effectCount(
@@ -19,7 +21,7 @@ export function ActivityAura({
   const runes = effectCount(activity?.reviews);
   return (
     <span className="activity-aura" aria-hidden="true">
-      {discussion > 0 && (
+      {!facility && discussion > 0 && (
         <span className="aura-discussion">
           {Array.from({ length: discussion }, (_, i) => (
             <MessageCircle key={i} size={11} />
@@ -34,7 +36,7 @@ export function ActivityAura({
           ))}
         </span>
       )}
-      <ReviewOpinionBadge opinion={activity?.opinion?.state} />
+      {!facility && <ReviewOpinionBadge opinion={activity?.opinion?.state} />}
     </span>
   );
 }

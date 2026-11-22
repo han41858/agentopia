@@ -5,7 +5,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties, FormEvent, ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 import {
-  Construction,
   ClipboardCheck,
   GitCommitHorizontal,
   MessageCircle,
@@ -13,9 +12,9 @@ import {
   ChevronRight,
   Clock3,
   ExternalLink,
+  Trash2,
   Flag,
   GitPullRequest,
-  GitPullRequestDraft,
   Hourglass,
   KeyRound,
   Plus,
@@ -596,9 +595,7 @@ function FacilityMarker({
       {pulse !== undefined && (
         <span key={pulse} className="party-pulse" aria-hidden="true" />
       )}
-      <ActivityAura
-        activity={pull.activity && { ...pull.activity, opinion: undefined }}
-      >
+      <ActivityAura activity={pull.activity} facility>
         <span
           className="facility-core"
           data-draft={pull.draft}
@@ -606,9 +603,6 @@ function FacilityMarker({
         >
           <FacilityGlyph kind={kind} />
           <ReviewOpinionBadge opinion={pull.activity?.opinion?.state} />
-          {pull.stage === 'idle' && (
-            <Construction className="facility-build" size={13} />
-          )}
           {!activeMembers.length && working && (
             <Tool className="facility-tool" size={13} />
           )}
@@ -807,6 +801,13 @@ function IssueBadge({
     </span>
   );
 }
+
+const releaseTime = new Intl.DateTimeFormat('ko-KR', {
+  dateStyle: 'medium',
+  timeStyle: 'short',
+  hour12: false,
+  timeZone: 'Asia/Seoul',
+});
 
 function OutLink({ item }: { item: Source }) {
   return (
@@ -1374,9 +1375,7 @@ function PullDetail({
       close={close}
     >
       <h3>{pull.title}</h3>
-      {pull.stage !== 'idle' || pull.cancelled ? (
-        <PullStatus pull={pull} />
-      ) : null}
+      <PullStatus pull={pull} />
       {status && <small role="status">{status}</small>}
       {entries}
       <AdventurerParty
@@ -1430,14 +1429,7 @@ function PullStatus({ pull }: { pull: PullQuest }) {
         <X size={14} aria-hidden="true" /> 작업 취소
       </span>
     );
-  if (pull.stage === 'idle') {
-    const Icon = pull.draft ? GitPullRequestDraft : GitPullRequest;
-    return (
-      <span className="badge idle" role="img" aria-label={pullStatus(pull)}>
-        <Icon size={14} aria-hidden="true" />
-      </span>
-    );
-  }
+  if (pull.stage === 'idle') return null;
   return alerts.has(pull.stage) ||
     pull.stage === 'ci' ||
     pull.stage === 'complete' ? (
@@ -1447,29 +1439,99 @@ function PullStatus({ pull }: { pull: PullQuest }) {
   );
 }
 
+function FacilityRows({
+  entries,
+  openPull,
+}: {
+  entries: PullQuest[];
+  openPull: (pull: PullQuest) => void;
+}) {
+  return (
+    <ul className="quest-tree">
+      {entries.map((pull) => {
+        const kind = facilityKind(pull.title);
+        return (
+          <li key={pull.number}>
+            <button className="quest-row" onClick={() => openPull(pull)}>
+              <span
+                role="img"
+                aria-label={facilities[kind].name}
+                title={facilities[kind].name}
+              >
+                <FacilityGlyph kind={kind} />
+              </span>
+              <span className="quest-row-title">
+                <small>PR #{pull.number}</small>
+                <strong>{pull.title}</strong>
+              </span>
+              {!pull.merged && <PullStatus pull={pull} />}
+              <ChevronRight size={16} aria-hidden="true" />
+            </button>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+function PlazaDetail({
+  region,
+  pulls,
+  openPull,
+  close,
+}: {
+  region: Region;
+  pulls: PullQuest[];
+  openPull: (pull: PullQuest) => void;
+  close: () => void;
+}) {
+  const current = pulls.filter(isCurrentFacility);
+  const facilityHistory = pulls
+    .filter((pull) => !isCurrentFacility(pull))
+    .sort((left, right) =>
+      (right.finishedAt ?? '').localeCompare(left.finishedAt ?? ''),
+    );
+  return (
+    <Dialog title="개발 광장" close={close}>
+      <h4>작업중</h4>
+      {current.length ? (
+        <FacilityRows entries={current} openPull={openPull} />
+      ) : (
+        <p>조회된 열린 PR이 없습니다.</p>
+      )}
+      {facilityHistory.length > 0 && (
+        <details className="facility-history">
+          <summary>시설 이력</summary>
+          <FacilityRows entries={facilityHistory} openPull={openPull} />
+          <OutLink
+            item={{
+              title: 'GitHub에서 종료된 PR 보기',
+              url: `https://github.com/${region.slug}/pulls?q=is%3Apr+is%3Aclosed`,
+            }}
+          />
+        </details>
+      )}
+    </Dialog>
+  );
+}
+
 function RegionDetail({
   region,
   snapshot,
   openQuest,
-  openPull,
+  openWork,
   remove,
   close,
 }: {
   region: Region;
   snapshot?: Snapshot;
   openQuest: (quest: Quest) => void;
-  openPull: (pull: PullQuest) => void;
+  openWork?: () => void;
   remove: () => void;
   close: () => void;
 }) {
+  const [confirmRemoval, setConfirmRemoval] = useState(false);
   const quests = snapshot?.report?.quests ?? [];
-  const pulls = reportForges(snapshot?.report);
-  const currentFacilities = pulls.filter(isCurrentFacility);
-  const facilityHistory = pulls
-    .filter((pull) => !isCurrentFacility(pull))
-    .sort((left, right) =>
-      (right.finishedAt ?? '').localeCompare(left.finishedAt ?? ''),
-    );
   const known = new Set(quests.map((quest) => quest.number));
   const roots = quests.filter(
     (quest) => !quest.parent || !known.has(quest.parent),
@@ -1488,7 +1550,7 @@ function RegionDetail({
     return (
       <li key={quest.number}>
         <button className="quest-row" onClick={() => openQuest(quest)}>
-          <span>
+          <span className="quest-row-title">
             <small>이슈 #{quest.number}</small>
             <strong>{quest.title}</strong>
           </span>
@@ -1509,42 +1571,58 @@ function RegionDetail({
       </li>
     );
   }
-  function facilityRows(entries: PullQuest[]) {
+
+  if (confirmRemoval) {
     return (
-      <ul className="quest-tree">
-        {entries.map((pull) => {
-          const kind = facilityKind(pull.title);
-          return (
-            <li key={pull.number}>
-              <button className="quest-row" onClick={() => openPull(pull)}>
-                <FacilityGlyph kind={kind} />
-                <span>
-                  <small>
-                    {facilities[kind].name} · PR #{pull.number}
-                  </small>
-                  <strong>{pull.title}</strong>
-                </span>
-                <PullStatus pull={pull} />
-                <ChevronRight size={16} aria-hidden="true" />
-              </button>
-            </li>
-          );
-        })}
-      </ul>
+      <Dialog
+        key="confirm-removal"
+        title="월드맵에서 제거"
+        close={() => setConfirmRemoval(false)}
+      >
+        <p>{region.slug} 저장소를 월드맵에서 제거할까요?</p>
+        <div className="removal-actions">
+          <button
+            className="text-button"
+            onClick={() => setConfirmRemoval(false)}
+          >
+            취소
+          </button>
+          <button className="primary remove-region" onClick={remove}>
+            제거
+          </button>
+        </div>
+      </Dialog>
     );
   }
 
   return (
-    <Dialog title={region.name} close={close}>
-      <OutLink
-        item={{
-          title: region.slug,
-          url: `https://github.com/${region.slug}`,
-        }}
-      />
-      <button className="text-button" onClick={remove}>
-        월드맵에서 제거
-      </button>
+    <Dialog
+      title={region.slug}
+      className="palace-dialog"
+      close={close}
+      headingActions={
+        <>
+          <a
+            className="icon-button"
+            href={`https://github.com/${region.slug}`}
+            target="_blank"
+            rel="noreferrer"
+            aria-label="저장소로 이동"
+            title="저장소로 이동"
+          >
+            <ExternalLink size={18} aria-hidden="true" />
+          </a>
+          <button
+            className="icon-button remove-region"
+            onClick={() => setConfirmRemoval(true)}
+            aria-label="월드맵에서 제거"
+            title="월드맵에서 제거"
+          >
+            <Trash2 size={18} aria-hidden="true" />
+          </button>
+        </>
+      }
+    >
       {snapshot?.error && <p className="fetch-error">{snapshot.error}</p>}
       {snapshot?.report?.warnings.length ? (
         <p className="fetch-error">
@@ -1552,44 +1630,48 @@ function RegionDetail({
           {snapshot.report.warnings.join(', ')}
         </p>
       ) : null}
-      {snapshot?.report &&
-        (ordered.length ? (
-          <ul className="quest-tree">
-            {ordered.map((quest) => render(quest))}
-          </ul>
-        ) : (
-          <p>조회 범위에 퀘스트가 없습니다.</p>
-        ))}
-      {currentFacilities.length > 0 && (
-        <>
-          <h4>왕국 시설</h4>
-          {facilityRows(currentFacilities)}
-        </>
+      {ordered.length > 0 && (
+        <ul className="quest-tree">{ordered.map((quest) => render(quest))}</ul>
       )}
-      {facilityHistory.length > 0 && (
-        <details className="facility-history">
-          <summary>시설 이력</summary>
-          {facilityRows(facilityHistory)}
-          <OutLink
-            item={{
-              title: 'GitHub에서 종료된 PR 보기',
-              url: `https://github.com/${region.slug}/pulls?q=is%3Apr+is%3Aclosed`,
-            }}
-          />
-        </details>
+      {openWork && (
+        <button className="text-button" onClick={openWork}>
+          작업 목록
+        </button>
       )}
       {!!snapshot?.report?.releases.length && (
         <>
-          <h4>왕국 배포 기록</h4>
-          {snapshot.report.releases.map((release, index) => (
-            <div className="release" key={index}>
-              <OutLink item={release} />
-              <Badge
-                stage={release.stage}
-                label={release.stage === 'complete' ? '배포 완료' : undefined}
-              />
-            </div>
-          ))}
+          <h4>
+            왕국 배포 기록 <small>(KST)</small>
+          </h4>
+          <div className="release-history">
+            {snapshot.report.releases.map((release, index) => {
+              const status = release.status?.split(' · ')[0];
+              return (
+                <a
+                  className="release-row"
+                  key={index}
+                  href={release.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  title={[release.title, release.status]
+                    .filter(Boolean)
+                    .join(' · ')}
+                >
+                  {release.at && Number.isFinite(Date.parse(release.at)) ? (
+                    <time dateTime={release.at}>
+                      {releaseTime.format(new Date(release.at))}
+                    </time>
+                  ) : (
+                    <span>시각 미확인</span>
+                  )}
+                  <span className={`badge ${release.stage}`}>
+                    {status === 'failure' ? 'failed' : status || '미확인'}
+                  </span>
+                  <span className="release-name">{release.title}</span>
+                </a>
+              );
+            })}
+          </div>
         </>
       )}
     </Dialog>
@@ -1927,7 +2009,7 @@ function App() {
   }>();
   const [selectedRoad, setSelectedRoad] = useState<{
     region: Region;
-    selection: RoadSelection;
+    selection: RoadSelection | 'plaza';
   }>();
   const [selectedHeritage, setSelectedHeritage] = useState<HeritageSelection>();
   const [inspected, setInspected] = useState<MapEntry>();
@@ -2404,7 +2486,14 @@ function App() {
                             : undefined
                         }
                         open={(selection) =>
-                          setSelectedRoad({ region, selection })
+                          setSelectedRoad({
+                            region,
+                            selection:
+                              selection.roads.length === 1 &&
+                              selection.roads[0].role === 'plaza'
+                                ? 'plaza'
+                                : selection,
+                          })
                         }
                       />
                     )}
@@ -2494,7 +2583,11 @@ function App() {
           key={selected.slug}
           region={selected}
           snapshot={snapshots[selected.slug]}
-          openPull={(item) => openPull(selected, item)}
+          openWork={
+            roadPlacements.get(selected.slug)?.plazaRoad
+              ? undefined
+              : () => setSelectedRoad({ region: selected, selection: 'plaza' })
+          }
           openQuest={(item) =>
             setSelectedQuest({ region: selected, number: item.number })
           }
@@ -2531,7 +2624,15 @@ function App() {
           close={() => setSelectedHeritage(undefined)}
         />
       )}
-      {selectedRoad && (
+      {selectedRoad?.selection === 'plaza' && (
+        <PlazaDetail
+          region={selectedRoad.region}
+          pulls={reportForges(snapshots[selectedRoad.region.slug]?.report)}
+          openPull={(item) => openPull(selectedRoad.region, item)}
+          close={() => setSelectedRoad(undefined)}
+        />
+      )}
+      {selectedRoad && selectedRoad.selection !== 'plaza' && (
         <Dialog
           title={
             selectedRoad.selection.roads.length === 1
