@@ -437,7 +437,7 @@ function MonsterMarker({
     <button
       data-road-issue={quest.number}
       className={`expedition monster-marker${boss ? ' boss-marker' : ''}${alerts.has(quest.stage) ? ' blocked' : ''}${defeated ? ' closed-issue' : ''}`}
-      aria-label={`${boss ? '보스 몬스터' : '몬스터'} #${quest.number} · ${quest.title} · ${status}${activityEffectsLabel(quest.activity)}`}
+      aria-label={`이슈 #${quest.number} · ${quest.title} · ${status}${activityEffectsLabel(quest.activity)}`}
       title={`${quest.title} · ${status}`}
       onClick={open}
       data-highlight={inspected ? 'selected' : related ? 'related' : undefined}
@@ -691,7 +691,7 @@ function KingdomMonsters({
         {children.length > 0 && (
           <ul
             className="guild-parties"
-            aria-label={`보스 몬스터 #${quest.number}의 하위 몬스터`}
+            aria-label={`이슈 #${quest.number}의 하위 이슈`}
           >
             {children.map(render)}
           </ul>
@@ -778,10 +778,16 @@ function Badge({ stage, label }: { stage: Stage; label?: string }) {
   );
 }
 
-function IssueBadge({ quest }: { quest: Quest }) {
+function IssueBadge({
+  quest,
+  showOutcome = true,
+}: {
+  quest: Quest;
+  showOutcome?: boolean;
+}) {
   return (
     <span className="monster-statuses">
-      {quest.state === 'closed' && (
+      {showOutcome && quest.state === 'closed' && (
         <span
           className="badge complete"
           role="img"
@@ -790,7 +796,9 @@ function IssueBadge({ quest }: { quest: Quest }) {
           <Check size={14} aria-hidden="true" />
         </span>
       )}
-      {quest.victory && <Badge stage="complete" label="제작 결과 반영" />}
+      {showOutcome && quest.victory && (
+        <Badge stage="complete" label="제작 결과 반영" />
+      )}
       {quest.stage !== 'idle' && quest.stage !== 'complete' ? (
         <Badge stage={quest.stage} />
       ) : quest.state === 'open' && !quest.victory ? (
@@ -831,12 +839,18 @@ function ResultLink({ item }: { item: Source }) {
 function Dialog({
   title,
   titleHref,
+  showLinkIcon = true,
+  titleIcon,
+  headingActions,
   className,
   children,
   close,
 }: {
   title: string;
   titleHref?: string;
+  showLinkIcon?: boolean;
+  titleIcon?: ReactNode;
+  headingActions?: ReactNode;
   className?: string;
   children: ReactNode;
   close: () => void;
@@ -902,12 +916,15 @@ function Dialog({
               target="_blank"
               rel="noreferrer"
             >
-              {title} <ExternalLink size={15} aria-hidden="true" />
+              {titleIcon}
+              {title}
+              {showLinkIcon && <ExternalLink size={15} aria-hidden="true" />}
             </a>
           ) : (
             title
           )}
         </h2>
+        {headingActions}
         <button className="icon-button" aria-label="닫기" onClick={close}>
           <X size={20} />
         </button>
@@ -917,59 +934,72 @@ function Dialog({
   );
 }
 
-function ActivityBrowser({
-  region,
-  number,
-  token,
-  kinds = activityKinds,
-  counts,
-}: {
+type BrowserProps = {
   region: string;
   number: number;
   token: string;
   kinds?: readonly ActivityKind[];
   counts?: ActivityCounts;
-}) {
+};
+
+function useActivityBrowser(
+  { region, number, token, kinds = activityKinds, counts }: BrowserProps,
+  partialCommits = false,
+) {
   const [selected, setSelected] = useState<ActivityKind>();
   const [visited, setVisited] = useState<ActivityKind[]>([]);
+  const counters = (
+    <div className="activity-counters">
+      {kinds.map((kind) => {
+        const { Icon, label } = activityDisplay[kind];
+        const count = counts?.[kind];
+        const value =
+          count === undefined
+            ? '—'
+            : `${count}${kind === 'commits' && partialCommits ? '+' : ''}`;
+        return (
+          <button
+            key={kind}
+            type="button"
+            className="text-button activity-counter"
+            title={label}
+            aria-label={
+              count === undefined
+                ? label
+                : `${label} ${count}개${kind === 'commits' && partialCommits ? ' 이상' : ''}`
+            }
+            aria-expanded={selected === kind}
+            onClick={() => {
+              if (!visited.includes(kind)) setVisited([...visited, kind]);
+              setSelected(selected === kind ? undefined : kind);
+            }}
+          >
+            <Icon size={16} aria-hidden="true" />
+            {value}
+          </button>
+        );
+      })}
+    </div>
+  );
+  const entries = visited.map((kind) => (
+    <div key={kind} hidden={selected !== kind}>
+      <ActivityEntries
+        region={region}
+        number={number}
+        kind={kind}
+        token={token}
+      />
+    </div>
+  ));
+  return { counters, entries };
+}
+
+function ActivityBrowser(props: BrowserProps) {
+  const { counters, entries } = useActivityBrowser(props);
   return (
     <div className="activity-browser">
-      <div className="activity-counters">
-        {kinds.map((kind) => {
-          const { Icon, label } = activityDisplay[kind];
-          return (
-            <button
-              key={kind}
-              type="button"
-              className="text-button activity-counter"
-              title={label}
-              aria-label={
-                counts?.[kind] === undefined
-                  ? label
-                  : `${label} ${counts[kind]}개`
-              }
-              aria-expanded={selected === kind}
-              onClick={() => {
-                if (!visited.includes(kind)) setVisited([...visited, kind]);
-                setSelected(selected === kind ? undefined : kind);
-              }}
-            >
-              <Icon size={16} aria-hidden="true" />
-              {counts?.[kind]}
-            </button>
-          );
-        })}
-      </div>
-      {visited.map((kind) => (
-        <div key={kind} hidden={selected !== kind}>
-          <ActivityEntries
-            region={region}
-            number={number}
-            kind={kind}
-            token={token}
-          />
-        </div>
-      ))}
+      {counters}
+      {entries}
     </div>
   );
 }
@@ -1052,19 +1082,21 @@ function ActivityEntries({
   );
 }
 
-function ActivityTotals({
-  region,
-  token,
-  issue,
-  pulls,
-  initial,
-}: {
+type ActivitySummaryProps = {
   region: string;
   token: string;
   issue?: number;
   pulls: string;
   initial?: ActivityProfile;
-}) {
+};
+
+function useActivitySummary({
+  region,
+  token,
+  issue,
+  pulls,
+  initial,
+}: ActivitySummaryProps) {
   const [loaded, setLoaded] = useState<ActivityProfile>();
   const [failed, setFailed] = useState(false);
   const needsDetails =
@@ -1107,7 +1139,18 @@ function ActivityTotals({
     });
     return () => controller.abort();
   }, [region, token, issue, pulls, needsDetails]);
-  const activity = loaded ?? initial;
+  const status =
+    needsDetails && !loaded
+      ? failed
+        ? '일부 활동을 조회하지 못했습니다.'
+        : 'GitHub 활동 집계 확인 중…'
+      : undefined;
+  return { activity: loaded ?? initial, status };
+}
+
+function ActivityTotals(props: ActivitySummaryProps) {
+  const { activity, status } = useActivitySummary(props);
+  const { issue } = props;
   const rows = [
     ['고유 커밋', activity?.commits, activity?.partialCommits],
     ...(issue === undefined
@@ -1131,13 +1174,7 @@ function ActivityTotals({
           </div>
         ))}
       </dl>
-      {needsDetails && !loaded && (
-        <small role="status">
-          {failed
-            ? '일부 활동을 조회하지 못했습니다.'
-            : 'GitHub 활동 집계 확인 중…'}
-        </small>
-      )}
+      {status && <small role="status">{status}</small>}
     </section>
   );
 }
@@ -1298,16 +1335,50 @@ function PullDetail({
   openIssue: (number: number) => boolean;
 }) {
   const kind = facilityKind(pull.title);
+  const iconLabel = facilities[kind].name + (pull.draft ? ' · 초안 PR' : '');
   const author = pull.author && agentNames[pull.author];
   const reviewer = pull.reviewer && agentNames[pull.reviewer];
+  const { activity, status } = useActivitySummary({
+    region: region.slug,
+    token,
+    pulls: String(pull.number),
+    initial: pull.activity,
+  });
+  const { counters, entries } = useActivityBrowser(
+    {
+      region: region.slug,
+      number: pull.number,
+      token,
+      counts: {
+        commits: activity?.partialCommits
+          ? (pull.activities?.commits ?? activity.commits)
+          : (activity?.commits ?? pull.activities?.commits),
+        comments: activity?.pullComments ?? pull.activities?.comments,
+        reviews: activity?.reviews ?? pull.activities?.reviews,
+      },
+    },
+    activity?.partialCommits && pull.activities?.commits === undefined,
+  );
   return (
-    <Dialog title={`PR #${pull.number}`} titleHref={pull.url} close={close}>
+    <Dialog
+      className={pull.draft ? 'pull-dialog draft' : 'pull-dialog'}
+      title={`PR #${pull.number}`}
+      titleHref={pull.url}
+      showLinkIcon={false}
+      titleIcon={
+        <span role="img" aria-label={iconLabel} title={iconLabel}>
+          <FacilityGlyph kind={kind} />
+        </span>
+      }
+      headingActions={counters}
+      close={close}
+    >
       <h3>{pull.title}</h3>
-      <div className="facility-detail">
-        <FacilityGlyph kind={kind} />
-        <strong>{facilities[kind].name}</strong>
+      {pull.stage !== 'idle' || pull.cancelled ? (
         <PullStatus pull={pull} />
-      </div>
+      ) : null}
+      {status && <small role="status">{status}</small>}
+      {entries}
       <AdventurerParty
         members={pull.adventurers ?? []}
         leader={partyLeaderState(pull)}
@@ -1345,19 +1416,6 @@ function PullDetail({
           리뷰 기록 · {reviewer} {pull.review}
         </p>
       )}
-      <ActivityTotals
-        key={`${region.slug}:${pull.number}`}
-        region={region.slug}
-        token={token}
-        pulls={String(pull.number)}
-        initial={pull.activity}
-      />
-      <ActivityBrowser
-        region={region.slug}
-        number={pull.number}
-        token={token}
-        counts={pull.activities}
-      />
       {pull.runs.map((run) => (
         <OutLink key={run.url} item={run} />
       ))}
@@ -1431,19 +1489,14 @@ function RegionDetail({
       <li key={quest.number}>
         <button className="quest-row" onClick={() => openQuest(quest)}>
           <span>
-            <small>
-              {children.length || quest.subIssueCount
-                ? '보스 몬스터'
-                : '몬스터'}{' '}
-              #{quest.number}
-            </small>
+            <small>이슈 #{quest.number}</small>
             <strong>{quest.title}</strong>
           </span>
           <AdventurerParty
             members={quest.adventurers ?? []}
             resting={monsterRest(quest)}
           />
-          <IssueBadge quest={quest} />
+          <IssueBadge quest={quest} showOutcome={false} />
           <ChevronRight size={16} />
         </button>
         {children.length > 0 && (
