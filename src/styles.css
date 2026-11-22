@@ -1227,15 +1227,6 @@ svg {
     width 250ms ease,
     height 250ms ease;
 }
-.heritage-plinth {
-  width: 24px;
-  height: 3px;
-  border-top: 1px solid #a9b7a1;
-  background: #45574a;
-}
-.heritage-plinth.upper {
-  width: 28px;
-}
 .heritage-total dd {
   margin: 4px 0 0;
   font-size: 1.45rem;
@@ -1359,12 +1350,17 @@ svg {
 .kingdom,
 .branch-road-node[data-road-role='plaza'] {
   background: color-mix(in srgb, var(--accent) 9%, transparent);
-  outline: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  outline: none;
 }
 .kingdom:is(:hover, :focus-visible),
 .branch-road-node[data-road-role='plaza']:is(:hover, :focus-visible) {
   background: color-mix(in srgb, var(--accent) 18%, transparent);
-  outline: 2px solid #fae9a7;
+}
+@media (hover: hover) {
+  .kingdom:hover,
+  .branch-road-node[data-road-role='plaza']:hover {
+    outline: 2px solid #fae9a7;
+  }
 }
 .branch-road-lines {
   position: absolute;
