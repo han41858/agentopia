@@ -118,6 +118,7 @@ export type PullQuest = Source & {
   issues?: number[];
   adventurers?: Adventurer[];
   quality?: Stage;
+  ciParticipated?: boolean;
   activity?: ActivityProfile;
   activities?: ActivityCounts;
   stage: Stage;
@@ -380,14 +381,19 @@ export function makeForges(
       for (const quest of relatedWork) {
         for (const member of quest.adventurers ?? []) {
           if (!member.active && !member.fallen) {
-            if (
-              member.agent === quest.workReviewer &&
-              !workers.has(member.agent)
-            )
+            const roles = member.roles.filter((role) =>
+              role === 'review'
+                ? member.agent === quest.workReviewer
+                : member.agent === quest.developer,
+            );
+            if (roles.length) {
+              const prior = workers.get(member.agent);
               workers.set(member.agent, {
+                ...prior,
                 agent: member.agent,
-                roles: ['review'],
+                roles: [...new Set([...(prior?.roles ?? []), ...roles])],
               });
+            }
             continue;
           }
           const previous = workers.get(member.agent);
@@ -445,6 +451,13 @@ export function makeForges(
           (cancelled ? (pull.closed_at ?? pull.updated_at) : undefined),
         issues: linkedPullIssues(pull, region, review),
         adventurers,
+        ciParticipated:
+          Boolean(ci) ||
+          runs.some(
+            (run) =>
+              run.path.split('@')[0] === '.github/workflows/ci.yml' &&
+              run.pull_requests.some(({ number }) => number === pull.number),
+          ),
         quality: pull.merged_at || cancelled ? undefined : quality,
         activity: summarizeActivity(undefined, [
           pullDiscussion(pull, review?.activity),

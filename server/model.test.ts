@@ -850,7 +850,14 @@ test('forges represent many-to-many links and activate only the uniquely matched
   );
   assert.deepEqual(forges[1].issues, [2, 3]);
   assert.equal(forges[1].stage, 'reviewing');
-  assert.equal(forges[1].adventurers?.[0].active, 'review');
+  assert.equal(
+    forges[1].adventurers?.find((member) => member.agent === 'codex')?.active,
+    'review',
+  );
+  assert.deepEqual(
+    forges[1].adventurers?.find((member) => member.agent === 'claude'),
+    { agent: 'claude', roles: ['develop'] },
+  );
   assert.equal(forges[0].adventurers?.length, 0);
   assert.deepEqual(forges[2].issues, []);
   const ambiguous = [...pulls, { ...second, number: 22 }];

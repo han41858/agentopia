@@ -58,6 +58,7 @@ import {
   agentNames,
   MonsterGlyph,
   partyLabel,
+  partyLeaderLabel,
 } from './characters.tsx';
 import { summarizeActivity } from '../server/activity.ts';
 import type {
@@ -131,27 +132,28 @@ function partyStates(report: Report) {
         pull.activity,
         pull.issues,
         pull.quality,
+        pull.ciParticipated,
         pull.adventurers,
       ]),
     ]),
   ]);
 }
 
-// A bounded refresh can omit an older review. Only carry its participation
+// A bounded refresh can omit earlier work. Only carry its participation
 // forward; activity and failure always come from the current observation.
-function retainReviewers(
+function retainParticipants(
   current: Adventurer[] = [],
   previous: Adventurer[] = [],
 ) {
   const members = [...current];
   for (const prior of previous) {
-    if (!prior.roles.includes('review')) continue;
     const index = members.findIndex((member) => member.agent === prior.agent);
-    if (index < 0) members.push({ agent: prior.agent, roles: ['review'] });
-    else if (!members[index].roles.includes('review'))
+    if (index < 0)
+      members.push({ agent: prior.agent, roles: [...prior.roles] });
+    else
       members[index] = {
         ...members[index],
-        roles: [...members[index].roles, 'review'],
+        roles: [...new Set([...members[index].roles, ...prior.roles])],
       };
   }
   return members;
@@ -173,7 +175,9 @@ function reportSnapshot(report: Report, previous?: Snapshot): Snapshot {
   );
   const freshForges = reportForges(report).map((pull) => ({
     ...pull,
-    adventurers: retainReviewers(
+    ciParticipated:
+      pull.ciParticipated || oldForges.get(pull.number)?.ciParticipated,
+    adventurers: retainParticipants(
       pull.adventurers,
       oldForges.get(pull.number)?.adventurers,
     ),
@@ -247,7 +251,7 @@ function reportSnapshot(report: Report, previous?: Snapshot): Snapshot {
       }
       quest = {
         ...quest,
-        adventurers: retainReviewers(quest.adventurers, old?.adventurers),
+        adventurers: retainParticipants(quest.adventurers, old?.adventurers),
       };
       return quest.state === 'open' &&
         !quest.reopened &&
@@ -534,6 +538,11 @@ function pullActivity(pull: PullQuest) {
   return undefined;
 }
 
+function partyLeaderState(pull: PullQuest) {
+  if (pull.quality === 'ci' || pull.stage === 'ci') return 'active';
+  if (pull.ciParticipated) return 'resting';
+}
+
 function FacilityMarker({
   pull,
   open,
@@ -557,14 +566,14 @@ function FacilityMarker({
   const activeMembers = members.filter(
     (member) => member.active && !member.fallen,
   );
-  const quality = pull.quality === 'ci' || pull.stage === 'ci';
+  const leader = partyLeaderState(pull);
   const label = [
     `${name} PR #${pull.number}`,
     pull.title,
     pullActivity(pull),
     pullStatus(pull),
-    quality ? 'GitHub Actions · 파티장 · CI' : undefined,
-    ...activeMembers.map((member) => partyLabel(member, '대기')),
+    leader && partyLeaderLabel(leader),
+    ...members.map((member) => partyLabel(member, '대기')),
     ...(pull.issues ?? []).map((number) => `이슈 #${number}`),
   ]
     .filter(Boolean)
@@ -615,12 +624,7 @@ function FacilityMarker({
         </span>
       </ActivityAura>
       <small className="expedition-number">{`PR #${pull.number}`}</small>
-      <AdventurerParty
-        members={members}
-        leader={quality}
-        resting="대기"
-        forge
-      />
+      <AdventurerParty members={members} leader={leader} resting="대기" forge />
     </button>
   );
 }
@@ -1306,6 +1310,7 @@ function PullDetail({
       </div>
       <AdventurerParty
         members={pull.adventurers ?? []}
+        leader={partyLeaderState(pull)}
         resting="대기"
         detailed
         forge
