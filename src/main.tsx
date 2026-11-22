@@ -437,7 +437,7 @@ function MonsterMarker({
     <button
       data-road-issue={quest.number}
       className={`expedition monster-marker${boss ? ' boss-marker' : ''}${alerts.has(quest.stage) ? ' blocked' : ''}${defeated ? ' closed-issue' : ''}`}
-      aria-label={`${boss ? '보스 몬스터' : '몬스터'} #${quest.number} · ${quest.title} · ${status}${activityEffectsLabel(quest.activity)}`}
+      aria-label={`이슈 #${quest.number} · ${quest.title} · ${status}${activityEffectsLabel(quest.activity)}`}
       title={`${quest.title} · ${status}`}
       onClick={open}
       data-highlight={inspected ? 'selected' : related ? 'related' : undefined}
@@ -691,7 +691,7 @@ function KingdomMonsters({
         {children.length > 0 && (
           <ul
             className="guild-parties"
-            aria-label={`보스 몬스터 #${quest.number}의 하위 몬스터`}
+            aria-label={`이슈 #${quest.number}의 하위 이슈`}
           >
             {children.map(render)}
           </ul>
@@ -778,10 +778,16 @@ function Badge({ stage, label }: { stage: Stage; label?: string }) {
   );
 }
 
-function IssueBadge({ quest }: { quest: Quest }) {
+function IssueBadge({
+  quest,
+  showOutcome = true,
+}: {
+  quest: Quest;
+  showOutcome?: boolean;
+}) {
   return (
     <span className="monster-statuses">
-      {quest.state === 'closed' && (
+      {showOutcome && quest.state === 'closed' && (
         <span
           className="badge complete"
           role="img"
@@ -790,7 +796,9 @@ function IssueBadge({ quest }: { quest: Quest }) {
           <Check size={14} aria-hidden="true" />
         </span>
       )}
-      {quest.victory && <Badge stage="complete" label="제작 결과 반영" />}
+      {showOutcome && quest.victory && (
+        <Badge stage="complete" label="제작 결과 반영" />
+      )}
       {quest.stage !== 'idle' && quest.stage !== 'complete' ? (
         <Badge stage={quest.stage} />
       ) : quest.state === 'open' && !quest.victory ? (
@@ -1481,19 +1489,14 @@ function RegionDetail({
       <li key={quest.number}>
         <button className="quest-row" onClick={() => openQuest(quest)}>
           <span>
-            <small>
-              {children.length || quest.subIssueCount
-                ? '보스 몬스터'
-                : '몬스터'}{' '}
-              #{quest.number}
-            </small>
+            <small>이슈 #{quest.number}</small>
             <strong>{quest.title}</strong>
           </span>
           <AdventurerParty
             members={quest.adventurers ?? []}
             resting={monsterRest(quest)}
           />
-          <IssueBadge quest={quest} />
+          <IssueBadge quest={quest} showOutcome={false} />
           <ChevronRight size={16} />
         </button>
         {children.length > 0 && (
