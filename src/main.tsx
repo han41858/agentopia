@@ -804,16 +804,16 @@ function IssueBadge({
 const releaseTime = new Intl.DateTimeFormat('ko-KR', {
   dateStyle: 'medium',
   timeStyle: 'short',
+  hour12: false,
   timeZone: 'Asia/Seoul',
 });
 
-function OutLink({ item, children }: { item: Source; children?: ReactNode }) {
+function OutLink({ item }: { item: Source }) {
   return (
     <a className="source" href={item.url} target="_blank" rel="noreferrer">
       <span>
         {item.title}
         {item.status && <small>{item.status}</small>}
-        {children}
       </span>
       <ExternalLink size={14} />
     </a>
@@ -1603,27 +1603,38 @@ function RegionDetail({
       )}
       {!!snapshot?.report?.releases.length && (
         <>
-          <h4>왕국 배포 기록</h4>
-          {snapshot.report.releases.map((release, index) => (
-            <div className="release" key={index}>
-              <OutLink
-                item={{
-                  ...release,
-                  status: release.status?.replace(/^failure\b/, 'failed'),
-                }}
-              >
-                <small>
+          <h4>
+            왕국 배포 기록 <small>(KST)</small>
+          </h4>
+          <div className="release-history">
+            {snapshot.report.releases.map((release, index) => {
+              const status = release.status?.split(' · ')[0];
+              return (
+                <a
+                  className="release-row"
+                  key={index}
+                  href={release.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  title={[release.title, release.status]
+                    .filter(Boolean)
+                    .join(' · ')}
+                >
                   {release.at && Number.isFinite(Date.parse(release.at)) ? (
                     <time dateTime={release.at}>
-                      {releaseTime.format(new Date(release.at))} KST
+                      {releaseTime.format(new Date(release.at))}
                     </time>
                   ) : (
-                    '시각 미확인'
+                    <span>시각 미확인</span>
                   )}
-                </small>
-              </OutLink>
-            </div>
-          ))}
+                  <span className={`badge ${release.stage}`}>
+                    {status === 'failure' ? 'failed' : status || '미확인'}
+                  </span>
+                  <span className="release-name">{release.title}</span>
+                </a>
+              );
+            })}
+          </div>
         </>
       )}
     </Dialog>
