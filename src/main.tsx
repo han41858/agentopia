@@ -1572,7 +1572,30 @@ function RegionDetail({
     );
   }
 
-  const palace = (
+  if (confirmRemoval) {
+    return (
+      <Dialog
+        key="confirm-removal"
+        title="월드맵에서 제거"
+        close={() => setConfirmRemoval(false)}
+      >
+        <p>{region.slug} 저장소를 월드맵에서 제거할까요?</p>
+        <div className="removal-actions">
+          <button
+            className="text-button"
+            onClick={() => setConfirmRemoval(false)}
+          >
+            취소
+          </button>
+          <button className="primary remove-region" onClick={remove}>
+            제거
+          </button>
+        </div>
+      </Dialog>
+    );
+  }
+
+  return (
     <Dialog
       title={region.slug}
       className="palace-dialog"
@@ -1652,27 +1675,6 @@ function RegionDetail({
         </>
       )}
     </Dialog>
-  );
-  return (
-    <>
-      {palace}
-      {confirmRemoval && (
-        <Dialog title="월드맵에서 제거" close={() => setConfirmRemoval(false)}>
-          <p>{region.slug} 저장소를 월드맵에서 제거할까요?</p>
-          <div className="removal-actions">
-            <button
-              className="text-button"
-              onClick={() => setConfirmRemoval(false)}
-            >
-              취소
-            </button>
-            <button className="primary remove-region" onClick={remove}>
-              제거
-            </button>
-          </div>
-        </Dialog>
-      )}
-    </>
   );
 }
 
