@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { Check, MessageCircle, ShieldAlert, Sparkles } from 'lucide-react';
+import { Check, ShieldAlert, Sparkles } from 'lucide-react';
 import type { ActivityProfile } from '../server/activity.ts';
 
 function effectCount(count = 0) {
@@ -8,24 +8,16 @@ function effectCount(count = 0) {
 
 export function ActivityAura({
   activity,
+  facility = false,
   children,
 }: {
   activity?: ActivityProfile;
+  facility?: boolean;
   children: ReactNode;
 }) {
-  const discussion = effectCount(
-    (activity?.issueComments ?? 0) + (activity?.pullComments ?? 0),
-  );
   const runes = effectCount(activity?.reviews);
   return (
     <span className="activity-aura" aria-hidden="true">
-      {discussion > 0 && (
-        <span className="aura-discussion">
-          {Array.from({ length: discussion }, (_, i) => (
-            <MessageCircle key={i} size={11} />
-          ))}
-        </span>
-      )}
       <span className="aura-core">{children}</span>
       {runes > 0 && (
         <span className="aura-runes">
@@ -34,7 +26,7 @@ export function ActivityAura({
           ))}
         </span>
       )}
-      <ReviewOpinionBadge opinion={activity?.opinion?.state} />
+      {!facility && <ReviewOpinionBadge opinion={activity?.opinion?.state} />}
     </span>
   );
 }

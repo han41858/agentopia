@@ -248,9 +248,6 @@ svg {
   color: var(--accent);
   text-align: center;
 }
-.kingdom:hover .kingdom-crest {
-  color: color-mix(in srgb, var(--accent), white 35%);
-}
 .kingdom-label {
   min-width: 0;
   overflow-wrap: anywhere;
@@ -316,16 +313,9 @@ svg {
     opacity: 1;
   }
 }
-.expedition:hover {
-  background: #15212f;
-}
 .expedition.blocked {
   --accent: #ffb4aa;
   box-shadow: inset 0 0 0 1px #bd6c60;
-}
-.kingdom-area .expedition:hover,
-.kingdom-area .expedition[data-highlight='related'] {
-  background: color-mix(in srgb, var(--accent) 14%, transparent);
 }
 .expedition.closed-issue {
   --accent: #bbc8d3;
@@ -378,6 +368,14 @@ svg {
 .adventurer-glyph.review .adventurer-role {
   animation: read-scroll 1.8s ease-in-out infinite;
 }
+.monster-marker .adventurer-glyph.review .adventurer-avatar {
+  animation: review-nod 1.8s ease-in-out infinite;
+}
+@keyframes review-nod {
+  45% {
+    transform: translateY(1px) rotate(6deg);
+  }
+}
 @keyframes attack {
   35% {
     transform: translate(-2px, 1px);
@@ -406,6 +404,9 @@ svg {
   bottom: -2px;
   background: #15212f;
   border-radius: 2px;
+}
+.expedition .adventurer-party {
+  flex-wrap: nowrap;
 }
 .adventurer-party.detailed {
   gap: 8px;
@@ -629,7 +630,7 @@ svg {
 .quest-row:hover {
   border-color: #977045;
 }
-.quest-row > span:first-child {
+.quest-row-title {
   display: grid;
   gap: 4px;
   flex: 1;
@@ -641,13 +642,35 @@ svg {
 .quest-row small {
   color: #bdadc9;
 }
-.release {
-  display: flex;
-  align-items: center;
-  gap: 10px;
+.release-history {
+  display: grid;
+  grid-template-columns: max-content max-content minmax(0, 1fr);
+  column-gap: 6px;
 }
-.release a {
-  flex: 1;
+.release-row {
+  display: grid;
+  grid-template-columns: subgrid;
+  grid-column: 1 / -1;
+  align-items: center;
+  padding-block: 6px;
+  border-bottom: 1px solid #40324f;
+  color: inherit;
+  text-decoration: none;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.release-row .badge {
+  padding: 2px 5px;
+}
+.release-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--gold);
+}
+.release-row:hover .release-name,
+.release-row:focus-visible .release-name {
+  text-decoration: underline;
 }
 .badge {
   display: inline-flex;
@@ -720,6 +743,28 @@ svg {
 }
 .dialog-heading .icon-button {
   flex: none;
+}
+.palace-dialog .dialog-heading {
+  gap: 4px;
+}
+.palace-dialog .dialog-heading h2 {
+  flex: 1;
+  margin-right: 4px;
+}
+.icon-button.remove-region,
+.primary.remove-region {
+  background: #632f38;
+  border-color: #a65c65;
+  color: #ffe1dc;
+}
+.icon-button.remove-region:hover,
+.primary.remove-region:hover {
+  background: #803743;
+}
+.removal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 16px;
 }
 .dialog-body {
   min-height: 0;
@@ -893,7 +938,7 @@ svg {
   .quest-row {
     flex-wrap: wrap;
   }
-  .quest-row > span:first-child {
+  .quest-row-title {
     flex-basis: 100%;
   }
 }
@@ -924,15 +969,10 @@ svg {
   display: grid;
   place-items: center;
 }
-.aura-discussion,
 .aura-runes {
   grid-row: 1;
   display: grid;
   gap: 1px;
-}
-.aura-discussion {
-  grid-column: 1;
-  color: #f1e9b3;
 }
 .aura-runes {
   grid-column: 3;
@@ -1021,6 +1061,17 @@ svg {
   margin-top: 0;
   row-gap: 2px;
 }
+.facility-marker .activity-aura {
+  position: relative;
+  display: block;
+}
+.facility-marker .aura-runes {
+  position: absolute;
+  top: 50%;
+  right: 0;
+  transform: translateY(-50%);
+  pointer-events: none;
+}
 .facility-core {
   position: relative;
   display: grid;
@@ -1045,7 +1096,6 @@ svg {
   background: #242329;
 }
 .facility-tool,
-.facility-build,
 .facility-marker .adventurer-role {
   background: transparent;
   filter: drop-shadow(0 1px 1px #10171c);
@@ -1054,7 +1104,8 @@ svg {
   opacity: 0.7;
   filter: saturate(0.6);
 }
-.working-party-leader {
+.working-party-leader,
+.working-portal-keeper {
   animation: forge-test 1.6s ease-in-out infinite;
 }
 .facility-core > .aura-opinion {
@@ -1074,15 +1125,6 @@ svg {
 }
 .facility-marker.blocked .facility-result {
   color: #ffb3a6;
-}
-.expedition[data-highlight='selected'] {
-  outline: 2px solid #fae9a7;
-  outline-offset: 1px;
-}
-.expedition[data-highlight='related'] {
-  outline: 2px dashed #fae9a7;
-  outline-offset: 1px;
-  background: #384033;
 }
 @keyframes forge-hammer {
   45% {
@@ -1117,13 +1159,6 @@ svg {
   display: block;
   flex: none;
   filter: drop-shadow(0 1px #10171c);
-}
-.facility-build {
-  position: absolute;
-  right: -3px;
-  bottom: -3px;
-  border-radius: 2px;
-  color: #e0cf9d;
 }
 .facility-detail {
   display: flex;
@@ -1179,7 +1214,6 @@ svg {
   background: transparent;
   color: #e4dbad;
 }
-.heritage-slot:hover,
 .heritage-slot:focus-visible {
   background: color-mix(in srgb, var(--accent) 14%, transparent);
 }
@@ -1193,15 +1227,6 @@ svg {
   transition:
     width 250ms ease,
     height 250ms ease;
-}
-.heritage-plinth {
-  width: 24px;
-  height: 3px;
-  border-top: 1px solid #a9b7a1;
-  background: #45574a;
-}
-.heritage-plinth.upper {
-  width: 28px;
 }
 .heritage-total dd {
   margin: 4px 0 0;
@@ -1318,10 +1343,37 @@ svg {
   background: #24392e;
   color: #e5d6ab;
 }
-.branch-road-node:hover,
 .branch-road-node[data-active='true'] {
   border-color: #fae9a7;
   color: #fff2c2;
+}
+.kingdom,
+.branch-road-node[data-road-role='plaza'] {
+  background: transparent;
+  outline: none;
+}
+.kingdom:focus-visible .kingdom-crest,
+.branch-road-node[data-road-role='plaza']:focus-visible img {
+  filter: drop-shadow(0 0 3px #fae9a7);
+}
+.map-viewport button {
+  --map-highlight-fill: color-mix(in srgb, var(--accent) 14%, transparent);
+  --map-highlight-outline: 2px solid #fae9a7;
+}
+.map-viewport .expedition[data-highlight] {
+  background: var(--map-highlight-fill);
+  outline: var(--map-highlight-outline);
+  outline-offset: 1px;
+}
+.map-viewport .expedition[data-highlight='related'] {
+  outline-style: dashed;
+}
+@media (hover: hover) {
+  .map-viewport button:hover {
+    background: var(--map-highlight-fill);
+    outline: var(--map-highlight-outline);
+    outline-offset: 1px;
+  }
 }
 .branch-road-lines {
   position: absolute;
@@ -1359,4 +1411,63 @@ svg {
 
 .github-usage-tooltip small {
   display: block;
+}
+
+.pull-dialog .dialog-heading {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 6px;
+}
+.pull-dialog .activity-counters {
+  justify-content: flex-start;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  padding: 2px;
+}
+.pull-dialog .dialog-title-link {
+  white-space: nowrap;
+}
+.pull-dialog.draft .dialog-title-link {
+  text-decoration: underline dotted;
+  text-underline-offset: 4px;
+}
+.pull-dialog .dialog-title-link [role='img'] {
+  display: inline-flex;
+}
+.pull-dialog .dialog-title-link img {
+  width: 28px;
+  height: 28px;
+}
+.pull-dialog .activity-counter {
+  flex: none;
+  gap: 2px;
+  padding: 3px;
+}
+.pull-dialog .activity-counter[aria-expanded='true'] {
+  outline: 1px solid currentColor;
+}
+@media (max-width: 420px) {
+  .pull-dialog {
+    width: calc(100% - 12px);
+    max-width: calc(100% - 12px);
+  }
+  .pull-dialog .dialog-heading {
+    gap: 3px;
+    padding-inline: 4px;
+  }
+  .pull-dialog .activity-counters {
+    gap: 0;
+  }
+  .pull-dialog .dialog-title-link {
+    gap: 3px;
+    font-size: 18px;
+  }
+}
+
+@media (pointer: coarse) {
+  .pull-dialog .activity-counter {
+    min-width: 44px;
+    min-height: 44px;
+    justify-content: center;
+  }
 }

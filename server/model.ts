@@ -143,7 +143,7 @@ export type Report = {
   forges?: PullQuest[];
   branchInventory?: BranchInventory;
   branchPulls?: BranchPull[];
-  releases: (Source & { stage: Stage })[];
+  releases: Omit<Release, 'sha'>[];
   updatedAt: string;
   warnings: string[];
 };
@@ -198,7 +198,7 @@ export type Comment = {
   html_url: string;
   updated_at: string;
 };
-export type Release = Source & { stage: Stage; sha?: string };
+export type Release = Source & { stage: Stage; sha?: string; at?: string };
 type AutomationState = {
   issue: number;
   runId: number;

@@ -164,8 +164,6 @@ export function HeritageArc({
                 size={heritageSize(tier)}
                 className="facility-sprite"
               />
-              {tier >= 2 && <span className="heritage-plinth" />}
-              {tier > 3 && <span className="heritage-plinth upper" />}
             </span>
           </button>
         );
