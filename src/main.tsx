@@ -12,6 +12,7 @@ import {
   ChevronRight,
   Clock3,
   ExternalLink,
+  Trash2,
   Flag,
   GitPullRequest,
   Hourglass,
@@ -1463,7 +1464,7 @@ function FacilityRows({
                 <small>PR #{pull.number}</small>
                 <strong>{pull.title}</strong>
               </span>
-              <PullStatus pull={pull} />
+              {!pull.merged && <PullStatus pull={pull} />}
               <ChevronRight size={16} aria-hidden="true" />
             </button>
           </li>
@@ -1571,16 +1572,33 @@ function RegionDetail({
   }
 
   return (
-    <Dialog title={region.name} close={close}>
-      <OutLink
-        item={{
-          title: region.slug,
-          url: `https://github.com/${region.slug}`,
-        }}
-      />
-      <button className="text-button" onClick={remove}>
-        월드맵에서 제거
-      </button>
+    <Dialog
+      title={region.slug}
+      className="palace-dialog"
+      close={close}
+      headingActions={
+        <>
+          <a
+            className="icon-button"
+            href={`https://github.com/${region.slug}`}
+            target="_blank"
+            rel="noreferrer"
+            aria-label="저장소로 이동"
+            title="저장소로 이동"
+          >
+            <ExternalLink size={18} aria-hidden="true" />
+          </a>
+          <button
+            className="icon-button remove-region"
+            onClick={remove}
+            aria-label="월드맵에서 제거"
+            title="월드맵에서 제거"
+          >
+            <Trash2 size={18} aria-hidden="true" />
+          </button>
+        </>
+      }
+    >
       {snapshot?.error && <p className="fetch-error">{snapshot.error}</p>}
       {snapshot?.report?.warnings.length ? (
         <p className="fetch-error">
@@ -1588,14 +1606,9 @@ function RegionDetail({
           {snapshot.report.warnings.join(', ')}
         </p>
       ) : null}
-      {snapshot?.report &&
-        (ordered.length ? (
-          <ul className="quest-tree">
-            {ordered.map((quest) => render(quest))}
-          </ul>
-        ) : (
-          <p>조회 범위에 퀘스트가 없습니다.</p>
-        ))}
+      {ordered.length > 0 && (
+        <ul className="quest-tree">{ordered.map((quest) => render(quest))}</ul>
+      )}
       {openWork && (
         <button className="text-button" onClick={openWork}>
           작업 목록

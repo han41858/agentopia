@@ -248,9 +248,6 @@ svg {
   color: var(--accent);
   text-align: center;
 }
-.kingdom:hover .kingdom-crest {
-  color: color-mix(in srgb, var(--accent), white 35%);
-}
 .kingdom-label {
   min-width: 0;
   overflow-wrap: anywhere;
@@ -739,6 +736,21 @@ svg {
 }
 .dialog-heading .icon-button {
   flex: none;
+}
+.palace-dialog .dialog-heading {
+  gap: 4px;
+}
+.palace-dialog .dialog-heading h2 {
+  flex: 1;
+  margin-right: 4px;
+}
+.icon-button.remove-region {
+  background: #632f38;
+  border-color: #a65c65;
+  color: #ffe1dc;
+}
+.icon-button.remove-region:hover {
+  background: #803743;
 }
 .dialog-body {
   min-height: 0;
@@ -1343,6 +1355,16 @@ svg {
 .branch-road-node[data-active='true'] {
   border-color: #fae9a7;
   color: #fff2c2;
+}
+.kingdom,
+.branch-road-node[data-road-role='plaza'] {
+  background: color-mix(in srgb, var(--accent) 9%, transparent);
+  outline: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+}
+.kingdom:is(:hover, :focus-visible),
+.branch-road-node[data-road-role='plaza']:is(:hover, :focus-visible) {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  outline: 2px solid #fae9a7;
 }
 .branch-road-lines {
   position: absolute;
