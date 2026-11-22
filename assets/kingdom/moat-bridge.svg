@@ -1,14 +1,14 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 48" width="96" height="48">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 34" width="96" height="34">
   <title>왕궁 앞 해자와 다리</title>
-  <rect x="0" y="11" width="96" height="26" fill="#2a5aa8" />
-  <rect x="0" y="13" width="96" height="22" fill="#3f8fd8" />
+  <rect x="0" y="9" width="96" height="16" fill="#2a5aa8" />
+  <rect x="0" y="11" width="96" height="12" fill="#3f8fd8" />
   <g fill="none" stroke="#bfe9ff" stroke-width="1.500" stroke-linecap="round">
-    <path d="M6 20q3-2 6 0t6 0M70 19q3-2 6 0t6 0M14 29q3-2 6 0t6 0M76 30q3-2 6 0t6 0" />
+    <path d="M6 15q3-2 6 0t6 0M70 14.500q3-2 6 0t6 0M14 20q3-2 6 0t6 0M76 20.500q3-2 6 0t6 0" />
   </g>
   <g stroke="#231a3d" stroke-width="2" stroke-linejoin="round" stroke-linecap="round">
-    <rect x="39" y="5" width="18" height="38" fill="#d9d2c5" />
-    <path d="M39 14h18M39 24h18M39 34h18" fill="none" stroke="#b3aa9c" stroke-width="1.500" />
-    <rect x="35" y="5" width="5" height="38" rx="1.500" fill="#f1ece2" />
-    <rect x="56" y="5" width="5" height="38" rx="1.500" fill="#f1ece2" />
+    <rect x="39" y="5" width="18" height="24" fill="#d9d2c5" />
+    <path d="M39 13h18M39 21h18" fill="none" stroke="#b3aa9c" stroke-width="1.500" />
+    <rect x="35" y="5" width="5" height="24" rx="1.500" fill="#f1ece2" />
+    <rect x="56" y="5" width="5" height="24" rx="1.500" fill="#f1ece2" />
   </g>
 </svg>
