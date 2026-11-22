@@ -801,12 +801,19 @@ function IssueBadge({
   );
 }
 
-function OutLink({ item }: { item: Source }) {
+const releaseTime = new Intl.DateTimeFormat('ko-KR', {
+  dateStyle: 'medium',
+  timeStyle: 'short',
+  timeZone: 'Asia/Seoul',
+});
+
+function OutLink({ item, children }: { item: Source; children?: ReactNode }) {
   return (
     <a className="source" href={item.url} target="_blank" rel="noreferrer">
       <span>
         {item.title}
         {item.status && <small>{item.status}</small>}
+        {children}
       </span>
       <ExternalLink size={14} />
     </a>
@@ -1599,11 +1606,22 @@ function RegionDetail({
           <h4>왕국 배포 기록</h4>
           {snapshot.report.releases.map((release, index) => (
             <div className="release" key={index}>
-              <OutLink item={release} />
-              <Badge
-                stage={release.stage}
-                label={release.stage === 'complete' ? '배포 완료' : undefined}
-              />
+              <OutLink
+                item={{
+                  ...release,
+                  status: release.status?.replace(/^failure\b/, 'failed'),
+                }}
+              >
+                <small>
+                  {release.at && Number.isFinite(Date.parse(release.at)) ? (
+                    <time dateTime={release.at}>
+                      {releaseTime.format(new Date(release.at))} KST
+                    </time>
+                  ) : (
+                    '시각 미확인'
+                  )}
+                </small>
+              </OutLink>
             </div>
           ))}
         </>

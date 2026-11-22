@@ -121,19 +121,18 @@ test('quiet intervals back off independently and active or changed work restores
   assert.equal(refreshDue(1_000, base, true), 181_000);
 });
 
-test('skipped release runs do not displace actual releases from the history', async (context) => {
-  const workflow_runs = [
-    'success',
-    'failure',
-    ...Array<string>(5).fill('skipped'),
-  ].map((conclusion, id) => ({
-    id,
-    name: 'Production release',
-    path: '.github/workflows/production-release.yml',
-    html_url: `https://github.com/example/release-history/actions/runs/${id}`,
-    status: 'completed',
-    conclusion,
-  }));
+test('release history includes skipped, failed and successful runs with their GitHub timestamps', async (context) => {
+  const workflow_runs = ['success', 'failure', 'skipped'].map(
+    (conclusion, id) => ({
+      id,
+      updated_at: `2026-11-22T0${id}:00:00Z`,
+      name: 'Production release',
+      path: '.github/workflows/production-release.yml',
+      html_url: `https://github.com/example/release-history/actions/runs/${id}`,
+      status: 'completed',
+      conclusion,
+    }),
+  );
   context.mock.method(globalThis, 'fetch', async (input: string) =>
     Response.json(
       new URL(input).pathname.endsWith('/actions/runs')
@@ -148,8 +147,12 @@ test('skipped release runs do not displace actual releases from the history', as
   assert.equal(response.status, 200);
   assert.deepEqual(
     JSON.parse(response.body).releases.map(
-      (release: { status: string }) => release.status,
+      (release: { status: string; at: string }) => [release.status, release.at],
     ),
-    ['failure', 'success'],
+    [
+      ['skipped', '2026-11-22T02:00:00Z'],
+      ['failure', '2026-11-22T01:00:00Z'],
+      ['success', '2026-11-22T00:00:00Z'],
+    ],
   );
 });

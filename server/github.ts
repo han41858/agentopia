@@ -117,7 +117,11 @@ function client(
 }
 
 type Deployment = { id: number; environment: string; sha: string };
-type DeploymentStatus = { state: string; description?: string };
+type DeploymentStatus = {
+  created_at?: string;
+  state: string;
+  description?: string;
+};
 const releaseStages: Record<string, Stage> = {
   queued: 'queued',
   pending: 'queued',
@@ -684,6 +688,7 @@ async function getReport(
         status: status.description
           ? `${status.state} · ${status.description}`
           : status.state,
+        at: status.created_at,
         sha: deployment.sha,
         stage: releaseStages[status.state],
       };
@@ -697,9 +702,8 @@ async function getReport(
   ]);
   const releaseRuns = runs.filter(
     (run) =>
-      run.conclusion !== 'skipped' &&
-      (run.path.split('@')[0] === '.github/workflows/production-release.yml' ||
-        run.path.split('@')[0] === '.github/workflows/release.yml'),
+      run.path.split('@')[0] === '.github/workflows/production-release.yml' ||
+      run.path.split('@')[0] === '.github/workflows/release.yml',
   );
   const releases: Release[] = repoDeployments.filter(
     (entry) => entry !== undefined,
@@ -710,6 +714,7 @@ async function getReport(
     const stage = outcome === 'developing' ? 'deploying' : outcome;
     releases.push({
       title: run.name,
+      at: run.updated_at,
       url: run.html_url,
       status: run.conclusion ?? run.status,
       stage,
@@ -749,12 +754,15 @@ async function getReport(
           ]
         : [],
     ),
-    releases: releases.map(({ title, url, status, stage }) => ({
-      title,
-      url,
-      status,
-      stage,
-    })),
+    releases: releases
+      .toSorted((a, b) => (b.at ?? '').localeCompare(a.at ?? ''))
+      .map(({ title, url, status, stage, at }) => ({
+        at,
+        title,
+        url,
+        status,
+        stage,
+      })),
     updatedAt: new Date().toISOString(),
     warnings: [...warnings].sort(),
   };
