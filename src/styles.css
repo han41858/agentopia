@@ -1018,6 +1018,17 @@ svg {
   margin-top: 0;
   row-gap: 2px;
 }
+.facility-marker .activity-aura {
+  position: relative;
+  display: block;
+}
+.facility-marker .aura-runes {
+  position: absolute;
+  top: 50%;
+  right: 0;
+  transform: translateY(-50%);
+  pointer-events: none;
+}
 .facility-core {
   position: relative;
   display: grid;
@@ -1042,7 +1053,6 @@ svg {
   background: #242329;
 }
 .facility-tool,
-.facility-build,
 .facility-marker .adventurer-role {
   background: transparent;
   filter: drop-shadow(0 1px 1px #10171c);
@@ -1113,13 +1123,6 @@ svg {
   display: block;
   flex: none;
   filter: drop-shadow(0 1px #10171c);
-}
-.facility-build {
-  position: absolute;
-  right: -3px;
-  bottom: -3px;
-  border-radius: 2px;
-  color: #e0cf9d;
 }
 .facility-detail {
   display: flex;

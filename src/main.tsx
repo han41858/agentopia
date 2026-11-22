@@ -5,7 +5,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties, FormEvent, ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 import {
-  Construction,
   ClipboardCheck,
   GitCommitHorizontal,
   MessageCircle,
@@ -596,9 +595,7 @@ function FacilityMarker({
       {pulse !== undefined && (
         <span key={pulse} className="party-pulse" aria-hidden="true" />
       )}
-      <ActivityAura
-        activity={pull.activity && { ...pull.activity, opinion: undefined }}
-      >
+      <ActivityAura activity={pull.activity} facility>
         <span
           className="facility-core"
           data-draft={pull.draft}
@@ -606,9 +603,6 @@ function FacilityMarker({
         >
           <FacilityGlyph kind={kind} />
           <ReviewOpinionBadge opinion={pull.activity?.opinion?.state} />
-          {pull.stage === 'idle' && (
-            <Construction className="facility-build" size={13} />
-          )}
           {!activeMembers.length && working && (
             <Tool className="facility-tool" size={13} />
           )}
