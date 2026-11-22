@@ -29,3 +29,9 @@ GitHub 저장소를 Vercel에 연결하고 Node.js 24 기반 Vite 프로젝트�
 기본 브랜치 `dev`의 [릴리스 워크플로](../.github/workflows/production-release.yml)는 Vercel이 Agentopia의 `main` 프로덕션 배포 성공을 통지하면 실행됩니다. 배포한 커밋마다 `prod-<전체 커밋 SHA>` 태그가 남습니다. 같은 커밋을 다시 배포하면 기존 태그를 사용합니다.
 
 GitHub Releases에는 이 워크플로가 발행한 최신 성공 릴리스 하나를 유지합니다. 새 릴리스 발행에 성공한 뒤 이전 자동 릴리스 항목을 삭제하며, 이전 커밋은 Tags에서 확인할 수 있습니다. 프리뷰·실패 이벤트와 수동 릴리스는 정리 대상에서 제외됩니다.
+
+### 배포는 성공했는데 태그가 없을 때
+
+1. GitHub Actions의 **Production release** 실행 목록을 확인합니다. 실행이 없다면 Vercel 프로젝트의 **Settings → Git**에서 `repository_dispatch` 이벤트 전송을 확인합니다. 프로젝트 API에서 `gitProviderOptions.disableRepositoryDispatchEvents` 값이 `false`여야 합니다. GitHub 커밋에 표시되는 Vercel 성공 검사와 이 이벤트는 별도로 전달됩니다.
+2. 실행이 있으면 작업의 실행 여부와 로그를 확인합니다. 워크플로는 Vercel 봇이 보낸 이 프로젝트의 `production` 환경, `main` 브랜치 성공 이벤트만 처리합니다. 발행 단계에서 실패한 실행은 원인을 해결한 뒤 다시 실행할 수 있습니다.
+3. 이미 누락된 태그를 복구할 때는 Vercel에서 프로덕션 도메인이 연결된 성공 배포의 **전체 Git SHA**를 확인합니다. GitHub의 Tags에서 해당 태그가 없는지 확인한 뒤 그 SHA에 `prod-<전체 SHA>` 태그를 생성합니다. 이 복구는 Git 태그만 만들며, 자동 릴리스 발행 여부는 다음 프로덕션 성공 이벤트의 실행 기록에서 확인합니다.
