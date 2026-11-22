@@ -120,3 +120,36 @@ test('quiet intervals back off independently and active or changed work restores
   assert.equal(refreshDue(1_000, base, false), 21_000);
   assert.equal(refreshDue(1_000, base, true), 181_000);
 });
+
+test('skipped release runs do not displace actual releases from the history', async (context) => {
+  const workflow_runs = [
+    'success',
+    'failure',
+    ...Array<string>(5).fill('skipped'),
+  ].map((conclusion, id) => ({
+    id,
+    name: 'Production release',
+    path: '.github/workflows/production-release.yml',
+    html_url: `https://github.com/example/release-history/actions/runs/${id}`,
+    status: 'completed',
+    conclusion,
+  }));
+  context.mock.method(globalThis, 'fetch', async (input: string) =>
+    Response.json(
+      new URL(input).pathname.endsWith('/actions/runs')
+        ? { workflow_runs }
+        : [],
+    ),
+  );
+  const response = await githubResponse(
+    new URL('https://agentopia.test/api/github?repo=example/release-history'),
+    'GET',
+  );
+  assert.equal(response.status, 200);
+  assert.deepEqual(
+    JSON.parse(response.body).releases.map(
+      (release: { status: string }) => release.status,
+    ),
+    ['failure', 'success'],
+  );
+});

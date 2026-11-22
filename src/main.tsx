@@ -14,7 +14,6 @@ import {
   ExternalLink,
   Flag,
   GitPullRequest,
-  GitPullRequestDraft,
   Hourglass,
   KeyRound,
   Plus,
@@ -1368,9 +1367,7 @@ function PullDetail({
       close={close}
     >
       <h3>{pull.title}</h3>
-      {pull.stage !== 'idle' || pull.cancelled ? (
-        <PullStatus pull={pull} />
-      ) : null}
+      <PullStatus pull={pull} />
       {status && <small role="status">{status}</small>}
       {entries}
       <AdventurerParty
@@ -1424,14 +1421,7 @@ function PullStatus({ pull }: { pull: PullQuest }) {
         <X size={14} aria-hidden="true" /> 작업 취소
       </span>
     );
-  if (pull.stage === 'idle') {
-    const Icon = pull.draft ? GitPullRequestDraft : GitPullRequest;
-    return (
-      <span className="badge idle" role="img" aria-label={pullStatus(pull)}>
-        <Icon size={14} aria-hidden="true" />
-      </span>
-    );
-  }
+  if (pull.stage === 'idle') return null;
   return alerts.has(pull.stage) ||
     pull.stage === 'ci' ||
     pull.stage === 'complete' ? (
@@ -1441,29 +1431,98 @@ function PullStatus({ pull }: { pull: PullQuest }) {
   );
 }
 
+function FacilityRows({
+  entries,
+  openPull,
+}: {
+  entries: PullQuest[];
+  openPull: (pull: PullQuest) => void;
+}) {
+  return (
+    <ul className="quest-tree">
+      {entries.map((pull) => {
+        const kind = facilityKind(pull.title);
+        return (
+          <li key={pull.number}>
+            <button className="quest-row" onClick={() => openPull(pull)}>
+              <span
+                role="img"
+                aria-label={facilities[kind].name}
+                title={facilities[kind].name}
+              >
+                <FacilityGlyph kind={kind} />
+              </span>
+              <span className="quest-row-title">
+                <small>PR #{pull.number}</small>
+                <strong>{pull.title}</strong>
+              </span>
+              <PullStatus pull={pull} />
+              <ChevronRight size={16} aria-hidden="true" />
+            </button>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+function PlazaDetail({
+  region,
+  pulls,
+  openPull,
+  close,
+}: {
+  region: Region;
+  pulls: PullQuest[];
+  openPull: (pull: PullQuest) => void;
+  close: () => void;
+}) {
+  const current = pulls.filter(isCurrentFacility);
+  const facilityHistory = pulls
+    .filter((pull) => !isCurrentFacility(pull))
+    .sort((left, right) =>
+      (right.finishedAt ?? '').localeCompare(left.finishedAt ?? ''),
+    );
+  return (
+    <Dialog title="개발 광장" close={close}>
+      <h4>작업중</h4>
+      {current.length ? (
+        <FacilityRows entries={current} openPull={openPull} />
+      ) : (
+        <p>조회된 열린 PR이 없습니다.</p>
+      )}
+      {facilityHistory.length > 0 && (
+        <details className="facility-history">
+          <summary>시설 이력</summary>
+          <FacilityRows entries={facilityHistory} openPull={openPull} />
+          <OutLink
+            item={{
+              title: 'GitHub에서 종료된 PR 보기',
+              url: `https://github.com/${region.slug}/pulls?q=is%3Apr+is%3Aclosed`,
+            }}
+          />
+        </details>
+      )}
+    </Dialog>
+  );
+}
+
 function RegionDetail({
   region,
   snapshot,
   openQuest,
-  openPull,
+  openWork,
   remove,
   close,
 }: {
   region: Region;
   snapshot?: Snapshot;
   openQuest: (quest: Quest) => void;
-  openPull: (pull: PullQuest) => void;
+  openWork?: () => void;
   remove: () => void;
   close: () => void;
 }) {
   const quests = snapshot?.report?.quests ?? [];
-  const pulls = reportForges(snapshot?.report);
-  const currentFacilities = pulls.filter(isCurrentFacility);
-  const facilityHistory = pulls
-    .filter((pull) => !isCurrentFacility(pull))
-    .sort((left, right) =>
-      (right.finishedAt ?? '').localeCompare(left.finishedAt ?? ''),
-    );
   const known = new Set(quests.map((quest) => quest.number));
   const roots = quests.filter(
     (quest) => !quest.parent || !known.has(quest.parent),
@@ -1482,7 +1541,7 @@ function RegionDetail({
     return (
       <li key={quest.number}>
         <button className="quest-row" onClick={() => openQuest(quest)}>
-          <span>
+          <span className="quest-row-title">
             <small>이슈 #{quest.number}</small>
             <strong>{quest.title}</strong>
           </span>
@@ -1501,30 +1560,6 @@ function RegionDetail({
           </ul>
         )}
       </li>
-    );
-  }
-  function facilityRows(entries: PullQuest[]) {
-    return (
-      <ul className="quest-tree">
-        {entries.map((pull) => {
-          const kind = facilityKind(pull.title);
-          return (
-            <li key={pull.number}>
-              <button className="quest-row" onClick={() => openPull(pull)}>
-                <FacilityGlyph kind={kind} />
-                <span>
-                  <small>
-                    {facilities[kind].name} · PR #{pull.number}
-                  </small>
-                  <strong>{pull.title}</strong>
-                </span>
-                <PullStatus pull={pull} />
-                <ChevronRight size={16} aria-hidden="true" />
-              </button>
-            </li>
-          );
-        })}
-      </ul>
     );
   }
 
@@ -1554,23 +1589,10 @@ function RegionDetail({
         ) : (
           <p>조회 범위에 퀘스트가 없습니다.</p>
         ))}
-      {currentFacilities.length > 0 && (
-        <>
-          <h4>왕국 시설</h4>
-          {facilityRows(currentFacilities)}
-        </>
-      )}
-      {facilityHistory.length > 0 && (
-        <details className="facility-history">
-          <summary>시설 이력</summary>
-          {facilityRows(facilityHistory)}
-          <OutLink
-            item={{
-              title: 'GitHub에서 종료된 PR 보기',
-              url: `https://github.com/${region.slug}/pulls?q=is%3Apr+is%3Aclosed`,
-            }}
-          />
-        </details>
+      {openWork && (
+        <button className="text-button" onClick={openWork}>
+          작업 목록
+        </button>
       )}
       {!!snapshot?.report?.releases.length && (
         <>
@@ -1921,7 +1943,7 @@ function App() {
   }>();
   const [selectedRoad, setSelectedRoad] = useState<{
     region: Region;
-    selection: RoadSelection;
+    selection: RoadSelection | 'plaza';
   }>();
   const [selectedHeritage, setSelectedHeritage] = useState<HeritageSelection>();
   const [inspected, setInspected] = useState<MapEntry>();
@@ -2398,7 +2420,14 @@ function App() {
                             : undefined
                         }
                         open={(selection) =>
-                          setSelectedRoad({ region, selection })
+                          setSelectedRoad({
+                            region,
+                            selection:
+                              selection.roads.length === 1 &&
+                              selection.roads[0].role === 'plaza'
+                                ? 'plaza'
+                                : selection,
+                          })
                         }
                       />
                     )}
@@ -2488,7 +2517,11 @@ function App() {
           key={selected.slug}
           region={selected}
           snapshot={snapshots[selected.slug]}
-          openPull={(item) => openPull(selected, item)}
+          openWork={
+            roadPlacements.get(selected.slug)?.plazaRoad
+              ? undefined
+              : () => setSelectedRoad({ region: selected, selection: 'plaza' })
+          }
           openQuest={(item) =>
             setSelectedQuest({ region: selected, number: item.number })
           }
@@ -2525,7 +2558,15 @@ function App() {
           close={() => setSelectedHeritage(undefined)}
         />
       )}
-      {selectedRoad && (
+      {selectedRoad?.selection === 'plaza' && (
+        <PlazaDetail
+          region={selectedRoad.region}
+          pulls={reportForges(snapshots[selectedRoad.region.slug]?.report)}
+          openPull={(item) => openPull(selectedRoad.region, item)}
+          close={() => setSelectedRoad(undefined)}
+        />
+      )}
+      {selectedRoad && selectedRoad.selection !== 'plaza' && (
         <Dialog
           title={
             selectedRoad.selection.roads.length === 1

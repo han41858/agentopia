@@ -697,8 +697,9 @@ async function getReport(
   ]);
   const releaseRuns = runs.filter(
     (run) =>
-      run.path.split('@')[0] === '.github/workflows/production-release.yml' ||
-      run.path.split('@')[0] === '.github/workflows/release.yml',
+      run.conclusion !== 'skipped' &&
+      (run.path.split('@')[0] === '.github/workflows/production-release.yml' ||
+        run.path.split('@')[0] === '.github/workflows/release.yml'),
   );
   const releases: Release[] = repoDeployments.filter(
     (entry) => entry !== undefined,

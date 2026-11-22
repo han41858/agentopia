@@ -626,7 +626,7 @@ svg {
 .quest-row:hover {
   border-color: #977045;
 }
-.quest-row > span:first-child {
+.quest-row-title {
   display: grid;
   gap: 4px;
   flex: 1;
@@ -890,7 +890,7 @@ svg {
   .quest-row {
     flex-wrap: wrap;
   }
-  .quest-row > span:first-child {
+  .quest-row-title {
     flex-basis: 100%;
   }
 }
