@@ -1,6 +1,11 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48">
   <title>정원 — UI·UX 개선</title>
-  <g stroke="#231a3d" stroke-width="2" stroke-linejoin="round" stroke-linecap="round">
+  <style>
+    * {
+      vector-effect: non-scaling-stroke;
+    }
+  </style>
+  <g stroke="#231a3d" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round">
     <rect x="3" y="34" width="12" height="9" rx="4" fill="#4f9a41" />
     <rect x="33" y="34" width="12" height="9" rx="4" fill="#4f9a41" />
     <path d="M24 37V12" fill="none" />

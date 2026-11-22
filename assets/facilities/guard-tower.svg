@@ -1,6 +1,11 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48">
   <title>경비탑 — 보안·권한</title>
-  <g stroke="#231a3d" stroke-width="2" stroke-linejoin="round" stroke-linecap="round">
+  <style>
+    * {
+      vector-effect: non-scaling-stroke;
+    }
+  </style>
+  <g stroke="#231a3d" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round">
     <rect x="15" y="18" width="18" height="25" fill="#d9d2c5" />
     <path d="M11 18V8h6v4h4V8h6v4h4V8h6v10z" fill="#f1ece2" />
     <path d="M19 23h10v6q0 5-5 7q-5-2-5-7z" fill="#d6455d" />

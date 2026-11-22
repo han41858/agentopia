@@ -1,12 +1,17 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48">
   <title>보급소 — 설정·의존성</title>
-  <g stroke="#231a3d" stroke-width="2" stroke-linejoin="round" stroke-linecap="round">
+  <style>
+    * {
+      vector-effect: non-scaling-stroke;
+    }
+  </style>
+  <g stroke="#231a3d" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round">
     <polygon points="14,43 29,12 44,43" fill="#e6d9bd" />
     <polygon points="24,43 29,31 34,43" fill="#231a3d" />
     <path d="M29 12V5" fill="none" />
     <polygon points="29,5 36,7.500 29,10" fill="#2fb5a0" />
     <rect x="4" y="32" width="12" height="11" fill="#c98a4b" />
     <rect x="7" y="23" width="9" height="9" fill="#e2a05b" />
-    <path d="M4 37.500h12" fill="none" stroke-width="1.500" />
+    <path d="M4 37.500h12" fill="none" stroke-width="1.125" />
   </g>
 </svg>

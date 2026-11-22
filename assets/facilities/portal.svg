@@ -1,6 +1,11 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48">
   <title>포탈 — 배포·릴리즈</title>
-  <g stroke="#231a3d" stroke-width="2" stroke-linejoin="round" stroke-linecap="round">
+  <style>
+    * {
+      vector-effect: non-scaling-stroke;
+    }
+  </style>
+  <g stroke="#231a3d" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round">
     <path d="M15 43V23a9 9 0 0 1 18 0v20z" fill="#7b5cd6" />
     <ellipse cx="24" cy="31" rx="3.500" ry="8" fill="#cdbcff" stroke="none" />
     <path d="M8 43V23a16 16 0 0 1 32 0v20h-7V23a9 9 0 0 0-18 0v20z" fill="#d9d2c5" />
