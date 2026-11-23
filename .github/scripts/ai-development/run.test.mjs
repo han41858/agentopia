@@ -67,6 +67,7 @@ test('creates and reuses an issue draft, then stops publication on ai:stop', asy
   const states = [];
   let head,
     pr,
+    developmentCalls = 0,
     commits = 0,
     reviews = 0,
     blocked = false;
@@ -74,6 +75,7 @@ test('creates and reuses an issue draft, then stops publication on ai:stop', asy
     const { hostname, pathname, searchParams } = new URL(url);
     const body = options.body && JSON.parse(options.body);
     if (hostname === 'api.openai.com') {
+      developmentCalls++;
       const edits = commits
         ? []
         : [{ path: 'README.md', before: 'Test', after: 'Updated' }];
@@ -207,13 +209,13 @@ test('creates and reuses an issue draft, then stops publication on ai:stop', asy
   await import(runner + '?resume');
   blocked = true;
   await import(runner + '?stop');
+  assert.equal(developmentCalls, 1);
   assert.equal(commits, 1);
   assert.equal(reviews, 2);
   assert.deepEqual(states, [
     'developing',
     'reviewing',
     'ready',
-    'revising',
     'reviewing',
     'ready',
     'needs_human',
