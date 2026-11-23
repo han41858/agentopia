@@ -190,25 +190,34 @@ function isCheckpoint(summary) {
 
 export function validateReview(value) {
   validate(value, reviewSchema, 'review');
-  if (
-    !value.summary.trim() ||
-    value.summary.length > 900 ||
-    value.findings.length > 6 ||
-    (value.status === 'pass' && value.findings.length) ||
-    (value.status === 'changes_requested' && !value.findings.length)
-  ) {
+  if (!value.summary.trim()) throw new ModelError('리뷰 요약이 비어 있습니다.');
+  if (value.summary.length > 900)
+    throw new ModelError(`리뷰 요약 길이 초과 (${value.summary.length}/900).`);
+  if (value.findings.length > 6)
+    throw new ModelError(`리뷰 지적 개수 초과 (${value.findings.length}/6).`);
+  if (value.status === 'pass' && value.findings.length)
     throw new ModelError(
-      '리뷰 상태와 지적 사항이 일치하지 않거나 결과가 너무 깁니다.',
+      'pass에 지적 사항이 있습니다. 지적을 보존하고 판정을 확인하세요.',
     );
-  }
-  for (const { line, ...fields } of value.findings) {
-    if (
-      line < 1 ||
-      Object.values(fields).some((field) => !field.trim() || field.length > 350)
-    )
+  if (value.status === 'changes_requested' && !value.findings.length)
+    throw new ModelError(
+      'changes_requested에는 근거가 있는 지적 사항이 필요합니다.',
+    );
+  for (const [index, { line, ...fields }] of value.findings.entries()) {
+    if (line < 1)
       throw new ModelError(
-        '리뷰 지적에 유효한 파일·줄·결함·영향·근거·수정 방향이 필요합니다.',
+        `리뷰 지적 ${index + 1}의 line은 1 이상이어야 합니다.`,
       );
+    for (const [name, field] of Object.entries(fields)) {
+      if (!field.trim())
+        throw new ModelError(
+          `리뷰 지적 ${index + 1}의 ${name}이 비어 있습니다.`,
+        );
+      if (field.length > 350)
+        throw new ModelError(
+          `리뷰 지적 ${index + 1}의 ${name} 길이 초과 (${field.length}/350).`,
+        );
+    }
   }
   return value;
 }
@@ -474,6 +483,7 @@ export function createModels({
         (mode === 'review' ? reviewFormat : developmentFormat);
       let correction;
       let resumedCheckpoint = false;
+      let reviewCanPass = true;
       const missingBlocker =
         '자동화가 사람 확인을 요청했지만 구체적인 중단 사유를 제공하지 않았습니다.';
       const unexplainedStop = {
@@ -497,7 +507,10 @@ export function createModels({
         const started = performance.now();
         const finalTurn =
           turn === turnLimit || (Boolean(correction) && correction !== 'edits');
-        const turnInstructions = finalTurn
+        // Reserve the last review request for repairing an invalid verdict.
+        const requireResult =
+          finalTurn || (mode === 'review' && turn === turnLimit - 1);
+        const turnInstructions = requireResult
           ? `${taskInstructions}
 Return the final structured result now. If evidence is insufficient, return needs_human with the specific blocker.`
           : `${taskInstructions}
@@ -521,7 +534,7 @@ API requests remaining, including this one: ${turnLimit - turn + 1}. Read tools 
                     strict: true,
                   },
                 },
-                ...(finalTurn ? { tool_choice: 'none' } : {}),
+                ...(requireResult ? { tool_choice: 'none' } : {}),
                 tools: Object.entries(tools).map(
                   ([name, { description, input }]) => ({
                     type: 'function',
@@ -538,7 +551,7 @@ API requests remaining, including this one: ${turnLimit - turn + 1}. Read tools 
                 messages: input,
                 max_tokens: limits.outputTokens,
                 output_config: { format: { type: 'json_schema', schema } },
-                ...(finalTurn ? { tool_choice: { type: 'none' } } : {}),
+                ...(requireResult ? { tool_choice: { type: 'none' } } : {}),
                 tools: Object.entries(tools).map(
                   ([name, { description, input }]) => ({
                     name,
@@ -690,6 +703,10 @@ API requests remaining, including this one: ${turnLimit - turn + 1}. Read tools 
             correction = 'blocker';
             throw new ModelError(missingBlocker);
           }
+          if (mode === 'review' && result?.status === 'pass' && !reviewCanPass)
+            throw new ModelError(
+              '교정 과정에서 기존 수정 요청이나 지적을 승인으로 변경할 수 없습니다.',
+            );
           const verified = verifyResult(result);
           if (
             mode === 'development' &&
@@ -714,6 +731,13 @@ API requests remaining, including this one: ${turnLimit - turn + 1}. Read tools 
             !(error instanceof ModelError || error instanceof EditConflict)
           )
             throw error;
+          if (
+            mode === 'review' &&
+            (result?.status === 'changes_requested' ||
+              result?.status === 'needs_human' ||
+              (Array.isArray(result?.findings) && result.findings.length))
+          )
+            reviewCanPass = false;
           correction ??= error instanceof EditConflict ? 'edits' : mode;
           const responseItems = isCodex
             ? output
@@ -727,7 +751,7 @@ API requests remaining, including this one: ${turnLimit - turn + 1}. Read tools 
                   ? `The proposed edits could not be applied: ${error.message}. Read the affected source if necessary and return the complete corrected plan against the same HEAD. Earlier edits in the plan apply in order. Preserve all requested changes; if blocked, explain why. ${developmentFormat}`
                   : correction === 'development'
                     ? `Correct the development JSON using the same evidence and preserve the full requested behavior. Do not discard necessary edits to fit. Validation: ${error.message}. ${developmentFormat}`
-                    : `Return the corrected review JSON using the same evidence and verdict. Validation: ${error.message}. ${reviewFormat}`,
+                    : `Return the corrected review JSON using the same evidence and verdict. Preserve substantive findings. If pass conflicts with findings, report changes_requested with evidence or needs_human if unresolved. Never invent findings. Validation: ${error.message}. ${reviewFormat}`,
           });
         }
       }
