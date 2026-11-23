@@ -365,16 +365,10 @@ export function Badge({ stage, label }: { stage: Stage; label?: string }) {
   );
 }
 
-export function IssueBadge({
-  quest,
-  showOutcome = true,
-}: {
-  quest: Quest;
-  showOutcome?: boolean;
-}) {
+export function IssueBadge({ quest }: { quest: Quest }) {
   return (
     <span className="monster-statuses">
-      {showOutcome && quest.state === 'closed' && (
+      {quest.state === 'closed' && (
         <span
           className="badge complete"
           role="img"
@@ -383,9 +377,7 @@ export function IssueBadge({
           <Check size={14} aria-hidden="true" />
         </span>
       )}
-      {showOutcome && quest.victory && (
-        <Badge stage="complete" label="제작 결과 반영" />
-      )}
+      {quest.victory && <Badge stage="complete" label="제작 결과 반영" />}
       {quest.stage !== 'idle' && quest.stage !== 'complete' ? (
         <Badge stage={quest.stage} />
       ) : quest.state === 'open' && !quest.victory ? (

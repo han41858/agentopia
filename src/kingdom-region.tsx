@@ -125,6 +125,14 @@ export const KingdomRegion = memo(function KingdomRegion({
             }
           />
         )}
+        {!placement?.plazaRoad && forges.length > 0 && (
+          <button
+            className="text-button work-list-button"
+            onClick={() => openRoad({ region, selection: 'plaza' })}
+          >
+            작업 목록
+          </button>
+        )}
         {visibleFacilities.length > 0 && (
           <ul
             className="expeditions kingdom-workshops"

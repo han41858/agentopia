@@ -23,7 +23,7 @@ import { facilityKind, isCurrentFacility } from './facility-kind.ts';
 import { heritageBuildings } from './heritage-arc.tsx';
 import type { HeritageMetric, HeritageRecord } from '../server/heritage.ts';
 import type { Snapshot } from './snapshot.ts';
-import { activeStages, alerts } from './snapshot.ts';
+import { alerts } from './snapshot.ts';
 import {
   monsterRest,
   MonsterStatusIcons,
@@ -337,11 +337,13 @@ export function FacilityRows({
 export function PlazaDetail({
   region,
   pulls,
+  title = '개발 광장',
   openPull,
   close,
 }: {
   region: Region;
   pulls: PullQuest[];
+  title?: string;
   openPull: (pull: PullQuest) => void;
   close: () => void;
 }) {
@@ -352,7 +354,7 @@ export function PlazaDetail({
       (right.finishedAt ?? '').localeCompare(left.finishedAt ?? ''),
     );
   return (
-    <Dialog title="개발 광장" close={close}>
+    <Dialog title={title} close={close}>
       <h4>작업중</h4>
       {current.length ? (
         <FacilityRows entries={current} openPull={openPull} />
@@ -378,60 +380,15 @@ export function PlazaDetail({
 export function RegionDetail({
   region,
   snapshot,
-  openQuest,
-  openWork,
   remove,
   close,
 }: {
   region: Region;
   snapshot?: Snapshot;
-  openQuest: (quest: Quest) => void;
-  openWork?: () => void;
   remove: () => void;
   close: () => void;
 }) {
   const [confirmRemoval, setConfirmRemoval] = useState(false);
-  const quests = snapshot?.report?.quests ?? [];
-  const known = new Set(quests.map((quest) => quest.number));
-  const roots = quests.filter(
-    (quest) => !quest.parent || !known.has(quest.parent),
-  );
-  const ordered = [...roots].sort(
-    (a, b) =>
-      Number(alerts.has(b.stage)) - Number(alerts.has(a.stage)) ||
-      Number(activeStages.has(b.stage)) - Number(activeStages.has(a.stage)) ||
-      b.number - a.number,
-  );
-  function render(quest: Quest, ancestry: number[] = []) {
-    const children = quests.filter(
-      (child) =>
-        child.parent === quest.number && !ancestry.includes(child.number),
-    );
-    return (
-      <li key={quest.number}>
-        <button className="quest-row" onClick={() => openQuest(quest)}>
-          <span className="quest-row-title">
-            <small>이슈 #{quest.number}</small>
-            <strong>{quest.title}</strong>
-          </span>
-          <AdventurerParty
-            members={quest.adventurers ?? []}
-            resting={monsterRest(quest)}
-          />
-          <IssueBadge quest={quest} showOutcome={false} />
-          <ChevronRight size={16} />
-        </button>
-        {children.length > 0 && (
-          <ul>
-            {children.map((child) =>
-              render(child, [...ancestry, quest.number]),
-            )}
-          </ul>
-        )}
-      </li>
-    );
-  }
-
   if (confirmRemoval) {
     return (
       <Dialog
@@ -490,14 +447,6 @@ export function RegionDetail({
           {snapshot.report.warnings.join(', ')}
         </p>
       ) : null}
-      {ordered.length > 0 && (
-        <ul className="quest-tree">{ordered.map((quest) => render(quest))}</ul>
-      )}
-      {openWork && (
-        <button className="text-button" onClick={openWork}>
-          작업 목록
-        </button>
-      )}
       {!!snapshot?.report?.releases.length && (
         <>
           <h4>

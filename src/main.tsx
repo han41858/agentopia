@@ -350,14 +350,6 @@ function App() {
           key={selected.slug}
           region={selected}
           snapshot={snapshots[selected.slug]}
-          openWork={
-            roadPlacements.get(selected.slug)?.plazaRoad
-              ? undefined
-              : () => setSelectedRoad({ region: selected, selection: 'plaza' })
-          }
-          openQuest={(item) =>
-            setSelectedQuest({ region: selected, number: item.number })
-          }
           remove={() => removeRegion(selected)}
           close={() => setSelected(undefined)}
         />
@@ -395,6 +387,11 @@ function App() {
         <PlazaDetail
           region={selectedRoad.region}
           pulls={reportForges(snapshots[selectedRoad.region.slug]?.report)}
+          title={
+            roadPlacements.get(selectedRoad.region.slug)?.plazaRoad
+              ? undefined
+              : '작업 목록'
+          }
           openPull={(item) => openPull(selectedRoad.region, item)}
           close={() => setSelectedRoad(undefined)}
         />
