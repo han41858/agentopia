@@ -180,3 +180,52 @@ test('only probes missing higher-priority candidates in a partial list', async (
     );
   }
 });
+
+for (const renamed of ['main', 'master']) {
+  test(`a renamed ${renamed} does not discard a partial branch inventory`, async (context) => {
+    context.mock.method(console, 'debug', () => {});
+    const slug = `example/renamed-${renamed}`;
+    const root = `/repos/${slug}`;
+    const probes: string[] = [];
+    const fetch = context.mock.method(
+      globalThis,
+      'fetch',
+      async (input: string, options: RequestInit) => {
+        const { pathname } = new URL(input);
+        if (pathname === root) return Response.json({ default_branch: 'trunk' });
+        if (pathname === `${root}/branches`)
+          return Response.json([{ name: 'feature' }], {
+            headers: { link: '<https://api.github.com/next>; rel="next"' },
+          });
+        const name = pathname.slice(`${root}/branches/`.length);
+        assert.ok(name === 'main' || name === 'master');
+        assert.equal(options.redirect, 'manual');
+        probes.push(name);
+        if (name === renamed)
+          return new Response(null, {
+            status: 301,
+            headers: { location: `https://api.github.com${root}/branches/trunk` },
+          });
+        if (name === 'main') return new Response(null, { status: 404 });
+        return Response.json({ name: 'master' });
+      },
+    );
+
+    const region = repositoryRegion(slug);
+    const result = await readBranches(region);
+    const hasMaster = renamed === 'main';
+    assert.deepEqual(result, {
+      defaultBranch: 'trunk',
+      names: hasMaster ? ['feature', 'master'] : ['feature'],
+      partial: true,
+    });
+    assert.deepEqual(branchCenters(result), {
+      palace: hasMaster ? 'master' : 'trunk',
+      plaza: hasMaster ? 'trunk' : undefined,
+      bridge: hasMaster,
+    });
+    assert.deepEqual(probes, ['main', 'master']);
+    assert.deepEqual(await readBranches(region), result);
+    assert.equal(fetch.mock.callCount(), 4);
+  });
+}

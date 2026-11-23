@@ -79,7 +79,7 @@ export async function githubGet(
   headers: Record<string, string>,
   ttl: number,
   check: (response: Response) => Promise<void>,
-  allowNotFound = false,
+  branchProbe = false,
 ) {
   const requestUrl = new URL(url);
   const endpoint =
@@ -87,7 +87,7 @@ export async function githubGet(
       .replace(/^\/repos\/[^/]+\/[^/]+/, '')
       .replace(/\/\d+(?=\/|$)/g, '/:id') || '/';
   const scope = credentialScope(token);
-  const key = `${allowNotFound ? 'allow-404:' : ''}${scope}:${url}`;
+  const key = `${branchProbe ? 'branch-probe:' : ''}${scope}:${url}`;
   const now = Date.now();
   const entry = token ? undefined : cached.get(key);
   const previous =
@@ -114,7 +114,7 @@ export async function githubGet(
     );
     const response = await fetch(url, {
       headers,
-      redirect: 'error',
+      redirect: branchProbe ? 'manual' : 'error',
       signal: AbortSignal.timeout(9000),
     }).catch((error) => {
       recordRefreshResponse(undefined, Boolean(token));
@@ -127,7 +127,9 @@ export async function githubGet(
     if (response.status === 304 && previous) {
       result = { ...previous, checkedAt: Date.now() };
     } else {
-      const missing = allowNotFound && response.status === 404;
+      // GitHub returns 301 for the old name of a renamed branch.
+      const missing =
+        branchProbe && (response.status === 301 || response.status === 404);
       if (!missing) await check(response);
       result = {
         body: missing ? null : await response.json(),

@@ -33,7 +33,7 @@ export function client(
     path: string,
     pagination?: (hasNext: boolean, link: string | null) => void,
     ttl = 0,
-    notFound?: 'null',
+    mode?: 'branch-probe',
   ): Promise<T> {
     const headers: Record<string, string> = {
       Accept: 'application/vnd.github+json',
@@ -80,7 +80,7 @@ export function client(
         }
         throw error;
       },
-      notFound === 'null',
+      mode === 'branch-probe',
     );
     pagination?.(result.next, result.link);
     return result.body as T;

@@ -420,7 +420,7 @@ export async function readBranches(
         `/branches/${name}`,
         undefined,
         branchTtl,
-        'null',
+        'branch-probe',
       );
       if (branch) {
         names.push(branch.name);
