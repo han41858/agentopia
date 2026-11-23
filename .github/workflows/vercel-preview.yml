@@ -10,6 +10,7 @@ permissions:
   contents: read
   issues: read
   pull-requests: read
+  statuses: write
 
 jobs:
   preview:
@@ -19,6 +20,7 @@ jobs:
         (github.event.pull_request.head.repo.full_name == github.repository &&
          github.event.pull_request.head.ref != 'main' &&
          github.event.pull_request.head.ref != 'dev'))
+    environment: vercel-preview
     runs-on: ubuntu-latest
     concurrency:
       group: agentopia-labeled-vercel-previews

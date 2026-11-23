@@ -41,7 +41,7 @@ GitHub 저장소를 Vercel에 연결하고 Node.js 24 기반 Vite 프로젝트�
 
 Git 연동은 `main`을 프로덕션으로, `dev`를 프리뷰로 자동 배포합니다. 같은 저장소의 다른 브랜치는 열린 PR에 `preview` 라벨이 있거나, GitHub가 그 PR로 종료될 것으로 연결한 같은 저장소 이슈에 `preview` 라벨이 있을 때 [프리뷰 워크플로](../.github/workflows/vercel-preview.yml)가 배포합니다. PR 생성 후 라벨을 추가하거나 새 커밋을 푸시해도 적용됩니다. 라벨을 제거하면 이후 커밋은 다시 현재 라벨을 기준으로 판정합니다. 기존 배포는 유지됩니다.
 
-작업 브랜치의 프리뷰를 사용하려면 저장소 **Settings → Secrets and variables → Actions**에 Agentopia 프로젝트에 배포할 수 있는 팀 토큰을 `VERCEL_TOKEN` 시크릿으로 등록합니다. 워크플로는 기본 브랜치의 스크립트로 GitHub에서 현재 PR HEAD를 확인하고 Vercel에 해당 커밋의 빌드를 요청합니다. 프리뷰 주소는 워크플로 로그에서 확인할 수 있습니다.
+**Settings → Environments → vercel-preview**에서 배포를 허용할 브랜치로 `dev`와 `main`을 지정하고 Agentopia에 배포할 수 있는 팀 토큰을 환경 시크릿 `VERCEL_TOKEN`으로 등록합니다. 같은 토큰을 저장소 시크릿에도 등록했다면 환경으로 이전한 뒤 저장소에서 제거합니다. PR 대상 이벤트에는 기준 브랜치가 적용됩니다. 러너는 기본 브랜치의 스크립트로 PR의 최신 커밋을 확인하고 Vercel에 빌드를 요청합니다. PR 검사 목록의 **Vercel Preview URL → Details**에서 해당 커밋의 프리뷰를 열 수 있습니다. 이 검사의 성공은 URL 발급을 의미합니다. 빌드 완료 여부는 Vercel에서 확인합니다.
 
 저장소의 [main 룰셋](../.github/rulesets/main.json)을 적용하면 `main` 대상 PR은 Vercel 프리뷰 검사를 통과해야 머지할 수 있습니다. 작업 및 PR 작성 규칙은 [개발 지침](../AGENTS.md)을 따릅니다.
 

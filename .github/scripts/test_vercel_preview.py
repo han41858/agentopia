@@ -36,11 +36,25 @@ class PreviewTest(unittest.TestCase):
         with patch.object(preview, "vercel", side_effect=[
             {"deployments": []}, deployment, {"deployments": [deployment]}
         ]) as api:
-            preview.preview(self.pull)
-            preview.preview(self.pull)
+            self.assertEqual(preview.preview(self.pull), "https://example.vercel.app")
+            self.assertEqual(preview.preview(self.pull), "https://example.vercel.app")
         self.assertEqual(api.call_count, 3)
         body = api.call_args_list[1].args[2]
         self.assertEqual(body["gitSource"]["sha"], self.pull["head"]["sha"])
         self.assertNotIn("target", body)  # Vercel defaults to preview.
         self.assertEqual(api.call_args_list[2].args[1]["meta-agentopiaPreview"],
                          body["meta"]["agentopiaPreview"])
+
+    def test_preview_url_status_targets_deployed_head(self):
+        event = {"repository": {"full_name": REPO}, "pull_request": {"number": 10}}
+        self.pull["labels"] = [{"name": "preview"}]
+        with patch.dict(preview.os.environ, {"GITHUB_EVENT_PATH": "event.json"}), patch.object(
+            Path, "read_text", return_value=preview.json.dumps(event)
+        ), patch.object(preview, "github", side_effect=[preview.json.dumps(self.pull), ""]) as gh, patch.object(
+            preview, "preview", return_value="https://example.vercel.app"
+        ):
+            self.assertEqual(preview.main(), 0)
+        args = gh.call_args.args
+        self.assertIn("repos/" + REPO + "/statuses/" + self.pull["head"]["sha"], args)
+        self.assertIn("context=Vercel Preview URL", args)
+        self.assertIn("target_url=https://example.vercel.app", args)

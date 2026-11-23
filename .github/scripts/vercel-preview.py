@@ -77,7 +77,7 @@ def preview(pull):
                           "ref": head["ref"], "sha": head["sha"]},
             "meta": {"agentopiaPreview": key},
         })
-    print(f"PR #{pull['number']} · https://{deployment['url']}")
+    return "https://" + deployment["url"]
 
 
 def main():
@@ -90,7 +90,12 @@ def main():
         try:
             pull = json.loads(github(f"repos/{repo}/pulls/{number}"))
             if eligible(repo, pull):
-                preview(pull)
+                url = preview(pull)
+                print(f"PR #{number} · {url}", flush=True)
+                github("--method", "POST", f"repos/{repo}/statuses/{pull['head']['sha']}",
+                       "-f", "context=Vercel Preview URL", "-f", "state=success",
+                       "-f", "description=Preview URL assigned", "-f", f"target_url={url}",
+                       "--silent")
         except Exception as error:
             print(f"PR #{number}: {error}", file=sys.stderr)
             failed = True
