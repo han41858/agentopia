@@ -435,11 +435,10 @@ export function createModels({
         mode === 'review' ? instructions + '\n' + reviewFormat : instructions;
       let correction;
       const missingBlocker =
-        '개발 자동화가 사람 확인을 요청했지만 구체적인 중단 사유를 제공하지 않았습니다.';
+        '자동화가 사람 확인을 요청했지만 구체적인 중단 사유를 제공하지 않았습니다.';
       const unexplainedStop = {
         status: 'needs_human',
-        title: '',
-        edits: [],
+        ...(mode === 'review' ? { findings: [] } : { title: '', edits: [] }),
         summary: missingBlocker,
       };
       let toolCalls = 0;
@@ -522,8 +521,19 @@ API requests remaining, including this one: ${turnLimit - turn + 1}. Read tools 
               elapsedMs: Math.round(performance.now() - started),
             }),
           );
+          if (correction === 'blocker') return null;
           throw error;
         });
+        if (
+          correction === 'blocker' &&
+          (!data ||
+            (isCodex
+              ? data.status !== 'completed' ||
+                data.output?.some(({ type }) => type === 'function_call')
+              : data.stop_reason !== 'end_turn') ||
+            data.incomplete_details?.reason === 'max_output_tokens')
+        )
+          return unexplainedStop;
         const usage = Object.fromEntries(
           Object.entries(data.usage ?? {}).filter(
             ([, count]) => typeof count === 'number',
@@ -603,7 +613,6 @@ API requests remaining, including this one: ${turnLimit - turn + 1}. Read tools 
           if (correction === 'blocker' && result?.status !== 'needs_human')
             return unexplainedStop;
           if (
-            mode === 'development' &&
             result?.status === 'needs_human' &&
             (typeof result.summary !== 'string' ||
               !/[\p{L}\p{N}]/u.test(result.summary))
@@ -634,7 +643,7 @@ API requests remaining, including this one: ${turnLimit - turn + 1}. Read tools 
             role: 'user',
             content:
               correction === 'blocker'
-                ? 'Keep needs_human and return no edits. Explain in Korean the specific blocker and what information the user must provide. Use the evidence already collected.'
+                ? 'Keep the needs_human decision. Explain in Korean the specific blocker and what information the user must provide. Use the evidence already collected.'
                 : `Return the corrected review JSON using the same evidence and verdict. Validation: ${error.message}. ${reviewFormat}`,
           });
         }
