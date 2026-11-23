@@ -20,12 +20,16 @@ jobs:
       github.repository == 'han41858/agentopia' &&
       github.ref == 'refs/heads/dev' &&
       (github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success')
+    concurrency:
+      group: >-
+        ai-completion-${{ github.event.workflow_run.display_title || format('AI development for Issue #{0}', inputs.issue) }}
+      cancel-in-progress: false
     runs-on: ubuntu-latest
     timeout-minutes: 20
     environment: ai-development
     permissions:
       contents: read
-      actions: read
+      actions: write # Dispatch development when the reviewed base advances.
       issues: write
       pull-requests: read
     steps:

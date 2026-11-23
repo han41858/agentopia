@@ -1,6 +1,7 @@
 """Finalize a trusted AI development result without executing PR code."""
 
 import base64
+import hashlib
 import json
 import os
 import re
@@ -57,6 +58,61 @@ def eligible(issue):
     return data["state"] == "open" and "ai:develop" in labels and "ai:stop" not in labels
 
 
+def fingerprint(*parts):
+    return hashlib.sha256("\0".join(str(part or "") for part in parts).encode()).hexdigest()
+
+
+def request_recovery(issue, state):
+    if not state.get("recovery"):
+        raise RuntimeError("Legacy review has no publication checkpoint. Human confirmation required.")
+    # Development serializes per issue and accepts only the latest trusted ready run.
+    subprocess.run(["gh", "workflow", "run", "ai-development.yml", "--repo", REPO,
+                    "--ref", "dev", "-f", f"issue={issue}", "-f", f"recovery_run={state['runId']}"],
+                   check=True)
+    print(f"Issue #{issue}: dev advanced; requested a fresh review and CI on the updated branch.")
+
+
+def dev_head():
+    return repo("git/ref/heads/dev")["object"]["sha"]
+
+
+def restore_draft(current):
+    api("graphql", publisher=True, method="POST",
+        query="mutation($id:ID!){convertPullRequestToDraft(input:{pullRequestId:$id}){pullRequest{id}}}",
+        id=current["node_id"])
+
+
+def restore_if_unchanged(current, previous):
+    if (current["state"] == "open" and not current["draft"]
+            and current["head"]["sha"] == previous["head"]["sha"] and current["base"]["ref"] == "dev"
+            and current["body"] == previous["body"] and current["title"] == previous["title"]):
+        restore_draft(current)
+
+
+def current_target(issue, number, state, *, undrafted_pr=None):
+    if not eligible(issue) or ready_state(issue) != state:
+        if undrafted_pr:
+            restore_if_unchanged(repo(f"pulls/{number}"), undrafted_pr)
+        return None
+    current = repo(f"pulls/{number}")
+    if current["head"]["sha"] != state["head"] or current["base"]["ref"] != "dev" or current["state"] != "open":
+        raise RuntimeError("PR changed since review. Human confirmation required.")
+    recovery = state.get("recovery")
+    if recovery:
+        if not current["draft"] and not undrafted_pr:
+            raise RuntimeError("PR draft status changed since review. Human confirmation required.")
+        data = repo(f"issues/{issue}")
+        if (fingerprint(data["title"], data.get("body")) != recovery["issue"]
+                or fingerprint(number, current["title"], current["body"]) != recovery["pull"]):
+            raise RuntimeError("Issue or PR was edited since review. Human confirmation required.")
+    if dev_head() != state["base"]:
+        if undrafted_pr:
+            restore_if_unchanged(current, undrafted_pr)
+        request_recovery(issue, state)
+        return None
+    return current
+
+
 def complete(issue, run_id):
     if not eligible(issue):
         return
@@ -79,25 +135,30 @@ def complete(issue, run_id):
             return
         for _ in range(90):
             runs = repo(f"actions/workflows/ci.yml/runs?event=pull_request&head_sha={head}&branch={branch}")["workflow_runs"]
-            ci = next((r for r in runs if any(p["number"] == number for p in r["pull_requests"])), None)
+            ci = next((r for r in runs if r["head_sha"] == head and any(p["number"] == number for p in r["pull_requests"])), None)
             if ci and ci["status"] == "completed":
+                if not current_target(issue, number, state):
+                    return
                 if ci["conclusion"] != "success":
                     raise RuntimeError(f"CI did not pass: {ci['html_url']}")
                 break
+            if dev_head() != state["base"]:
+                if not current_target(issue, number, state):
+                    return
             time.sleep(10)
         else:
             raise RuntimeError("CI timed out. Retry AI completion after CI passes.")
-        if not eligible(issue) or ready_state(issue) != state:
+        current = current_target(issue, number, state)
+        if not current:
             return
-        current = repo(f"pulls/{number}")
-        if (current["head"]["sha"] != head or current["base"]["ref"] != "dev"
-                or current["base"]["sha"] != state["base"] or current["state"] != "open"):
-            raise RuntimeError("PR or dev changed since review.")
-        if current["draft"]:
+        undrafted = current["draft"]
+        if undrafted:
             api("graphql", publisher=True, method="POST",
                 query="mutation($id:ID!){markPullRequestReadyForReview(input:{pullRequestId:$id}){pullRequest{id}}}",
                 id=current["node_id"])
         try:
+            if not current_target(issue, number, state, undrafted_pr=current if undrafted else None):
+                return
             result = repo(f"pulls/{number}/merge", publisher=True, method="PUT",
                           sha=head, merge_method="squash", commit_title=f"{current['title']} (#{number})")
             if not result.get("merged"):
@@ -105,6 +166,8 @@ def complete(issue, run_id):
         except (ValueError, RuntimeError):
             confirmed = repo(f"pulls/{number}")
             if not confirmed["merged_at"] or confirmed["head"]["sha"] != head or confirmed["base"]["ref"] != "dev":
+                if undrafted:
+                    restore_if_unchanged(confirmed, current)
                 raise
     if eligible(issue):
         try:

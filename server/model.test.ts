@@ -997,3 +997,35 @@ test('Agentopia shows a reviewed draft in CI until the reviewed PR is merged', (
     'complete',
   );
 });
+
+test('an old failed CI does not replace a current recovery checkpoint', () => {
+  const [quest] = makeQuests(
+    commitTrail,
+    [issue(2)],
+    [pull],
+    [
+      run(2),
+      run(2, {
+        path: '.github/workflows/ci.yml',
+        id: 500,
+        head_sha: mergeSha,
+        pull_requests: [{ number: pull.number }],
+        html_url: 'https://github.com/example/actions/runs/500',
+        head_branch: pull.head.ref,
+        status: 'completed',
+        conclusion: 'failure',
+      }),
+    ],
+    [comment(2, 'recovering', { reason: '최신 기준 반영 중' })],
+    new Map(),
+    [],
+  );
+  assert.equal(quest.stage, 'revising');
+  assert.equal(quest.reason, '최신 기준 반영 중');
+  assert.ok(quest.adventurers?.every((member) => !member.active));
+  assert.ok(
+    quest.runs.some(
+      (item) => item.url.endsWith('/500') && item.status === 'failure',
+    ),
+  );
+});
