@@ -5,7 +5,6 @@ import adventurerCodex from '../assets/characters/adventurer-codex.svg';
 import monsterBoss from '../assets/characters/monster-boss.svg';
 import monster from '../assets/characters/monster.svg';
 import partyLeader from '../assets/characters/party-leader.svg';
-import portalKeeper from '../assets/characters/portal-keeper.svg';
 import architectureWorkshop from '../assets/facilities/architecture-workshop.svg';
 import controlTower from '../assets/facilities/control-tower.svg';
 import forge from '../assets/facilities/forge.svg';
@@ -32,7 +31,6 @@ const images = {
   monsterBoss,
   monster,
   partyLeader,
-  portalKeeper,
   architectureWorkshop,
   controlTower,
   forge,

@@ -11,7 +11,6 @@ import {
 } from 'lucide-react';
 import type { PullQuest, Quest, Region } from '../server/model.ts';
 import {
-  PortalKeeperGlyph,
   AdventurerGlyph,
   AdventurerParty,
   agentNames,
@@ -492,9 +491,6 @@ export function RegionDetail({
       {history.length > 0 && (
         <>
           <h4>
-            {!!report?.releases.length && (
-              <PortalKeeperGlyph className="release-keeper" />
-            )}{' '}
             왕국 배포 기록 <small>(KST)</small>
           </h4>
           <div className="release-history">

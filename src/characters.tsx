@@ -44,16 +44,6 @@ export function PartyLeaderGlyph({ className }: PartyGlyphProps) {
   );
 }
 
-export function PortalKeeperGlyph({ className }: PartyGlyphProps) {
-  return (
-    <WorldArt
-      sprite="portalKeeper"
-      size={objectSizes.officer}
-      className={className}
-    />
-  );
-}
-
 export function AdventurerGlyph({
   agent,
   active,
@@ -100,17 +90,15 @@ export function AdventurerParty({
   resting,
   detailed = false,
   leader,
-  released = false,
   forge = false,
 }: {
   members: Adventurer[];
   resting: string;
   detailed?: boolean;
   leader?: 'active' | 'resting';
-  released?: boolean;
   forge?: boolean;
 }) {
-  if (!leader && !released && !members.length) return null;
+  if (!leader && !members.length) return null;
   return (
     <span className={`adventurer-party${detailed ? ' detailed' : ''}`}>
       {leader && (
@@ -123,11 +111,6 @@ export function AdventurerParty({
             }
           />
           {detailed && <strong>{partyLeaderLabel(leader)}</strong>}
-        </span>
-      )}
-      {released && (
-        <span className="adventurer" title="포탈 관리자 · 릴리스 게시됨">
-          <PortalKeeperGlyph />
         </span>
       )}
       {members.map((member) => (
