@@ -82,7 +82,7 @@ function fetchCommit(sha) {
       ...env,
       GIT_TERMINAL_PROMPT: '0',
       GIT_CONFIG_COUNT: '2',
-      GIT_CONFIG_KEY_0: `http.https://github.com/${repository}.git.extraheader`,
+      GIT_CONFIG_KEY_0: 'http.https://github.com/.extraheader',
       GIT_CONFIG_VALUE_0: `Authorization: Basic ${auth}`,
       GIT_CONFIG_KEY_1: 'http.followRedirects',
       GIT_CONFIG_VALUE_1: 'false',
