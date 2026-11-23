@@ -440,6 +440,14 @@ svg {
 .activity-counters:empty {
   display: none;
 }
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
 .activity-counters {
   display: flex;
   flex-wrap: wrap;
@@ -1027,22 +1035,6 @@ svg {
     opacity: 0.35;
   }
 }
-.activity-totals dl {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-block: 6px;
-}
-.activity-totals dl div {
-  padding: 4px 7px;
-  border: 1px solid #526043;
-  border-radius: 4px;
-}
-.activity-totals dd {
-  margin: 0;
-  font-variant-numeric: tabular-nums;
-}
-
 .kingdom-region {
   position: relative;
   isolation: isolate;
@@ -1425,18 +1417,18 @@ svg {
   display: block;
 }
 
-.pull-dialog .dialog-heading {
+:is(.issue-dialog, .pull-dialog) .dialog-heading {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   gap: 6px;
 }
-.pull-dialog .activity-counters {
+:is(.issue-dialog, .pull-dialog) .activity-counters {
   justify-content: flex-start;
   flex-wrap: nowrap;
   overflow-x: auto;
   padding: 2px;
 }
-.pull-dialog .dialog-title-link {
+:is(.issue-dialog, .pull-dialog) .dialog-title-link {
   white-space: nowrap;
 }
 .pull-dialog.draft .dialog-title-link {
@@ -1450,34 +1442,34 @@ svg {
   width: 28px;
   height: 28px;
 }
-.pull-dialog .activity-counter {
+:is(.issue-dialog, .pull-dialog) .activity-counter {
   flex: none;
   gap: 2px;
   padding: 3px;
 }
-.pull-dialog .activity-counter[aria-expanded='true'] {
+:is(.issue-dialog, .pull-dialog) .activity-counter[aria-expanded='true'] {
   outline: 1px solid currentColor;
 }
 @media (max-width: 420px) {
-  .pull-dialog {
+  :is(.issue-dialog, .pull-dialog) {
     width: calc(100% - 12px);
     max-width: calc(100% - 12px);
   }
-  .pull-dialog .dialog-heading {
+  :is(.issue-dialog, .pull-dialog) .dialog-heading {
     gap: 3px;
     padding-inline: 4px;
   }
-  .pull-dialog .activity-counters {
+  :is(.issue-dialog, .pull-dialog) .activity-counters {
     gap: 0;
   }
-  .pull-dialog .dialog-title-link {
+  :is(.issue-dialog, .pull-dialog) .dialog-title-link {
     gap: 3px;
     font-size: 18px;
   }
 }
 
 @media (pointer: coarse) {
-  .pull-dialog .activity-counter {
+  :is(.issue-dialog, .pull-dialog) .activity-counter {
     min-width: 44px;
     min-height: 44px;
     justify-content: center;
