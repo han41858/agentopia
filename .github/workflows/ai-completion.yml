@@ -1,0 +1,40 @@
+name: AI completion
+
+on:
+  workflow_run:
+    workflows: [AI development]
+    types: [completed]
+    branches: [dev]
+  workflow_dispatch:
+    inputs:
+      issue:
+        description: '완료 단계를 재개할 이슈 번호'
+        required: true
+        type: number
+
+permissions: {}
+
+jobs:
+  complete:
+    if: >-
+      github.repository == 'han41858/agentopia' &&
+      github.ref == 'refs/heads/dev' &&
+      (github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: ai-development
+    permissions:
+      contents: read
+      actions: read
+      issues: write
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Merge reviewed PR and close issue
+        run: python3 .github/scripts/ai-completion.py
+        env:
+          GH_TOKEN: ${{ github.token }}
+          AI_AUTOMATION_TOKEN: ${{ secrets.AI_AUTOMATION_TOKEN }}
+          AI_ISSUE: ${{ inputs.issue }}
