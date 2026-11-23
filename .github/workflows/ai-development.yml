@@ -10,6 +10,10 @@ on:
         description: '재개할 이슈 번호'
         required: true
         type: number
+      recovery_run:
+        description: '완료 단계가 재개할 검토 실행 번호'
+        required: false
+        type: string
 
 permissions: {}
 

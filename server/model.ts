@@ -225,6 +225,7 @@ const automationStages: Record<string, Stage> = {
   queued: 'queued',
   developing: 'developing',
   revising: 'revising',
+  recovering: 'revising',
   reviewing: 'reviewing',
   ready: 'ci',
   merging: 'merging',
@@ -626,6 +627,15 @@ export function makeQuests(
             ({ number }) => number === pull?.number,
           )),
     );
+    // Earlier CI attempts remain visible in Actions history after recovery changes the head.
+    const earlierCI = pull
+      ? runs.filter(
+          (candidate) =>
+            candidate.id !== ci?.id &&
+            candidate.path.split('@')[0] === '.github/workflows/ci.yml' &&
+            candidate.pull_requests.some((item) => item.number === pull.number),
+        )
+      : [];
     const branch =
       pull && pullIssue(pull, region) === issue.number ? pull.head.ref : '';
     const developer =
@@ -763,7 +773,9 @@ export function makeQuests(
       addAdventurer(
         developer,
         'develop',
-        running && (stage === 'developing' || stage === 'revising'),
+        running &&
+          state?.status !== 'recovering' &&
+          (stage === 'developing' || stage === 'revising'),
         matchingRun &&
           outcome === 'failed' &&
           (state?.status === 'developing' || state?.status === 'revising'),
@@ -882,7 +894,9 @@ export function makeQuests(
             ? 'draft'
             : item.state,
       })),
-      runs: [...automation, ...(ci ? [ci] : [])].slice(0, 8).map(runSource),
+      runs: [...automation, ...(ci ? [ci] : []), ...earlierCI]
+        .slice(0, 8)
+        .map(runSource),
     };
     return withPublishedRelease(quest, releases);
   });

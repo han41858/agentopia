@@ -9,7 +9,7 @@ spec.loader.exec_module(completion)
 
 
 class CompletionTest(unittest.TestCase):
-    def run_case(self, ci="success", merged=False, changed=False, status="completed"):
+    def run_case(self, ci="success", merged=False, changed=False, status="completed", stale_head=False):
         calls = []
         head = "a" * 40
         state = {"head": head, "base": "base", "runId": 7}
@@ -22,7 +22,7 @@ class CompletionTest(unittest.TestCase):
             if path.startswith("pulls?"):
                 return [pull]
             if path.startswith("actions/"):
-                return {"workflow_runs": [{"pull_requests": [{"number": 2}], "status": status,
+                return {"workflow_runs": [{"head_sha": "old" if stale_head else head, "pull_requests": [{"number": 2}], "status": status,
                                            "conclusion": ci, "html_url": "CI"}]}
             if path == "pulls/2":
                 return pull
@@ -34,7 +34,7 @@ class CompletionTest(unittest.TestCase):
         ), patch.object(completion, "repo", side_effect=repo), patch.object(completion, "api"), patch.object(
             completion.time, "sleep"
         ):
-            if changed or ci != "success" or status != "completed":
+            if changed or stale_head or ci != "success" or status != "completed":
                 with self.assertRaises(RuntimeError):
                     completion.complete(1, 7)
             else:
@@ -57,6 +57,33 @@ class CompletionTest(unittest.TestCase):
     def test_failed_ci_or_changed_base(self):
         self.assertEqual(self.run_case(ci="failure"), [])
         self.assertEqual(self.run_case(changed=True), [])
+
+    def test_stale_ci_result_dispatches_review_instead_of_merging(self):
+        state = {"runId": 17, "issue": 1, "base": "old", "head": "reviewed", "recovery": {
+            "issue": completion.fingerprint("task", ""), "pull": completion.fingerprint(2, "Fix", "<!-- agentopia-ai-issue:1 -->")}}
+        pull = {"number": 2, "title": "Fix", "body": "<!-- agentopia-ai-issue:1 -->", "draft": True,
+                "state": "open", "merged_at": None, "head": {"sha": "reviewed", "repo": {"full_name": completion.REPO}},
+                "base": {"sha": "new", "ref": "dev"}}
+        def repo(path, **kwargs):
+            self.assertFalse(kwargs)
+            if path.startswith("pulls?"):
+                return [pull]
+            if path.startswith("actions/"):
+                return {"workflow_runs": [{"head_sha": "reviewed", "status": "completed", "conclusion": "success",
+                                           "pull_requests": [{"number": 2}]}]}
+            if path == "issues/1":
+                return {"title": "task", "body": ""}
+            self.assertEqual(path, "pulls/2")
+            return pull
+        with patch.object(completion, "eligible", return_value=True), patch.object(completion, "ready_state", return_value=state), patch.object(completion, "repo", side_effect=repo), patch.object(completion.subprocess, "run") as dispatch:
+            completion.complete(1, 16)
+            dispatch.assert_not_called()
+            completion.complete(1, 17)
+            dispatch.assert_called_once()
+            self.assertIn("recovery_run=17", dispatch.call_args.args[0])
+
+    def test_success_for_an_older_head_never_merges(self):
+        self.assertEqual(self.run_case(stale_head=True), [])
 
     def test_waits_for_whole_ci_workflow(self):
         # ci.yml 실행은 Test and build와 UI test가 모두 끝나야 completed가 됩니다.
