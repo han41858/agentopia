@@ -1,4 +1,4 @@
-import { client, githubGraphql } from './github-client.ts';
+import { client, githubGraphql, GitHubError } from './github-client.ts';
 import type { Region } from './model.ts';
 
 type TagRecord = { name: string; sha?: string; committedAt?: string };
@@ -8,6 +8,7 @@ export async function readTags(
   region: Region,
   token: string | undefined,
   force: boolean,
+  latestPublishedTag: Promise<string | undefined>,
 ) {
   if (token) {
     const [owner, name] = region.slug.split('/');
@@ -57,19 +58,26 @@ export async function readTags(
   );
   // Start at observed tag commits: the default branch need not contain them.
   const pending = new Set(page.map((tag) => tag.commit.sha));
+  const releaseName = await latestPublishedTag;
+  const releaseSha = page.find((tag) => tag.name === releaseName)?.commit.sha;
+  const releaseRef =
+    releaseName && !releaseSha ? `refs/tags/${releaseName}` : undefined;
+  const firstAnchor = releaseSha ?? releaseRef;
   const dates = new Map<string, string>();
   const get = client(region); // SHA-anchored pages remain valid across refreshes.
   let dateLookupFailed = false;
   for (let attempt = 0; attempt < 2 && pending.size; attempt++) {
-    const anchor = pending.values().next().value!;
+    const anchor =
+      (attempt === 0 ? firstAnchor : undefined) ??
+      pending.values().next().value!;
     pending.delete(anchor);
     try {
       const commits = await get<
         { sha: string; commit: { committer: { date: string } | null } }[]
       >(
-        `/commits?sha=${encodeURIComponent(anchor)}&per_page=30`,
+        `/commits?sha=${encodeURIComponent(anchor)}&per_page=100`,
         undefined,
-        2 * 60 * 60_000,
+        anchor === releaseRef ? (force ? 0 : 120_000) : 2 * 60 * 60_000,
       );
       for (const { sha, commit } of commits) {
         if (commit.committer?.date) {
@@ -77,7 +85,13 @@ export async function readTags(
           pending.delete(sha);
         }
       }
-    } catch {
+    } catch (error) {
+      if (
+        anchor === releaseRef &&
+        error instanceof GitHubError &&
+        error.status === 404
+      )
+        continue;
       dateLookupFailed = true;
       break;
     }

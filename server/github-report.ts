@@ -72,6 +72,20 @@ export async function getReport(
     }
   }
 
+  const history = includeHistory
+    ? optional(
+        '릴리스',
+        get<GitHubRelease[]>('/releases?per_page=30', undefined, 45_000),
+        [],
+      )
+    : Promise.resolve([]);
+  const latestPublishedTag = history.then(
+    (rows) =>
+      rows
+        .filter((row) => !row.draft && row.published_at)
+        .sort((a, b) => b.published_at!.localeCompare(a.published_at!))[0]
+        ?.tag_name,
+  );
   const [issuePage, pullPage, workflow, releasePage, tagResult] =
     await Promise.all([
       get<Issue[]>(
@@ -92,15 +106,13 @@ export async function getReport(
         get<{ workflow_runs: Run[] }>('/actions/runs?per_page=100'),
         { workflow_runs: [] },
       ),
+      history,
       includeHistory
         ? optional(
-            '릴리스',
-            get<GitHubRelease[]>('/releases?per_page=30', undefined, 45_000),
-            [],
+            '태그',
+            readTags(region, token, force, latestPublishedTag),
+            undefined,
           )
-        : [],
-      includeHistory
-        ? optional('태그', readTags(region, token, force), undefined)
         : undefined,
     ]);
   const runs = [...workflow.workflow_runs].sort((a, b) => b.id - a.id);

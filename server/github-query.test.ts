@@ -213,12 +213,12 @@ test('anonymous history bounds date and release lookups when the tag page is ful
       });
     if (path === '/commits') {
       const params = new URL(url).searchParams;
-      assert.equal(params.get('per_page'), '30');
+      assert.equal(params.get('per_page'), '100');
       const sha = params.get('sha');
-      assert.ok(sha === 'sha-0' || sha === 'sha-1');
+      assert.ok(sha === 'refs/tags/old/3' || sha === 'sha-0');
       return Response.json([
         {
-          sha,
+          sha: sha === 'refs/tags/old/3' ? 'merged' : sha,
           commit: { committer: { date: '2026-11-10T00:00:00Z' } },
         },
       ]);
@@ -388,4 +388,52 @@ test('a failed tag ancestry request preserves tags and reports a lookup warning'
   assert.deepEqual(report.tags, [{ name: 'a' }, { name: 'b' }]);
   assert.ok(report.warnings.includes('태그 커밋 시각'));
   assert.equal(attempts, 1);
+});
+
+test('anonymous ancestry starts at the most recently published tag even if it is last in the tag list', async (context) => {
+  const names = ['old', 'middle', 'latest'];
+  const anchors: string[] = [];
+  context.mock.method(globalThis, 'fetch', async (input: string) => {
+    const url = new URL(input);
+    if (url.pathname.endsWith('/tags'))
+      return Response.json(
+        names.map((name) => ({ name, commit: { sha: 'sha-' + name } })),
+      );
+    if (url.pathname.endsWith('/releases'))
+      return Response.json([
+        { tag_name: 'old', published_at: '2026-11-01T00:00:00Z', draft: false },
+        {
+          tag_name: 'latest',
+          published_at: '2026-11-20T00:00:00Z',
+          draft: false,
+        },
+        {
+          tag_name: 'draft',
+          published_at: '2026-11-22T00:00:00Z',
+          draft: true,
+        },
+      ]);
+    if (url.pathname.endsWith('/commits')) {
+      anchors.push(url.searchParams.get('sha')!);
+      return Response.json(
+        names.map((name, i) => ({
+          sha: 'sha-' + name,
+          commit: { committer: { date: `2026-11-0${i + 1}T00:00:00Z` } },
+        })),
+      );
+    }
+    if (url.pathname.endsWith('/actions/runs'))
+      return Response.json({ workflow_runs: [] });
+    return Response.json([]);
+  });
+  const result = await githubResponse(
+    new URL('https://agentopia.test/api/github?repo=example/release-anchor'),
+    'GET',
+  );
+  assert.deepEqual(anchors, ['sha-latest']);
+  assert.ok(
+    JSON.parse(result.body).tags.every(
+      (tag: { committedAt?: string }) => tag.committedAt,
+    ),
+  );
 });
