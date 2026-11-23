@@ -564,6 +564,7 @@ Write summaries in Korean. Follow these repository rules:\n${snapshot(baseSha, b
           phase = `${names[developer]} 개발`;
           const plan = await runModel({
             agent: developer,
+            issueTitle: issue.title,
             mode: 'development',
             context,
             instructions: `${rules}\nRead the existing diff and relevant files before proposing changes.

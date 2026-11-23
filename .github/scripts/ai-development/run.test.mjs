@@ -7,6 +7,7 @@ import { test } from 'node:test';
 
 for (const scenario of [
   'duplicate',
+  'issue-title-fallback',
   'claude-label',
   'completion-dispatch',
   'interrupted-development',
@@ -168,7 +169,10 @@ for (const scenario of [
           : [{ path: 'README.md', before: 'Test', after: 'Updated' }];
         return modelResponse({
           status: 'completed',
-          title: '📝 문서: 예제 수정',
+          title:
+            scenario === 'issue-title-fallback'
+              ? ':art: 팝업 수정'
+              : '📝 문서: 예제 수정',
           summary: '문서를 수정했습니다.',
           edits,
         });
@@ -192,6 +196,11 @@ for (const scenario of [
       if (pathname === '/graphql') {
         assert.equal(options.headers.authorization, 'Bearer mock-publisher');
         const input = body.variables.input;
+        if (scenario === 'issue-title-fallback')
+          assert.equal(
+            input.message.headline,
+            '🎨 이슈 팝업: 제목 옆에 활동량 표시하고 파티 목록 정리',
+          );
         assert.equal(input.expectedHeadOid, head);
         assert.equal(input.branch.branchName, branch);
         assert.equal(
@@ -230,7 +239,10 @@ for (const scenario of [
         throw Error('initial network failure');
       if (path === '/issues/15')
         return Response.json({
-          title: 'Test issue',
+          title:
+            scenario === 'issue-title-fallback'
+              ? '🎨 이슈 팝업: 제목 옆에 활동량 표시하고 파티 목록 정리'
+              : 'Test issue',
           body: issueBody,
           state: 'open',
           labels: [
@@ -270,6 +282,11 @@ for (const scenario of [
             pr && searchParams.get('state') === 'open' ? [pr] : [],
           );
         assert.equal(options.headers.authorization, 'Bearer mock-publisher');
+        if (scenario === 'issue-title-fallback')
+          assert.equal(
+            body.title,
+            '🎨 이슈 팝업: 제목 옆에 활동량 표시하고 파티 목록 정리',
+          );
         assert.equal(body.draft, true);
         assert.equal(body.base, 'dev');
         assert.equal(body.head, branch);

@@ -204,7 +204,21 @@ export function validateReview(value) {
 
 const developmentSummaryLimit = 1200;
 
-export function validateDevelopment(value, maxEdits = config.limits.edits) {
+function titleProblem(title) {
+  if (title.length > 100) return `제목 길이 초과 (${title.length}/100).`;
+  if (/[\r\n<>@\u202a-\u202e]/.test(title))
+    return '제목에 줄바꿈 또는 허용되지 않는 문자가 있습니다.';
+  if (!/^\p{Extended_Pictographic}/u.test(title))
+    return '제목 첫 글자에 실제 GitMoji 이모지가 필요합니다.';
+  if (!/^\p{Extended_Pictographic}.*? [^\n:]+: .*[가-힣]/u.test(title))
+    return '제목을 “🎨 화면: 팝업 수정”처럼 영역과 한국어 요약으로 작성하세요.';
+}
+
+export function validateDevelopment(
+  value,
+  maxEdits = config.limits.edits,
+  issueTitle,
+) {
   validate(value, developmentSchema, 'development');
   if (!value.summary.trim())
     throw new ModelError('개발 결과의 요약이 비어 있습니다.');
@@ -216,15 +230,14 @@ export function validateDevelopment(value, maxEdits = config.limits.edits) {
     throw new ModelError(
       `개발 편집 개수 초과 (${value.edits.length}/${maxEdits}).`,
     );
-  if (
-    value.status === 'completed' &&
-    (value.title.length > 100 ||
-      /[\r\n<>@\u202a-\u202e]/.test(value.title) ||
-      !/^\p{Extended_Pictographic}.*? [^\n:]+: .*[가-힣]/u.test(value.title))
-  )
-    throw new ModelError(
-      '개발 결과의 제목은 GitMoji와 한국어를 포함한 저장소 형식이어야 합니다.',
-    );
+  if (value.status === 'completed') {
+    const problem = titleProblem(value.title);
+    if (problem) {
+      if (typeof issueTitle === 'string' && !titleProblem(issueTitle))
+        return { ...value, title: issueTitle };
+      throw new ModelError(`개발 결과: ${problem}`);
+    }
+  }
   return value;
 }
 
@@ -422,11 +435,11 @@ export function createModels({
 
   return {
     verify,
-    async run({ agent, mode, instructions, context, inspect }) {
+    async run({ agent, mode, instructions, context, inspect, issueTitle }) {
       const schema = mode === 'development' ? developmentSchema : reviewSchema;
       const verifyResult =
         mode === 'development'
-          ? (value) => validateDevelopment(value, limits.edits)
+          ? (value) => validateDevelopment(value, limits.edits, issueTitle)
           : validateReview;
       const input = [{ role: 'user', content: context }];
       const isCodex = agent === 'codex';
