@@ -55,11 +55,11 @@ GitHub Releases에는 이 워크플로가 발행한 최신 성공 릴리스 하�
 
 ## 이슈에서 AI 초안 PR 만들기
 
-저장소 쓰기 권한이 있는 사용자가 열린 이슈에 `ai:develop` 라벨을 붙이면 Codex가 변경을 준비하고 Claude가 해당 커밋을 리뷰합니다. 이슈마다 `ai/issue-<번호>-codex` 브랜치와 `dev` 대상 초안 PR 한 개를 사용합니다. 변경 범위는 `src/`, `server/`, `docs/`의 Markdown·TypeScript·CSS와 `README.md`입니다. `api/`에서는 기존 파일의 내용만 수정할 수 있습니다.
+저장소 쓰기 권한이 있는 사용자가 열린 이슈에 `ai:develop` 라벨을 붙이면 Codex가 변경을 준비하고 Claude가 해당 커밋을 리뷰합니다. `ai:develop:claude`를 단독으로 붙이면 Claude가 개발하고 Codex가 리뷰합니다. 이슈마다 `ai/issue-<번호>-<개발자>` 브랜치와 `dev` 대상 초안 PR 한 개를 사용합니다. 변경 범위는 `src/`, `server/`, `docs/`의 Markdown·TypeScript·CSS와 `README.md`입니다. `api/`에서는 기존 파일의 내용만 수정할 수 있습니다.
 
-- Claude 리뷰와 같은 커밋의 PR CI(**Test and build**와 **UI test**)가 통과하면 **AI completion**이 초안을 검토 준비 상태로 전환하고 dev에 스쿼시 머지합니다. 머지가 확인되면 이슈를 completed로 닫습니다. 완료 단계만 재시도하려면 AI completion에서 이슈 번호로 수동 실행합니다. PR CI는 모델 키와 게시 토큰 없이 실행됩니다.
-- 이슈의 `ai:develop` 라벨을 유지한 상태에서 **AI development → Run workflow**에 이슈 번호를 입력하면 기존 초안을 이어서 처리합니다. 다른 이슈의 머지로 `dev`가 앞서면 아래 기준으로 자동 복구합니다. 이슈를 닫거나 `ai:stop`을 붙이면 다음 게시 단계에서 실행을 중단합니다.
-- **Issues → Labels**에서 `ai:develop`과 `ai:stop`을 만듭니다.
+- 담당 리뷰어의 리뷰와 같은 커밋의 PR CI(**Test and build**와 **UI test**)가 통과하면 **AI completion**이 초안을 검토 준비 상태로 전환하고 dev에 스쿼시 머지합니다. 머지가 확인되면 이슈를 completed로 닫습니다. 완료 단계만 재시도하려면 AI completion에서 이슈 번호로 수동 실행합니다. PR CI는 모델 키와 게시 토큰 없이 실행됩니다.
+- 이슈의 개발 담당 라벨을 유지한 상태에서 **AI development → Run workflow**에 이슈 번호를 입력하면 기존 초안을 이어서 처리합니다. 다른 이슈의 머지로 `dev`가 앞서면 아래 기준으로 자동 복구합니다. 이슈를 닫거나 `ai:stop`을 붙이면 다음 게시 단계에서 실행을 중단합니다.
+- **Issues → Labels**에서 `ai:develop`, `ai:develop:claude`, `ai:stop`을 만듭니다.
 - Actions에 `ai-development` 환경을 만들고 배포 브랜치를 `dev`로 제한합니다. 환경 시크릿에 `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `AI_AUTOMATION_TOKEN`을, 환경 변수에 `AI_CODEX_MODEL`, `AI_CLAUDE_MODEL`을 설정합니다. 게시 토큰은 Agentopia 저장소의 Contents 및 Pull requests 쓰기 권한을 가진 GitHub App 토큰 또는 fine-grained PAT가 필요합니다. 기준 갱신 push에 이미 dev에 반영된 워크플로 파일 변경이 포함되어 GitHub가 권한 오류를 반환하면 해당 토큰의 Workflows 쓰기 권한도 확인합니다. 별도 게시 토큰을 사용해야 PR 이벤트에서 일반 CI가 시작됩니다.
 - [`vercel.json`](../vercel.json)의 브랜치 규칙은 `ai/issue-*`의 자동 프리뷰를 끕니다. 활성화 후 첫 PR에서 프리뷰가 생성되지 않는지 확인합니다. 프로덕션 릴리스는 `main` 배포 성공 이벤트로 기록합니다.
 - 비공개 저장소로 전환하면 Git 커밋 조회에도 Actions의 Contents 읽기 권한이 필요합니다. 워크플로는 커밋을 가져오는 명령에만 이 자격 증명을 전달합니다.

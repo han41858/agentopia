@@ -38,7 +38,7 @@ class CompletionTest(unittest.TestCase):
             mutations.append(kwargs["query"])
             pull["draft"] = "convertPullRequestToDraft" in kwargs["query"]
 
-        with patch.object(completion, "eligible", side_effect=lambda _: not (stop_after_undraft and mutations)), patch.object(
+        with patch.object(completion, "eligible", side_effect=lambda *_: not (stop_after_undraft and mutations)), patch.object(
             completion, "ready_state", return_value=state
         ), patch.object(completion, "repo", side_effect=repo), patch.object(completion, "api", side_effect=mutation), patch.object(
             completion.time, "sleep"
@@ -60,6 +60,14 @@ class CompletionTest(unittest.TestCase):
             else:
                 completion.complete(1, 7)
         return calls
+
+    def test_completion_requires_reviewed_developer_label(self):
+        issue = {"state": "open", "labels": [{"name": "ai:develop:claude"}]}
+        with patch.object(completion, "repo", return_value=issue):
+            self.assertTrue(completion.eligible(74, "claude"))
+            self.assertFalse(completion.eligible(74, "codex"))
+            issue["labels"].append({"name": "ai:stop"})
+            self.assertFalse(completion.eligible(74, "claude"))
 
     def test_paginated_comments(self):
         result = Mock(returncode=0, stdout='{"id":1}\n{"id":2}\n')

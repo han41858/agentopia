@@ -22,7 +22,7 @@ jobs:
     if: >-
       github.repository == 'han41858/agentopia' &&
       github.ref == 'refs/heads/dev' &&
-      (github.event_name == 'workflow_dispatch' || github.event.label.name == 'ai:develop')
+      (github.event_name == 'workflow_dispatch' || github.event.label.name == 'ai:develop' || github.event.label.name == 'ai:develop:claude')
     concurrency:
       group: ai-development-issue-${{ github.event.issue.number || inputs.issue }}
       cancel-in-progress: false

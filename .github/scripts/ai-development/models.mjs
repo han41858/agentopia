@@ -431,6 +431,8 @@ export function createModels({
         mode === 'review' ? (limits.reviewTurns ?? limits.turns) : limits.turns;
       const reviewFormat =
         'Keep the Korean summary under 400 characters. Use at most 6 findings, with each string under 250 characters and a positive line number. pass requires zero findings; changes_requested requires at least one. For needs_human, identify the concrete blocker.';
+      const taskInstructions =
+        mode === 'review' ? instructions + '\n' + reviewFormat : instructions;
       let correctingReview = false;
       let toolCalls = 0;
       function reserveTools(count) {
@@ -448,9 +450,9 @@ export function createModels({
         const started = performance.now();
         const finalTurn = turn === turnLimit || correctingReview;
         const turnInstructions = finalTurn
-          ? `${instructions}
+          ? `${taskInstructions}
 Return the final structured result now. If evidence is insufficient, return needs_human with the specific blocker.`
-          : `${instructions}
+          : `${taskInstructions}
 API requests remaining, including this one: ${turnLimit - turn + 1}. Read tools allowed this turn: ${Math.min(limits.toolCallsPerTurn, limits.toolCallsTotal - toolCalls)}. Return the final structured result once you have enough evidence.`;
         const data = await call(
           agent,
@@ -484,10 +486,7 @@ API requests remaining, including this one: ${turnLimit - turn + 1}. Read tools 
               }
             : {
                 model,
-                system:
-                  mode === 'review'
-                    ? instructions + '\n' + reviewFormat
-                    : instructions,
+                system: taskInstructions,
                 messages: input,
                 max_tokens: limits.outputTokens,
                 output_config: { format: { type: 'json_schema', schema } },
@@ -542,30 +541,30 @@ API requests remaining, including this one: ${turnLimit - turn + 1}. Read tools 
             ),
             { outputLimitReached: true },
           );
+        let text;
+        const output = (isCodex ? data.output : data.content) ?? [];
         if (isCodex) {
-          const output = data.output ?? [];
           if (data.status !== 'completed')
             throw new ModelError('Codex 응답이 완료되지 않았습니다.');
           const calls = output.filter(({ type }) => type === 'function_call');
-          if (!calls.length) {
-            const text = output
-              .flatMap(({ content }) => content ?? [])
-              .filter(({ type }) => type === 'output_text')
-              .map(({ text }) => text)
-              .join('');
-            return verifyResult(parseJSON(text));
+          if (calls.length) {
+            reserveTools(calls.length);
+            input.push(
+              ...output,
+              ...calls.map(({ name, arguments: args, call_id }) => ({
+                type: 'function_call_output',
+                call_id,
+                output: invokeTool(inspect, name, parseJSON(args)),
+              })),
+            );
+            continue;
           }
-          reserveTools(calls.length);
-          input.push(
-            ...output,
-            ...calls.map(({ name, arguments: args, call_id }) => ({
-              type: 'function_call_output',
-              call_id,
-              output: invokeTool(inspect, name, parseJSON(args)),
-            })),
-          );
+          text = output
+            .flatMap(({ content }) => content ?? [])
+            .filter(({ type }) => type === 'output_text')
+            .map(({ text }) => text)
+            .join('');
         } else {
-          const output = data.content ?? [];
           if (data.stop_reason === 'tool_use') {
             const calls = output.filter(({ type }) => type === 'tool_use');
             if (!calls.length)
@@ -582,32 +581,28 @@ API requests remaining, including this one: ${turnLimit - turn + 1}. Read tools 
               { role: 'assistant', content: claudeAssistantContent(output) },
               { role: 'user', content: results },
             );
-          } else if (data.stop_reason === 'end_turn') {
-            const text = output
-              .filter((block) => block.type === 'text')
-              .map((block) => block.text)
-              .join('');
-            try {
-              return verifyResult(parseJSON(text));
-            } catch (error) {
-              if (
-                mode !== 'review' ||
-                finalTurn ||
-                !(error instanceof ModelError)
-              )
-                throw error;
-              correctingReview = true;
-              input.push(
-                { role: 'assistant', content: claudeAssistantContent(output) },
-                {
-                  role: 'user',
-                  content: `Return the corrected review JSON using the same evidence and verdict. Validation: ${error.message}. ${reviewFormat}`,
-                },
-              );
-            }
-          } else {
-            throw new ModelError('Claude 응답이 완료되지 않았습니다.');
+            continue;
           }
+          if (data.stop_reason !== 'end_turn')
+            throw new ModelError('Claude 응답이 완료되지 않았습니다.');
+          text = output
+            .filter((block) => block.type === 'text')
+            .map((block) => block.text)
+            .join('');
+        }
+        try {
+          return verifyResult(parseJSON(text));
+        } catch (error) {
+          if (mode !== 'review' || finalTurn || !(error instanceof ModelError))
+            throw error;
+          correctingReview = true;
+          const responseItems = isCodex
+            ? output
+            : [{ role: 'assistant', content: claudeAssistantContent(output) }];
+          input.push(...responseItems, {
+            role: 'user',
+            content: `Return the corrected review JSON using the same evidence and verdict. Validation: ${error.message}. ${reviewFormat}`,
+          });
         }
       }
       throw new ModelError(
