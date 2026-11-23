@@ -9,7 +9,7 @@ spec.loader.exec_module(completion)
 
 
 class CompletionTest(unittest.TestCase):
-    def run_case(self, ci="success", merged=False, changed=False):
+    def run_case(self, ci="success", merged=False, changed=False, status="completed"):
         calls = []
         head = "a" * 40
         state = {"head": head, "base": "base", "runId": 7}
@@ -22,7 +22,7 @@ class CompletionTest(unittest.TestCase):
             if path.startswith("pulls?"):
                 return [pull]
             if path.startswith("actions/"):
-                return {"workflow_runs": [{"pull_requests": [{"number": 2}], "status": "completed",
+                return {"workflow_runs": [{"pull_requests": [{"number": 2}], "status": status,
                                            "conclusion": ci, "html_url": "CI"}]}
             if path == "pulls/2":
                 return pull
@@ -31,8 +31,10 @@ class CompletionTest(unittest.TestCase):
 
         with patch.object(completion, "eligible", return_value=True), patch.object(
             completion, "ready_state", return_value=state
-        ), patch.object(completion, "repo", side_effect=repo), patch.object(completion, "api"):
-            if changed or ci != "success":
+        ), patch.object(completion, "repo", side_effect=repo), patch.object(completion, "api"), patch.object(
+            completion.time, "sleep"
+        ):
+            if changed or ci != "success" or status != "completed":
                 with self.assertRaises(RuntimeError):
                     completion.complete(1, 7)
             else:
@@ -55,3 +57,9 @@ class CompletionTest(unittest.TestCase):
     def test_failed_ci_or_changed_base(self):
         self.assertEqual(self.run_case(ci="failure"), [])
         self.assertEqual(self.run_case(changed=True), [])
+
+    def test_waits_for_whole_ci_workflow(self):
+        # ci.yml 실행은 Test and build와 UI test가 모두 끝나야 completed가 됩니다.
+        # 어느 한 작업이 진행 중이거나 실패하면 머지하지 않습니다.
+        self.assertEqual(self.run_case(status="in_progress"), [])
+        self.assertEqual(self.run_case(ci="failure"), [])

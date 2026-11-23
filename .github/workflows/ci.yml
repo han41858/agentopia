@@ -32,3 +32,36 @@ jobs:
       - run: npm run build
       - run: node --test .github/scripts/ai-development/*.test.mjs
       - run: python3 -m unittest discover -s .github/scripts -p 'test_*.py'
+
+  # 같은 워크플로에 두어, 이 워크플로의 성공을 기다리는 AI 자동 머지가
+  # 화면 테스트 결과까지 함께 기다리게 합니다.
+  ui-test:
+    name: UI test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Check whether the change affects the screen
+        id: scope
+        run: python3 .github/scripts/ui_test_scope.py
+        env:
+          BEFORE_SHA: ${{ github.event.before }}
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        if: steps.scope.outputs.run == 'true'
+        with:
+          node-version: 24
+      - if: steps.scope.outputs.run == 'true'
+        run: npm ci --ignore-scripts
+      - if: steps.scope.outputs.run == 'true'
+        run: npx playwright install --with-deps chromium
+      - if: steps.scope.outputs.run == 'true'
+        run: npm run test:ui
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: failure()
+        with:
+          name: ui-test-results
+          path: test-results/
+          retention-days: 7

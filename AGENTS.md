@@ -5,7 +5,7 @@ Agentopia는 GitHub에서 관측한 AI 개발 활동을 시각화하는 읽기 �
 ## Agentopia 개발 환경
 
 - Node.js 24에서 `npm ci`로 설치하고 `npm run dev`로 Vite와 로컬 GitHub API 경로를 실행합니다.
-- 변경 검증에는 `npm test`, `npm run build`, `npm run format:check`를 사용합니다.
+- 변경 검증에는 `npm test`, `npm run build`, `npm run format:check`를 사용합니다. 화면 동작이 바뀌면 `npm run test:ui`도 실행합니다.
 - GitHub 데이터 조회는 `server/github.ts`와 `server/github-*.ts`, 상태 판정은 `server/model.ts`, 시각화는 `src/`에 둡니다. Vite와 Vercel은 같은 읽기 전용 핸들러를 사용합니다.
 - AI 상태는 신뢰할 수 있는 GitHub 봇 기록, 실행 결과, 작업 브랜치와 커밋으로만 판정합니다. 연동을 변경하면 관련 저장소의 실제 자동화 구조를 확인하고 재시도, 누락 및 실패를 검증합니다.
 - GitHub 토큰과 저장소 목록은 사이트 출처별 브라우저 로컬 스토리지에 저장합니다. 연결을 해제하면 토큰과 비공개 저장소 목록을 지웁니다. 비공개 이슈·PR 조회 결과는 메모리와 개별 요청에 한정하고, 배포 환경의 공유 토큰과 인증 응답 캐싱은 사용하지 않습니다.
