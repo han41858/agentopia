@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, type ReactNode } from 'react';
+import { createContext, useContext, useId, useState, type ReactNode } from 'react';
 import { Map as MapIcon, Workflow } from 'lucide-react';
 
 type Mode = 'world' | 'simple';
@@ -46,7 +46,9 @@ export function DisplayModeProvider({ children }: { children: ReactNode }) {
 
 export function ModeSwitch() {
   const { mode, select } = useContext(ModeContext);
+  const descriptionId = useId();
   const isSimple = mode === 'simple';
+  const currentMode = isSimple ? '현재: 간단 모드' : '현재: 월드 모드';
 
   return (
     <button
@@ -54,9 +56,13 @@ export function ModeSwitch() {
       type="button"
       aria-label="간단 모드"
       aria-pressed={isSimple}
-      title={isSimple ? '현재: 간단 모드' : '현재: 월드 모드'}
+      aria-describedby={descriptionId}
+      title={currentMode}
       onClick={() => select(isSimple ? 'world' : 'simple')}
     >
+      <span id={descriptionId} hidden>
+        {currentMode}
+      </span>
       {options.map(({ value, Icon }) => (
         <span
           key={value}
