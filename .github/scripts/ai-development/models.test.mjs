@@ -409,3 +409,64 @@ for (const repeat of [false, true]) {
     assert.equal(result.status, repeat ? 'needs_human' : 'pass');
   });
 }
+
+for (const correctedVerdict of ['pass', 'changes_requested']) {
+  test(`Claude keeps review findings during the reserved correction: ${correctedVerdict}`, async () => {
+    const finding = {
+      path: 'src/example.ts',
+      line: 3,
+      defect: '조건 누락',
+      impact: '갱신 중단',
+      evidence: '빈 목록에서 종료',
+      fix: '빈 목록 처리',
+    };
+    let calls = 0;
+    const models = createModels({
+      keys: { claude: 'mock' },
+      modelNames: { claude: 'mock' },
+      limits: { ...config.limits, reviewTurns: 3 },
+      log: () => {},
+      request: async (_, options) => {
+        calls++;
+        const body = JSON.parse(options.body);
+        if (calls === 1) {
+          assert.equal(body.tool_choice, undefined);
+          return Response.json({
+            stop_reason: 'tool_use',
+            content: [
+              {
+                type: 'tool_use',
+                id: 'diff',
+                name: 'read_diff',
+                input: { line: 1 },
+              },
+            ],
+          });
+        }
+        assert.equal(body.tool_choice.type, 'none');
+        if (calls === 3)
+          assert.match(body.messages.at(-1).content, /pass에 지적 사항/);
+        const result = {
+          status: calls === 2 ? 'pass' : correctedVerdict,
+          summary: '검토 결과',
+          findings: calls === 3 && correctedVerdict === 'pass' ? [] : [finding],
+        };
+        return Response.json({
+          stop_reason: 'end_turn',
+          content: [{ type: 'text', text: JSON.stringify(result) }],
+        });
+      },
+    });
+    const result = models.run({
+      agent: 'claude',
+      mode: 'review',
+      instructions: 'Review',
+      context: 'Test',
+      inspect: () => 'diff',
+    });
+    if (correctedVerdict === 'pass')
+      await assert.rejects(result, /승인으로 변경/);
+    else assert.deepEqual((await result).findings, [finding]);
+    assert.equal(calls, 3);
+  });
+}
