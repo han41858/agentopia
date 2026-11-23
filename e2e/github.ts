@@ -4,15 +4,18 @@ import {
   alpha,
   alphaHeritage,
   alphaReport,
+  commentPage,
   commitPage,
   denied,
   deniedMessage,
   empty,
   emptyReport,
+  issueSummary,
   noPlaza,
   noPlazaReport,
   ownerPage,
   pullSummary,
+  reviewPage,
 } from './fixtures.ts';
 
 export type Call = {
@@ -50,7 +53,13 @@ function classify(params: URLSearchParams): Call['kind'] {
   return 'unknown';
 }
 
-function reply(kind: Call['kind'], repo: string): Reply {
+const activityPages: Record<string, unknown> = {
+  commits: commitPage,
+  comments: commentPage,
+  reviews: reviewPage,
+};
+
+function reply({ kind, repo, params }: Call): Reply {
   const known = reports[repo];
   switch (kind) {
     case 'report':
@@ -64,9 +73,15 @@ function reply(kind: Call['kind'], repo: string): Reply {
     case 'owner':
       return { body: ownerPage };
     case 'summary':
-      return { body: pullSummary };
+      // 이슈와 PR 집계는 값이 달라, 잘못된 대상을 조회하면 화면 숫자가 달라집니다.
+      return {
+        body: params.get('summary') === 'issue' ? issueSummary : pullSummary,
+      };
     case 'activity':
-      return { body: commitPage };
+      // 요청한 종류의 기록만 돌려줍니다.
+      return {
+        body: activityPages[params.get('activity') ?? ''] ?? { entries: [] },
+      };
     default:
       return { status: 400, body: { error: '알 수 없는 요청' } };
   }
@@ -94,7 +109,7 @@ export async function mockGitHub(
     };
     calls.push(call);
     await options.hold?.(call);
-    const { status = 200, body } = reply(call.kind, call.repo);
+    const { status = 200, body } = reply(call);
     await route.fulfill({
       status,
       contentType: 'application/json; charset=utf-8',
@@ -103,6 +118,11 @@ export async function mockGitHub(
   });
   return {
     calls,
+    /** 해당 종류 요청의 매개변수를 보낸 순서대로 읽습니다. */
+    queries: (kind: Call['kind']) =>
+      calls
+        .filter((call) => call.kind === kind)
+        .map((call) => Object.fromEntries(call.params)),
     count: (kind: Call['kind'], repo?: string) =>
       calls.filter(
         (call) =>

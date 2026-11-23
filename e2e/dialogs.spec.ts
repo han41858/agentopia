@@ -29,9 +29,18 @@ test.describe('상세 창', () => {
     await dialog.getByRole('button', { name: '커밋 3개' }).click();
     await expect(dialog.getByRole('link', { name: 'a1b2c3d' })).toBeVisible();
     await expect(dialog.getByText('시설 배치 계산 추가')).toBeVisible();
-    // 기록은 누른 종류만 한 번 조회하고, 집계가 응답에 다 있었으므로
+
+    // 종류를 바꾸면 그 종류의 기록으로 바뀝니다.
+    await dialog.getByRole('button', { name: '리뷰 1개' }).click();
+    await expect(dialog.getByText('배치 계산을 확인했습니다.')).toBeVisible();
+    await expect(dialog.getByText('시설 배치 계산 추가')).toBeHidden();
+
+    // 누른 종류만, 이 PR 번호로 한 번씩 조회합니다. 집계는 응답에 다 있었으므로
     // 창을 열 때 집계 요청은 없었습니다.
-    expect(github.count('activity')).toBe(1);
+    expect(github.queries('activity')).toEqual([
+      { repo: alpha, activity: 'commits', number: '11', page: '1' },
+      { repo: alpha, activity: 'reviews', number: '11', page: '1' },
+    ]);
     expect(github.count('summary')).toBe(0);
 
     await page.keyboard.press('Escape');
@@ -51,7 +60,9 @@ test.describe('상세 창', () => {
     ).toBeVisible();
     await expect(dialog.getByRole('img', { name: '실행 실패' })).toBeVisible();
     await expect(dialog.getByRole('link', { name: /CI/ })).toBeVisible();
-    expect(github.count('summary')).toBe(1);
+    expect(github.queries('summary')).toEqual([
+      { repo: alpha, summary: 'pull', number: '12' },
+    ]);
   });
 
   test('PR 시설에서 연결된 이슈로 넘어간다', async ({ page }) => {
@@ -82,23 +93,49 @@ test.describe('상세 창', () => {
     await expect(
       dialog.getByRole('link', { name: /PR #11 · ✨ 지도: 새 시설 추가/ }),
     ).toBeVisible();
-    // 댓글 기록을 열어 그 요청이 도착한 뒤에, 그 전에 집계 요청이 없었음을 확인합니다.
+    // 댓글 단추는 이 이슈의 댓글 기록을 조회해 보여 줍니다.
     await dialog.getByRole('button', { name: '댓글 4개' }).click();
     await expect(dialog.locator('.activity-entry')).toHaveCount(2);
-    expect(github.count('activity')).toBe(1);
+    await expect(
+      dialog.getByText('지도 개편 범위를 정리했습니다.'),
+    ).toBeVisible();
+    await expect(dialog.getByText('시설 배치부터 진행합니다.')).toBeVisible();
+
+    // 공략 결과의 PR 활동은 그 PR 번호로 조회합니다.
+    await dialog.getByRole('button', { name: 'PR 활동 보기' }).click();
+    await dialog.getByRole('button', { name: '커밋 3개' }).click();
+    await expect(dialog.getByText('시설 배치 계산 추가')).toBeVisible();
+
+    expect(github.queries('activity')).toEqual([
+      { repo: alpha, activity: 'comments', number: '1', page: '1' },
+      { repo: alpha, activity: 'commits', number: '11', page: '1' },
+    ]);
+    // 집계가 응답에 다 있었으므로 창을 열 때 집계 요청은 없었습니다.
     expect(github.count('summary')).toBe(0);
 
     await dialog.getByRole('button', { name: '닫기' }).click();
     await expect(dialog).toBeHidden();
   });
 
-  test('몬스터: 실패한 이슈는 사유를 보여 준다', async ({ page }) => {
-    await openWorld(page);
+  test('몬스터: 실패한 이슈는 사유를 보여 주고, 없는 집계는 이슈로 조회한다', async ({
+    page,
+  }) => {
+    const github = await openWorld(page);
     await page.getByRole('button', { name: /^이슈 #2 / }).click();
     const dialog = page.getByRole('dialog', { name: '이슈 #2' });
 
     await expect(dialog.getByText('품질 시험이 실패했습니다.')).toBeVisible();
     await expect(dialog.getByRole('img', { name: '실행 실패' })).toBeVisible();
+    // 이슈 집계(댓글 6개)가 활동량에 반영됩니다. PR 집계 값(5)이면 실패합니다.
+    await expect(dialog.locator('.activity-totals dd')).toHaveText([
+      '0',
+      '6',
+      '0',
+      '0',
+    ]);
+    expect(github.queries('summary')).toEqual([
+      { repo: alpha, summary: 'issue', number: '2' },
+    ]);
   });
 
   test('개발 광장: 작업 중인 시설과 시설 이력을 나눠 보여 준다', async ({

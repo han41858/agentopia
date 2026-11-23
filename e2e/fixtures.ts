@@ -6,7 +6,7 @@ import type {
   Report,
   RepositoryPage,
 } from '../server/model.ts';
-import type { PullActivity } from '../server/activity.ts';
+import type { Discussion, PullActivity } from '../server/activity.ts';
 
 // 화면 테스트가 쓰는 고정 응답입니다. 타입을 서버 모델에 맞춰 두어
 // 모델이 바뀌면 `npm run build`의 타입 검사에서 먼저 드러납니다.
@@ -277,6 +277,44 @@ export const commitPage: ActivityPage = {
       at: '2026-11-20T00:00:00Z',
     },
   ],
+};
+
+export const commentPage: ActivityPage = {
+  entries: [
+    {
+      title: '댓글 1',
+      url: `https://github.com/${alpha}/issues/1#issuecomment-1`,
+      author: 'han41858',
+      body: '지도 개편 범위를 정리했습니다.',
+      at: '2026-11-19T00:00:00Z',
+    },
+    {
+      title: '댓글 2',
+      url: `https://github.com/${alpha}/issues/1#issuecomment-2`,
+      author: 'codex-bot',
+      body: '시설 배치부터 진행합니다.',
+      at: '2026-11-19T01:00:00Z',
+    },
+  ],
+};
+
+export const reviewPage: ActivityPage = {
+  entries: [
+    {
+      title: '리뷰 1',
+      url: `https://github.com/${alpha}/pull/11#pullrequestreview-1`,
+      author: 'claude-bot',
+      body: '배치 계산을 확인했습니다.',
+      status: '승인',
+      at: '2026-11-21T02:00:00Z',
+    },
+  ],
+};
+
+export const issueSummary: Discussion = {
+  comments: 6,
+  people: ['han41858'],
+  complete: true,
 };
 
 export const ownerPage: RepositoryPage = {

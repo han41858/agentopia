@@ -31,7 +31,9 @@ npm run test:ui
 
 [e2e/](../e2e)의 테스트는 빌드 결과물을 Chromium에서 열어 왕국 표시, 상세 창, 저장소·토큰·표시 모드 설정, 예외 상태, 화면 폭별 배치, 갱신 요청 수를 확인합니다. GitHub 요청은 모두 [e2e/fixtures.ts](../e2e/fixtures.ts)의 고정 응답으로 대체하므로 토큰이나 네트워크 없이 실행됩니다. 응답 구조를 바꾸면 고정 응답이 `npm run build`의 타입 검사에 걸립니다.
 
-화면에 새 동작을 추가하면 해당 흐름의 테스트를 함께 추가합니다. 요청이 없어야 함을 확인할 때는 뒤이은 요청이 도착한 다음에 요청 기록을 비교합니다. PR에서는 화면에 영향을 주는 파일이 바뀐 경우에만 [UI test](../.github/workflows/ui-test.yml) 워크플로가 실행됩니다.
+화면에 새 동작을 추가하면 해당 흐름의 테스트를 함께 추가합니다. 요청이 없어야 함을 확인할 때는 뒤이은 요청이 도착한 다음에 요청 기록을 비교합니다.
+
+PR과 `dev` 푸시에서는 [CI](../.github/workflows/ci.yml)의 **UI test** 작업이 [변경 경로](../.github/scripts/ui_test_scope.py)를 보고, 화면에 영향을 주는 파일(`src/`, `server/`, `api/`, `assets/`, `e2e/`, 빌드 설정)이 바뀐 경우에만 브라우저 테스트를 실행합니다. 그 밖의 변경에서는 테스트 단계를 건너뛰고 성공으로 끝납니다. **Test and build**와 같은 워크플로이므로 AI completion은 두 작업이 모두 통과한 뒤에 머지합니다.
 
 ## Vercel 배포
 
@@ -55,7 +57,7 @@ GitHub Releases에는 이 워크플로가 발행한 최신 성공 릴리스 하�
 
 저장소 쓰기 권한이 있는 사용자가 열린 이슈에 `ai:develop` 라벨을 붙이면 Codex가 변경을 준비하고 Claude가 해당 커밋을 리뷰합니다. 이슈마다 `ai/issue-<번호>-codex` 브랜치와 `dev` 대상 초안 PR 한 개를 사용합니다. 변경 범위는 `src/`, `server/`, `docs/`의 Markdown·TypeScript·CSS와 `README.md`입니다. `api/`에서는 기존 파일의 내용만 수정할 수 있습니다.
 
-- Claude 리뷰와 같은 커밋의 PR CI가 통과하면 **AI completion**이 초안을 검토 준비 상태로 전환하고 dev에 스쿼시 머지합니다. 머지가 확인되면 이슈를 completed로 닫습니다. 완료 단계만 재시도하려면 AI completion에서 이슈 번호로 수동 실행합니다. PR CI는 모델 키와 게시 토큰 없이 실행됩니다.
+- Claude 리뷰와 같은 커밋의 PR CI(**Test and build**와 **UI test**)가 통과하면 **AI completion**이 초안을 검토 준비 상태로 전환하고 dev에 스쿼시 머지합니다. 머지가 확인되면 이슈를 completed로 닫습니다. 완료 단계만 재시도하려면 AI completion에서 이슈 번호로 수동 실행합니다. PR CI는 모델 키와 게시 토큰 없이 실행됩니다.
 - 이슈의 `ai:develop` 라벨을 유지한 상태에서 **AI development → Run workflow**에 이슈 번호를 입력하면 기존 초안을 이어서 처리합니다. `dev`가 앞서 있으면 PR에 `dev`를 반영한 뒤 실행합니다. 이슈를 닫거나 `ai:stop`을 붙이면 다음 게시 단계에서 실행을 중단합니다.
 - **Issues → Labels**에서 `ai:develop`과 `ai:stop`을 만듭니다.
 - Actions에 `ai-development` 환경을 만들고 배포 브랜치를 `dev`로 제한합니다. 환경 시크릿에 `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `AI_AUTOMATION_TOKEN`을, 환경 변수에 `AI_CODEX_MODEL`, `AI_CLAUDE_MODEL`을 설정합니다. 게시 토큰은 Agentopia 저장소의 Contents 및 Pull requests 쓰기 권한을 가진 GitHub App 토큰 또는 fine-grained PAT가 필요합니다. 별도 게시 토큰을 사용해야 PR 이벤트에서 일반 CI가 시작됩니다.

@@ -1,4 +1,4 @@
-import type { Locator } from '@playwright/test';
+import type { Locator, Page } from '@playwright/test';
 import { alpha, noPlaza } from './fixtures.ts';
 import { openWorld } from './github.ts';
 import { expect, test } from './test.ts';
@@ -34,14 +34,62 @@ function overlappingPairs(items: Box[]) {
   return pairs;
 }
 
-for (const width of [1280, 390, 320]) {
-  test.describe(`화면 폭 ${width}px`, () => {
-    test.use({ viewport: { width, height: 800 } });
+/**
+ * 성벽 안쪽 도형(위가 둥근 아치) 밖으로 모서리가 나간 요소의 이름을 돌려줍니다.
+ * 화면 좌표를 성벽 SVG 좌표로 바꿔 판정하므로 지도 축소 배율과 무관합니다.
+ */
+function outsideWall(page: Page, selector: string) {
+  return page.locator('.kingdom-area').evaluateAll((areas, selector) => {
+    const outside: string[] = [];
+    for (const area of areas) {
+      const wall = area.querySelector<SVGSVGElement>('.kingdom-wall');
+      const shape = wall?.querySelector<SVGPathElement>('defs path');
+      const matrix = wall?.getScreenCTM()?.inverse();
+      if (!shape || !matrix) throw new Error('성벽 도형을 찾지 못했습니다.');
+      for (const node of area.querySelectorAll(selector)) {
+        const box = node.getBoundingClientRect();
+        const corners = [
+          [box.left, box.top],
+          [box.right, box.top],
+          [box.left, box.bottom],
+          [box.right, box.bottom],
+        ];
+        const inside = corners.every(([x, y]) =>
+          shape.isPointInFill(new DOMPoint(x, y).matrixTransform(matrix)),
+        );
+        if (!inside)
+          outside.push(node.getAttribute('aria-label') ?? node.className);
+      }
+    }
+    return outside;
+  }, selector);
+}
 
-    test('요소가 화면 밖으로 나가거나 서로 겹치지 않는다', async ({ page }) => {
+// 터치 화면에서 누르는 요소의 최소 크기(src/styles.css의 --map-hit-size).
+const touchTarget = 44;
+
+for (const width of [1280, 390, 320]) {
+  // 좁은 화면은 터치 기기로 실행해 `pointer: coarse` 전용 스타일까지 확인합니다.
+  const touch = width < 640;
+
+  test.describe(`화면 폭 ${width}px${touch ? ' · 터치' : ''}`, () => {
+    // 성벽은 크기가 바뀔 때 잠깐 늘어나는 동작이 있어, 위치를 재는 테스트는
+    // 동작 줄이기 설정으로 최종 배치만 봅니다.
+    test.use({
+      viewport: { width, height: 800 },
+      hasTouch: touch,
+      reducedMotion: 'reduce',
+    });
+
+    test.beforeEach(async ({ page }) => {
       await openWorld(page, [alpha, noPlaza]);
       await expect(page.locator('.heritage-slot')).toHaveCount(3);
+      expect(
+        await page.evaluate(() => matchMedia('(pointer: coarse)').matches),
+      ).toBe(touch);
+    });
 
+    test('요소가 화면 밖으로 나가거나 서로 겹치지 않는다', async ({ page }) => {
       // 가로 스크롤이 생기지 않습니다.
       const overflow = await page.evaluate(
         () =>
@@ -75,31 +123,79 @@ for (const width of [1280, 390, 320]) {
       expect(overlappingPairs(monsters)).toEqual([]);
       expect(overlappingPairs([...palaces, ...heritage])).toEqual([]);
       expect(overlappingPairs([...palaces, ...facilities])).toEqual([]);
+    });
 
-      // 시설은 자기 왕국의 성벽 안에 있습니다.
-      for (const kingdom of await page.locator('.kingdom-area').all()) {
-        const [area] = await boxes(kingdom);
-        for (const box of await boxes(kingdom.locator('.facility-marker'))) {
-          expect(box.x).toBeGreaterThanOrEqual(area.x);
-          expect(box.x + box.width).toBeLessThanOrEqual(area.x + area.width);
-          expect(box.y).toBeGreaterThanOrEqual(area.y);
-          expect(box.y + box.height).toBeLessThanOrEqual(area.y + area.height);
-        }
-      }
+    test('시설, 유산, 도로 노드가 둥근 성벽 안에 있다', async ({ page }) => {
+      await expect
+        .poll(() => outsideWall(page, '.facility-marker'))
+        .toEqual([]);
+      await expect.poll(() => outsideWall(page, '.heritage-slot')).toEqual([]);
+      await expect
+        .poll(() => outsideWall(page, '.branch-road-node'))
+        .toEqual([]);
+      // 판정이 실제로 아치를 따르는지: 사각 경계 안이지만 아치 밖인 왼쪽 위
+      // 모서리 근처는 밖으로 나옵니다.
+      const corner = await page
+        .locator('.kingdom-area')
+        .first()
+        .evaluate((area) => {
+          const wall = area.querySelector<SVGSVGElement>('.kingdom-wall');
+          const shape = wall?.querySelector<SVGPathElement>('defs path');
+          const matrix = wall?.getScreenCTM()?.inverse();
+          const box = area.getBoundingClientRect();
+          const point = new DOMPoint(box.left + 12, box.top + 12);
+          return shape?.isPointInFill(point.matrixTransform(matrix));
+        });
+      expect(corner).toBe(false);
     });
 
     test('상세 창이 화면 안에 들어온다', async ({ page }) => {
-      await openWorld(page, [alpha]);
-      await page.getByRole('button', { name: /PR #11/ }).click();
-      const [dialog] = await boxes(
-        page.getByRole('dialog', { name: 'PR #11' }),
-      );
+      const facility = page.getByRole('button', { name: /PR #11/ });
+      if (touch) await facility.tap();
+      else await facility.click();
+      const dialog = page.getByRole('dialog', { name: 'PR #11' });
+      const [box] = await boxes(dialog);
 
-      expect(dialog.x).toBeGreaterThanOrEqual(0);
-      expect(dialog.x + dialog.width).toBeLessThanOrEqual(width);
+      expect(box.x).toBeGreaterThanOrEqual(0);
+      expect(box.x + box.width).toBeLessThanOrEqual(width);
       await expect(
-        page.getByRole('dialog').getByRole('button', { name: '닫기' }),
+        dialog.getByRole('button', { name: '닫기' }),
       ).toBeInViewport();
     });
+
+    if (touch) {
+      test('터치로 누르는 요소가 충분히 크다', async ({ page }) => {
+        const targets = [
+          ...(await boxes(page.locator('.mode-switch-option'))),
+          ...(await boxes(page.locator('.facility-marker'))),
+          ...(await boxes(page.locator('.heritage-slot'))),
+          ...(await boxes(
+            page.locator('.branch-road-node[data-road-role="road"]'),
+          )),
+        ];
+        expect(targets).toHaveLength(2 + 4 + 3 + 4);
+        for (const box of targets) {
+          expect(Math.round(box.width)).toBeGreaterThanOrEqual(touchTarget);
+          expect(Math.round(box.height)).toBeGreaterThanOrEqual(touchTarget);
+        }
+
+        await page.getByRole('button', { name: /PR #11/ }).tap();
+        const counters = await boxes(
+          page.getByRole('dialog').locator('.activity-counter'),
+        );
+        expect(counters).toHaveLength(3);
+        for (const box of counters) {
+          expect(Math.round(box.width)).toBeGreaterThanOrEqual(touchTarget);
+          expect(Math.round(box.height)).toBeGreaterThanOrEqual(touchTarget);
+        }
+      });
+    } else {
+      test('마우스 화면에서는 터치용 확대가 적용되지 않는다', async ({
+        page,
+      }) => {
+        const [option] = await boxes(page.locator('.mode-switch-option'));
+        expect(option.height).toBeLessThan(touchTarget);
+      });
+    }
   });
 }
