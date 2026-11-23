@@ -12,6 +12,7 @@
 | 상세 팝업                      | [src/detail-dialogs.tsx](../src/detail-dialogs.tsx)       |
 | 자동 갱신                      | [src/use-region-refresh.ts](../src/use-region-refresh.ts) |
 | SVG 원본과 화면 연결           | [SVG 도감](assets.md)                                     |
+| 화면 테스트와 고정 응답        | [e2e/](../e2e)                                            |
 
 ## 검증
 
@@ -20,6 +21,17 @@ npm test
 npm run build
 npm run format:check
 ```
+
+### 화면 테스트
+
+```bash
+npx playwright install chromium # 처음 한 번
+npm run test:ui
+```
+
+[e2e/](../e2e)의 테스트는 빌드 결과물을 Chromium에서 열어 왕국 표시, 상세 창, 저장소·토큰·표시 모드 설정, 예외 상태, 화면 폭별 배치, 갱신 요청 수를 확인합니다. GitHub 요청은 모두 [e2e/fixtures.ts](../e2e/fixtures.ts)의 고정 응답으로 대체하므로 토큰이나 네트워크 없이 실행됩니다. 응답 구조를 바꾸면 고정 응답이 `npm run build`의 타입 검사에 걸립니다.
+
+화면에 새 동작을 추가하면 해당 흐름의 테스트를 함께 추가합니다. 요청이 없어야 함을 확인할 때는 뒤이은 요청이 도착한 다음에 요청 기록을 비교합니다. PR에서는 화면에 영향을 주는 파일이 바뀐 경우에만 [UI test](../.github/workflows/ui-test.yml) 워크플로가 실행됩니다.
 
 ## Vercel 배포
 
