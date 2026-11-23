@@ -387,7 +387,7 @@ Report material findings with their location, impact, evidence and fix. Do not e
       );
     await save(
       'ready',
-      `PR #${pull.number}의 AI 리뷰가 통과했습니다. CI와 초안 PR을 확인하세요.`,
+      `PR #${pull.number}의 AI 리뷰가 통과했습니다. CI가 통과하면 자동으로 머지하고 이슈를 닫습니다.`,
     );
   } catch (error) {
     delete state.reviewInProgress;
