@@ -56,6 +56,7 @@ svg {
 .world {
   min-height: 100dvh;
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   grid-template-rows: auto 1fr auto;
   background-color: #152b22;
   background-image:
