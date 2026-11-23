@@ -143,6 +143,8 @@ test('release history uses published releases and excludes drafts and workflow r
   context.mock.method(globalThis, 'fetch', async (input: string) => {
     const path = new URL(input).pathname;
     if (path.endsWith('/actions/runs')) return Response.json({ workflow_runs });
+    if (path.endsWith('/git/commits/abc'))
+      return Response.json({ committer: { date: release.published_at } });
     if (path.endsWith('/tags'))
       return Response.json(
         ['v1', 'tag-only'].map((name) => ({ name, commit: { sha: 'abc' } })),
@@ -166,7 +168,13 @@ test('release history uses published releases and excludes drafts and workflow r
     'GET',
   );
   assert.equal(response.status, 200);
-  assert.deepEqual(JSON.parse(response.body).tags, ['v1', 'tag-only']);
+  assert.deepEqual(
+    JSON.parse(response.body).tags,
+    ['v1', 'tag-only'].map((name) => ({
+      name,
+      committedAt: release.published_at,
+    })),
+  );
   assert.deepEqual(JSON.parse(response.body).releases, [
     {
       title: 'v2-beta',

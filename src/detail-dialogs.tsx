@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import type { PullQuest, Quest, Region } from '../server/model.ts';
 import {
+  PortalKeeperGlyph,
   AdventurerGlyph,
   AdventurerParty,
   agentNames,
@@ -379,7 +380,12 @@ export function PlazaDetail({
 
 // Report warnings that can leave the release history missing or out of date.
 // The labels are set where the report is loaded, in server/github-report.ts.
-const releaseWarnings = new Set(['릴리스', '태그', 'GitHub API 사용 한도']);
+const releaseWarnings = new Set([
+  '릴리스',
+  '태그',
+  '태그 커밋 시각',
+  'GitHub API 사용 한도',
+]);
 
 export function RegionDetail({
   region,
@@ -393,20 +399,26 @@ export function RegionDetail({
   close: () => void;
 }) {
   const [confirmRemoval, setConfirmRemoval] = useState(false);
+  const [visibleCount, setVisibleCount] = useState(10);
   const report = snapshot?.report;
   const publishedTags = new Set(
     report?.releases.map((release) => release.title),
   );
   const tagRows = (report?.tags ?? [])
-    .filter((tag) => !publishedTags.has(tag))
+    .map((tag) =>
+      typeof tag === 'string' ? { name: tag, committedAt: undefined } : tag,
+    )
+    .filter((tag) => !publishedTags.has(tag.name))
     .map((tag) => ({
-      title: tag,
-      url: `https://github.com/${region.slug}/tree/${encodeURIComponent(tag)}`,
+      title: tag.name,
+      url: `https://github.com/${region.slug}/tree/${tag.name.split('/').map(encodeURIComponent).join('/')}`,
       status: '태그',
       stage: 'idle',
-      at: undefined,
+      at: tag.committedAt,
     }));
-  const history = [...(report?.releases ?? []), ...tagRows];
+  const history = [...(report?.releases ?? []), ...tagRows].sort((a, b) =>
+    (b.at ?? '').localeCompare(a.at ?? ''),
+  );
   const warnings =
     report?.warnings.filter((label) => releaseWarnings.has(label)) ?? [];
   if (confirmRemoval) {
@@ -473,10 +485,13 @@ export function RegionDetail({
       {history.length > 0 && (
         <>
           <h4>
+            {!!report?.releases.length && (
+              <PortalKeeperGlyph className="release-keeper" />
+            )}{' '}
             왕국 배포 기록 <small>(KST)</small>
           </h4>
           <div className="release-history">
-            {history.map((release) => {
+            {history.slice(0, visibleCount).map((release) => {
               const status = release.status;
               return (
                 <a
@@ -490,18 +505,38 @@ export function RegionDetail({
                     .join(' · ')}
                 >
                   {release.at && Number.isFinite(Date.parse(release.at)) ? (
-                    <time dateTime={release.at}>
+                    <time
+                      dateTime={release.at}
+                      title={
+                        status === '태그'
+                          ? '태그 대상 커밋 시각'
+                          : '릴리스 게시 시각'
+                      }
+                    >
                       {releaseTime.format(new Date(release.at))}
                     </time>
                   ) : (
-                    <span aria-label="게시 시각 없음">—</span>
+                    <span aria-label="시각 미확인">—</span>
                   )}
-                  <span className={`badge ${release.stage}`}>{status}</span>
+                  <span className={`badge ${release.stage}`}>
+                    {status === '태그' ? '태그 · 커밋' : status}
+                  </span>
                   <span className="release-name">{release.title}</span>
                 </a>
               );
             })}
           </div>
+          {visibleCount < history.length && (
+            <button
+              className="text-button"
+              onClick={() => setVisibleCount((count) => count + 10)}
+            >
+              더 보기 ({visibleCount}/{history.length})
+            </button>
+          )}
+          {report?.tagsPartial && (
+            <p>익명 조회는 GitHub가 반환한 첫 30개 태그 안에서 정렬합니다.</p>
+          )}
         </>
       )}
     </Dialog>

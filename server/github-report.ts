@@ -17,6 +17,7 @@ import {
   GitHubError,
   client,
 } from './github-client.ts';
+import { readTags } from './github-tags.ts';
 import { nativePullLinks } from './github-pull-links.ts';
 
 export const publicReports = new Map<
@@ -70,39 +71,33 @@ export async function getReport(
     }
   }
 
-  const [issuePage, pullPage, workflow, releasePage, tags] = await Promise.all([
-    get<Issue[]>(
-      `/issues${recent}&state=all&sort=updated&direction=desc`,
-    ).catch((error) => {
-      if (!(error instanceof GitHubError) || error.status !== 410) throw error;
-      warnings.add('이슈 비활성화');
-      return [];
-    }),
-    optional(
-      'PR',
-      get<Pull[]>(`/pulls${recent}&state=all&sort=updated&direction=desc`),
-      [],
-    ),
-    optional(
-      'Actions',
-      get<{ workflow_runs: Run[] }>('/actions/runs?per_page=100'),
-      { workflow_runs: [] },
-    ),
-    optional(
-      '릴리스',
-      get<GitHubRelease[]>('/releases?per_page=30', undefined, 45_000),
-      [],
-    ),
-    optional(
-      '태그',
-      get<{ name: string; commit: { sha: string } }[]>(
-        '/tags?per_page=30',
-        undefined,
-        120_000,
+  const [issuePage, pullPage, workflow, releasePage, tagResult] =
+    await Promise.all([
+      get<Issue[]>(
+        `/issues${recent}&state=all&sort=updated&direction=desc`,
+      ).catch((error) => {
+        if (!(error instanceof GitHubError) || error.status !== 410)
+          throw error;
+        warnings.add('이슈 비활성화');
+        return [];
+      }),
+      optional(
+        'PR',
+        get<Pull[]>(`/pulls${recent}&state=all&sort=updated&direction=desc`),
+        [],
       ),
-      [],
-    ),
-  ]);
+      optional(
+        'Actions',
+        get<{ workflow_runs: Run[] }>('/actions/runs?per_page=100'),
+        { workflow_runs: [] },
+      ),
+      optional(
+        '릴리스',
+        get<GitHubRelease[]>('/releases?per_page=30', undefined, 45_000),
+        [],
+      ),
+      optional('태그', readTags(region, token, force), undefined),
+    ]);
   const runs = [...workflow.workflow_runs].sort((a, b) => b.id - a.id);
   const issues = new Map(
     issuePage
@@ -236,7 +231,35 @@ export async function getReport(
     Promise.all(issueTasks),
     commentsTask,
   ]);
-  const tagCommits = new Map(tags.map((tag) => [tag.name, tag.commit.sha]));
+  const tags = tagResult?.tags ?? [];
+  if (tagResult?.missingDates) warnings.add('태그 커밋 시각');
+  const tagCommits = new Map(tags.map((tag) => [tag.name, tag.sha]));
+  for (const [name, sha] of tagResult?.releaseCommits ?? [])
+    tagCommits.set(name, sha);
+  // Only issue attribution needs a release outside the observed tag window resolved.
+  if (pulls.some((pull) => pull.merged_at && pull.merge_commit_sha)) {
+    await Promise.all(
+      releasePage
+        .filter(
+          (release) =>
+            !release.draft &&
+            release.published_at &&
+            !tagCommits.get(release.tag_name),
+        )
+        .map(async (release) => {
+          const commit = await optional(
+            '릴리스 커밋',
+            get<{ sha: string }>(
+              `/commits/refs%2Ftags%2F${encodeURIComponent(release.tag_name)}`,
+              undefined,
+              120_000,
+            ),
+            undefined,
+          );
+          if (commit?.sha) tagCommits.set(release.tag_name, commit.sha);
+        }),
+    );
+  }
   const releases: Release[] = releasePage.flatMap((release) =>
     !release.draft && release.published_at
       ? [
@@ -288,7 +311,8 @@ export async function getReport(
     releases: releases
       .toSorted((a, b) => (b.at ?? '').localeCompare(a.at ?? ''))
       .map(({ sha, ...release }) => release),
-    tags: tags.map((tag) => tag.name),
+    tags: tags.map(({ name, committedAt }) => ({ name, committedAt })),
+    tagsPartial: tagResult?.partial,
     updatedAt: new Date().toISOString(),
     warnings: [...warnings].sort(),
   };

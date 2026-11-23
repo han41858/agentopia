@@ -652,6 +652,9 @@ svg {
 .quest-row small {
   color: #bdadc9;
 }
+.release-keeper {
+  vertical-align: middle;
+}
 .release-history {
   display: grid;
   grid-template-columns: max-content max-content minmax(0, 1fr);

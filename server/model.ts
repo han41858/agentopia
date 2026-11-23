@@ -144,7 +144,8 @@ export type Report = {
   forges?: PullQuest[];
   branchInventory?: BranchInventory;
   branchPulls?: BranchPull[];
-  tags?: string[];
+  tags?: (string | { name: string; committedAt?: string })[];
+  tagsPartial?: boolean;
   releases: Omit<Release, 'sha'>[];
   updatedAt: string;
   warnings: string[];

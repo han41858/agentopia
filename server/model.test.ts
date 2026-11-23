@@ -343,6 +343,16 @@ test('API gets only the allowed repository and keeps authenticated reports out o
         url,
         authorization: new Headers(options.headers).get('authorization'),
       });
+      if (path === '/graphql') {
+        const body = JSON.parse(String(options.body));
+        assert.deepEqual(body.variables, { owner: 'han41858', name: 'videx' });
+        assert.match(body.query, /TAG_COMMIT_DATE/);
+        return Response.json({
+          data: {
+            repository: { refs: { nodes: [] }, releases: { nodes: [] } },
+          },
+        });
+      }
       if (path.endsWith('/issues')) return Response.json([issue(1)]);
       if (path.endsWith('/actions/runs'))
         return Response.json({ workflow_runs: [] });
@@ -358,8 +368,10 @@ test('API gets only the allowed repository and keeps authenticated reports out o
   assert.deepEqual(JSON.parse(publicReport.body).warnings, ['PR']);
   assert.equal(calls.length, 12);
   assert.ok(
-    calls.every(({ url }) =>
-      url.startsWith('https://api.github.com/repos/han41858/videx/'),
+    calls.every(
+      ({ url }) =>
+        url === 'https://api.github.com/graphql' ||
+        url.startsWith('https://api.github.com/repos/han41858/videx/'),
     ),
   );
   assert.ok(
