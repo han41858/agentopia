@@ -604,6 +604,16 @@ svg {
 .text-button:hover {
   color: #fff1ca;
 }
+.work-list-button {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  width: max-content;
+  margin: 0 auto 4px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--mortar);
+}
 .quest-tree,
 .quest-tree ul {
   padding: 0;

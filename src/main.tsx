@@ -756,16 +756,10 @@ function Badge({ stage, label }: { stage: Stage; label?: string }) {
   );
 }
 
-function IssueBadge({
-  quest,
-  showOutcome = true,
-}: {
-  quest: Quest;
-  showOutcome?: boolean;
-}) {
+function IssueBadge({ quest }: { quest: Quest }) {
   return (
     <span className="monster-statuses">
-      {showOutcome && quest.state === 'closed' && (
+      {quest.state === 'closed' && (
         <span
           className="badge complete"
           role="img"
@@ -774,9 +768,7 @@ function IssueBadge({
           <Check size={14} aria-hidden="true" />
         </span>
       )}
-      {showOutcome && quest.victory && (
-        <Badge stage="complete" label="제작 결과 반영" />
-      )}
+      {quest.victory && <Badge stage="complete" label="제작 결과 반영" />}
       {quest.stage !== 'idle' && quest.stage !== 'complete' ? (
         <Badge stage={quest.stage} />
       ) : quest.state === 'open' && !quest.victory ? (
@@ -1461,11 +1453,13 @@ function FacilityRows({
 function PlazaDetail({
   region,
   pulls,
+  title = '개발 광장',
   openPull,
   close,
 }: {
   region: Region;
   pulls: PullQuest[];
+  title?: string;
   openPull: (pull: PullQuest) => void;
   close: () => void;
 }) {
@@ -1476,7 +1470,7 @@ function PlazaDetail({
       (right.finishedAt ?? '').localeCompare(left.finishedAt ?? ''),
     );
   return (
-    <Dialog title="개발 광장" close={close}>
+    <Dialog title={title} close={close}>
       <h4>작업중</h4>
       {current.length ? (
         <FacilityRows entries={current} openPull={openPull} />
@@ -1499,63 +1493,30 @@ function PlazaDetail({
   );
 }
 
+// Report warnings that can leave the release history missing or out of date.
+// The labels are set where the report is loaded, in server/github-report.ts.
+const releaseWarnings = new Set([
+  '배포',
+  '배포 상태',
+  'Actions',
+  'GitHub API 사용 한도',
+]);
+
 function RegionDetail({
   region,
   snapshot,
-  openQuest,
-  openWork,
   remove,
   close,
 }: {
   region: Region;
   snapshot?: Snapshot;
-  openQuest: (quest: Quest) => void;
-  openWork?: () => void;
   remove: () => void;
   close: () => void;
 }) {
   const [confirmRemoval, setConfirmRemoval] = useState(false);
-  const quests = snapshot?.report?.quests ?? [];
-  const known = new Set(quests.map((quest) => quest.number));
-  const roots = quests.filter(
-    (quest) => !quest.parent || !known.has(quest.parent),
-  );
-  const ordered = [...roots].sort(
-    (a, b) =>
-      Number(alerts.has(b.stage)) - Number(alerts.has(a.stage)) ||
-      Number(activeStages.has(b.stage)) - Number(activeStages.has(a.stage)) ||
-      b.number - a.number,
-  );
-  function render(quest: Quest, ancestry: number[] = []) {
-    const children = quests.filter(
-      (child) =>
-        child.parent === quest.number && !ancestry.includes(child.number),
-    );
-    return (
-      <li key={quest.number}>
-        <button className="quest-row" onClick={() => openQuest(quest)}>
-          <span className="quest-row-title">
-            <small>이슈 #{quest.number}</small>
-            <strong>{quest.title}</strong>
-          </span>
-          <AdventurerParty
-            members={quest.adventurers ?? []}
-            resting={monsterRest(quest)}
-          />
-          <IssueBadge quest={quest} showOutcome={false} />
-          <ChevronRight size={16} />
-        </button>
-        {children.length > 0 && (
-          <ul>
-            {children.map((child) =>
-              render(child, [...ancestry, quest.number]),
-            )}
-          </ul>
-        )}
-      </li>
-    );
-  }
-
+  const report = snapshot?.report;
+  const warnings =
+    report?.warnings.filter((label) => releaseWarnings.has(label)) ?? [];
   if (confirmRemoval) {
     return (
       <Dialog
@@ -1608,27 +1569,23 @@ function RegionDetail({
       }
     >
       {snapshot?.error && <p className="fetch-error">{snapshot.error}</p>}
-      {snapshot?.report?.warnings.length ? (
+      {warnings.length > 0 && (
         <p className="fetch-error">
-          일부 기록을 확인하지 못했습니다 ·{' '}
-          {snapshot.report.warnings.join(', ')}
+          일부 기록을 확인하지 못했습니다 · {warnings.join(', ')}
         </p>
-      ) : null}
-      {ordered.length > 0 && (
-        <ul className="quest-tree">{ordered.map((quest) => render(quest))}</ul>
       )}
-      {openWork && (
-        <button className="text-button" onClick={openWork}>
-          작업 목록
-        </button>
-      )}
-      {!!snapshot?.report?.releases.length && (
+      {!report && !snapshot?.error && <p>배포 기록을 조회하고 있습니다.</p>}
+      {report &&
+        !report.releases.length &&
+        !warnings.length &&
+        !snapshot?.error && <p>배포 기록이 없습니다.</p>}
+      {!!report?.releases.length && (
         <>
           <h4>
             왕국 배포 기록 <small>(KST)</small>
           </h4>
           <div className="release-history">
-            {snapshot.report.releases.map((release, index) => {
+            {report.releases.map((release, index) => {
               const status = release.status?.split(' · ')[0];
               return (
                 <a
@@ -2481,6 +2438,16 @@ function App() {
                         }
                       />
                     )}
+                    {!placement?.plazaRoad && forges.length > 0 && (
+                      <button
+                        className="text-button work-list-button"
+                        onClick={() =>
+                          setSelectedRoad({ region, selection: 'plaza' })
+                        }
+                      >
+                        작업 목록
+                      </button>
+                    )}
                     {visibleFacilities.length > 0 && (
                       <ul
                         className="expeditions kingdom-workshops"
@@ -2567,14 +2534,6 @@ function App() {
           key={selected.slug}
           region={selected}
           snapshot={snapshots[selected.slug]}
-          openWork={
-            roadPlacements.get(selected.slug)?.plazaRoad
-              ? undefined
-              : () => setSelectedRoad({ region: selected, selection: 'plaza' })
-          }
-          openQuest={(item) =>
-            setSelectedQuest({ region: selected, number: item.number })
-          }
           remove={() => removeRegion(selected)}
           close={() => setSelected(undefined)}
         />
@@ -2612,6 +2571,11 @@ function App() {
         <PlazaDetail
           region={selectedRoad.region}
           pulls={reportForges(snapshots[selectedRoad.region.slug]?.report)}
+          title={
+            roadPlacements.get(selectedRoad.region.slug)?.plazaRoad
+              ? undefined
+              : '작업 목록'
+          }
           openPull={(item) => openPull(selectedRoad.region, item)}
           close={() => setSelectedRoad(undefined)}
         />
