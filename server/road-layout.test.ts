@@ -59,11 +59,16 @@ for (const defaultBranch of ['main', 'develop']) {
     const origin = centers.plaza ? 'M50 40 ' : 'M50 20 ';
     const branchPath = paths.find(({ key }) => key === 'feature');
     const guidePath = paths.find(({ key }) => key === 'unrelated');
-    assert.ok(branchPath?.d.startsWith(origin));
+    assert.ok(branchPath);
+    assert.ok(branchPath.d.startsWith(origin));
     assert.equal(branchPath.guide, undefined);
-    assert.ok(guidePath?.d.startsWith(origin));
+    assert.ok(guidePath);
+    assert.ok(guidePath.d.startsWith(origin));
     assert.equal(guidePath.guide, true);
-    assert.equal(roads.find(({ name }) => name === 'unrelated')?.parent, undefined);
+    assert.equal(
+      roads.find(({ name }) => name === 'unrelated')?.parent,
+      undefined,
+    );
     const facilityPath = paths.find(({ pull }) => pull === 7);
     assert.equal(facilityPath?.from, 'feature');
     assert.equal(facilityPath?.d, 'M20 75 C20 85 20 85 20 95');

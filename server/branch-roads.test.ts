@@ -20,7 +20,10 @@ test('maps confirmed PR targets, keeps unmerged and merged routes separate from 
   const roads = buildBranchRoads(inventory, pulls);
   assert.equal(roads[0].name, 'release');
   assert.equal(roads[0].role, 'palace');
-  assert.equal(roads.some(({ role }) => role === 'plaza'), false);
+  assert.equal(
+    roads.some(({ role }) => role === 'plaza'),
+    false,
+  );
   assert.equal(roads.find(({ name }) => name === 'feature')?.parent, 'dev');
   assert.equal(roads.find(({ name }) => name === 'legacy')?.parent, undefined);
   assert.equal(roads.find(({ name }) => name === 'child')?.parent, 'feature');
@@ -192,7 +195,8 @@ for (const renamed of ['main', 'master']) {
       'fetch',
       async (input: string, options: RequestInit) => {
         const { pathname } = new URL(input);
-        if (pathname === root) return Response.json({ default_branch: 'trunk' });
+        if (pathname === root)
+          return Response.json({ default_branch: 'trunk' });
         if (pathname === `${root}/branches`)
           return Response.json([{ name: 'feature' }], {
             headers: { link: '<https://api.github.com/next>; rel="next"' },
@@ -204,7 +208,9 @@ for (const renamed of ['main', 'master']) {
         if (name === renamed)
           return new Response(null, {
             status: 301,
-            headers: { location: `https://api.github.com${root}/branches/trunk` },
+            headers: {
+              location: `https://api.github.com${root}/branches/trunk`,
+            },
           });
         if (name === 'main') return new Response(null, { status: 404 });
         return Response.json({ name: 'master' });
