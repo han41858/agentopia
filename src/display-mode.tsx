@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, type ReactNode } from 'react';
-import { Map, Workflow } from 'lucide-react';
+import { Map as MapIcon, Workflow } from 'lucide-react';
 
 type Mode = 'world' | 'simple';
 const storageKey = 'agentopia.display-mode';
@@ -11,7 +11,7 @@ const ModeContext = createContext<{
   select: () => {},
 });
 const options = [
-  { value: 'world', label: '월드 모드', Icon: Map },
+  { value: 'world', label: '월드 모드', Icon: MapIcon },
   { value: 'simple', label: '간단 모드', Icon: Workflow },
 ] as const;
 
