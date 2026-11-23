@@ -1453,11 +1453,13 @@ function FacilityRows({
 function PlazaDetail({
   region,
   pulls,
+  title = '개발 광장',
   openPull,
   close,
 }: {
   region: Region;
   pulls: PullQuest[];
+  title?: string;
   openPull: (pull: PullQuest) => void;
   close: () => void;
 }) {
@@ -1468,7 +1470,7 @@ function PlazaDetail({
       (right.finishedAt ?? '').localeCompare(left.finishedAt ?? ''),
     );
   return (
-    <Dialog title="개발 광장" close={close}>
+    <Dialog title={title} close={close}>
       <h4>작업중</h4>
       {current.length ? (
         <FacilityRows entries={current} openPull={openPull} />
@@ -2422,7 +2424,7 @@ function App() {
                     )}
                     {!placement?.plazaRoad && forges.length > 0 && (
                       <button
-                        className="text-button"
+                        className="text-button work-list-button"
                         onClick={() =>
                           setSelectedRoad({ region, selection: 'plaza' })
                         }
@@ -2553,6 +2555,11 @@ function App() {
         <PlazaDetail
           region={selectedRoad.region}
           pulls={reportForges(snapshots[selectedRoad.region.slug]?.report)}
+          title={
+            roadPlacements.get(selectedRoad.region.slug)?.plazaRoad
+              ? undefined
+              : '작업 목록'
+          }
           openPull={(item) => openPull(selectedRoad.region, item)}
           close={() => setSelectedRoad(undefined)}
         />
