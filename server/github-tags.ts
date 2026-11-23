@@ -55,22 +55,18 @@ export async function readTags(
     },
     120_000,
   );
-  // Commit objects are immutable, including across manual refreshes.
-  const get = client(region);
-  const dates = new Map<string, string>();
-  const shas = [...new Set(page.map((tag) => tag.commit.sha))];
-  for (let start = 0; start < shas.length; start += 5) {
-    await Promise.all(
-      shas.slice(start, start + 5).map(async (sha) => {
-        const commit = await get<{ committer: { date: string } }>(
-          '/git/commits/' + sha,
-          undefined,
-          24 * 60 * 60_000,
-        ).catch(() => undefined);
-        if (commit?.committer?.date) dates.set(sha, commit.committer.date);
-      }),
-    );
-  }
+  // One bounded page supplies dates for matching commits without a request per tag.
+  const commits = page.length
+    ? await client(region, undefined, force)<
+        {
+          sha: string;
+          commit: { committer: { date: string } | null };
+        }[]
+      >('/commits?per_page=100', undefined, 120_000).catch(() => [])
+    : [];
+  const dates = new Map(
+    commits.map((row) => [row.sha, row.commit.committer?.date]),
+  );
   const tags = page.map(({ name, commit }) => ({
     name,
     sha: commit.sha,
@@ -80,6 +76,6 @@ export async function readTags(
     tags,
     releaseCommits: new Map<string, string>(),
     partial,
-    missingDates: dates.size < shas.length,
+    missingDates: tags.some((tag) => !tag.committedAt),
   };
 }

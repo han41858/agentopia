@@ -73,6 +73,32 @@ export function retainParticipants(
   return members;
 }
 
+// Authenticated history stays in the tab, scoped to the repository and token.
+export function withCachedHistory(report: Report, previous: Report): Report {
+  const releases = previous.releases;
+  return {
+    ...report,
+    tags: previous.tags,
+    tagsPartial: previous.tagsPartial,
+    releases,
+    quests: report.quests.map((quest) => {
+      const release = releases.find(
+        (item) =>
+          item.sha && quest.pulls.some((pull) => pull.mergeSha === item.sha),
+      );
+      if (!release) return quest;
+      return quest.stage === 'complete'
+        ? {
+            ...quest,
+            released: true,
+            evidence: release,
+            reason: release.status,
+          }
+        : { ...quest, released: true };
+    }),
+  };
+}
+
 export function reportSnapshot(report: Report, previous?: Snapshot): Snapshot {
   if (!previous?.report) return { report };
   const oldReport = previous.report;

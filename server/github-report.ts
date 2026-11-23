@@ -59,6 +59,7 @@ export async function getReport(
   region: Region,
   token?: string,
   force = false,
+  includeHistory = true,
 ): Promise<Report> {
   const get = client(region, token, force);
   const warnings = new Set<string>();
@@ -91,12 +92,16 @@ export async function getReport(
         get<{ workflow_runs: Run[] }>('/actions/runs?per_page=100'),
         { workflow_runs: [] },
       ),
-      optional(
-        '릴리스',
-        get<GitHubRelease[]>('/releases?per_page=30', undefined, 45_000),
-        [],
-      ),
-      optional('태그', readTags(region, token, force), undefined),
+      includeHistory
+        ? optional(
+            '릴리스',
+            get<GitHubRelease[]>('/releases?per_page=30', undefined, 45_000),
+            [],
+          )
+        : [],
+      includeHistory
+        ? optional('태그', readTags(region, token, force), undefined)
+        : undefined,
     ]);
   const runs = [...workflow.workflow_runs].sort((a, b) => b.id - a.id);
   const issues = new Map(
@@ -246,6 +251,10 @@ export async function getReport(
             release.published_at &&
             !tagCommits.get(release.tag_name),
         )
+        .toSorted((a, b) =>
+          (b.published_at ?? '').localeCompare(a.published_at ?? ''),
+        )
+        .slice(0, token ? releasePage.length : 1)
         .map(async (release) => {
           const commit = await optional(
             '릴리스 커밋',
@@ -308,9 +317,9 @@ export async function getReport(
           ]
         : [],
     ),
-    releases: releases
-      .toSorted((a, b) => (b.at ?? '').localeCompare(a.at ?? ''))
-      .map(({ sha, ...release }) => release),
+    releases: releases.toSorted((a, b) =>
+      (b.at ?? '').localeCompare(a.at ?? ''),
+    ),
     tags: tags.map(({ name, committedAt }) => ({ name, committedAt })),
     tagsPartial: tagResult?.partial,
     updatedAt: new Date().toISOString(),
@@ -318,8 +327,13 @@ export async function getReport(
   };
 }
 
-export function regionReport(region: Region, token?: string, force = false) {
-  if (token) return getReport(region, token, force);
+export function regionReport(
+  region: Region,
+  token?: string,
+  force = false,
+  includeHistory = true,
+) {
+  if (token) return getReport(region, token, force, includeHistory || force);
   const cached = publicReports.get(region.slug);
   const now = Date.now();
   const limit = publicRateLimit.current;

@@ -405,9 +405,6 @@ export function RegionDetail({
     report?.releases.map((release) => release.title),
   );
   const tagRows = (report?.tags ?? [])
-    .map((tag) =>
-      typeof tag === 'string' ? { name: tag, committedAt: undefined } : tag,
-    )
     .filter((tag) => !publishedTags.has(tag.name))
     .map((tag) => ({
       title: tag.name,

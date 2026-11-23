@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { withCachedHistory } from '../src/snapshot.ts';
+import type { Report } from './model.ts';
 import { githubGet } from './github-query.ts';
 import { githubResponse } from './github.ts';
 import { nextRefreshInterval, refreshDue } from '../src/refresh.ts';
@@ -143,8 +145,10 @@ test('release history uses published releases and excludes drafts and workflow r
   context.mock.method(globalThis, 'fetch', async (input: string) => {
     const path = new URL(input).pathname;
     if (path.endsWith('/actions/runs')) return Response.json({ workflow_runs });
-    if (path.endsWith('/git/commits/abc'))
-      return Response.json({ committer: { date: release.published_at } });
+    if (path.endsWith('/commits'))
+      return Response.json([
+        { sha: 'abc', commit: { committer: { date: release.published_at } } },
+      ]);
     if (path.endsWith('/tags'))
       return Response.json(
         ['v1', 'tag-only'].map((name) => ({ name, commit: { sha: 'abc' } })),
@@ -185,10 +189,171 @@ test('release history uses published releases and excludes drafts and workflow r
     },
     {
       title: 'v1',
+      sha: 'abc',
       url: release.html_url,
       status: '릴리스',
       at: release.published_at,
       stage: 'complete',
     },
   ]);
+});
+
+test('anonymous history bounds date and release lookups when the tag page is full', async (context) => {
+  const paths: string[] = [];
+  const tags = Array.from({ length: 30 }, (_, i) => ({
+    name: 'tag-' + i,
+    commit: { sha: 'sha-' + i },
+  }));
+  context.mock.method(globalThis, 'fetch', async (url: string) => {
+    const path = new URL(url).pathname.replace('/repos/example/full-page', '');
+    paths.push(path);
+    if (path === '/tags')
+      return Response.json(tags, {
+        headers: { link: '<https://api.github.com/next>; rel="next"' },
+      });
+    if (path === '/commits')
+      return Response.json([
+        {
+          sha: 'sha-0',
+          commit: { committer: { date: '2026-11-10T00:00:00Z' } },
+        },
+      ]);
+    if (path === '/releases')
+      return Response.json(
+        [1, 2, 3].map((i) => ({
+          tag_name: 'old/' + i,
+          html_url: 'https://github.com/example/full-page/releases',
+          published_at: '2026-11-0' + i + 'T00:00:00Z',
+          draft: false,
+        })),
+      );
+    if (path === '/pulls')
+      return Response.json([
+        {
+          number: 1,
+          state: 'closed',
+          head: { sha: 'head', ref: 'topic' },
+          merge_commit_sha: 'merged',
+          merged_at: '2026-11-01T00:00:00Z',
+          body: '',
+          title: 'feature',
+        },
+      ]);
+    if (path === '/commits/refs%2Ftags%2Fold%2F3')
+      return Response.json({ sha: 'merged' });
+    if (path === '/actions/runs') return Response.json({ workflow_runs: [] });
+    return Response.json([]);
+  });
+  const res = await githubResponse(
+    new URL('https://agentopia.test/api/github?repo=example/full-page'),
+    'GET',
+  );
+  assert.equal(res.status, 200);
+  const report = JSON.parse(res.body);
+  assert.equal(report.tagsPartial, true);
+  assert.equal(report.tags.length, 30);
+  assert.ok(report.warnings.includes('태그 커밋 시각'));
+  assert.equal(report.tags[0].committedAt, '2026-11-10T00:00:00Z');
+  assert.equal(report.tags[1].committedAt, undefined);
+  assert.equal(report.releases[0].sha, 'merged');
+  assert.deepEqual(
+    paths.filter(
+      (p) =>
+        p === '/commits' ||
+        p.startsWith('/git/commits/') ||
+        p.startsWith('/commits/'),
+    ),
+    ['/commits', '/commits/refs%2Ftags%2Fold%2F3'],
+  );
+});
+
+test('authenticated history accepts annotated tags and skips history calls when the tab has a fresh copy', async (context) => {
+  const paths: string[] = [];
+  context.mock.method(globalThis, 'fetch', async (url: string) => {
+    const path = new URL(url).pathname;
+    paths.push(path);
+    if (path === '/graphql')
+      return Response.json({
+        data: {
+          repository: {
+            refs: {
+              nodes: [
+                {
+                  name: 'annotated',
+                  target: {
+                    target: {
+                      oid: 'commit',
+                      committedDate: '2026-11-10T00:00:00Z',
+                    },
+                  },
+                },
+              ],
+            },
+            releases: { nodes: [] },
+          },
+        },
+      });
+    if (path.endsWith('/actions/runs'))
+      return Response.json({ workflow_runs: [] });
+    return Response.json([]);
+  });
+  const url = new URL(
+    'https://agentopia.test/api/github?repo=example/annotated',
+  );
+  const load = async () =>
+    JSON.parse((await githubResponse(url, 'GET', 'Bearer checked_token')).body);
+  const initial = await load();
+  assert.deepEqual(initial.tags, [
+    { name: 'annotated', committedAt: '2026-11-10T00:00:00Z' },
+  ]);
+  paths.length = 0;
+  url.searchParams.set('history', 'cached');
+  await load();
+  assert.ok(
+    !paths.includes('/graphql') &&
+      !paths.some((path) => path.endsWith('/releases')),
+  );
+  url.searchParams.set('refresh', '1');
+  await load();
+  assert.ok(
+    paths.includes('/graphql') &&
+      paths.some((path) => path.endsWith('/releases')),
+  );
+});
+
+test('cached publication evidence follows the current merged PRs', () => {
+  const published = {
+    title: 'v1',
+    url: 'https://example.com/v1',
+    stage: 'complete' as const,
+    status: '릴리스',
+    sha: 'merged',
+  };
+  const previous: Report = {
+    quests: [],
+    releases: [published],
+    tags: [{ name: 'tag' }],
+    warnings: [],
+    updatedAt: '',
+  };
+  const quest = {
+    number: 1,
+    title: 'issue',
+    url: '',
+    state: 'open' as const,
+    stage: 'complete' as const,
+    pulls: [{ number: 2, title: 'PR', url: '', mergeSha: 'merged' }],
+    runs: [],
+  };
+  const fresh: Report = {
+    ...previous,
+    releases: [],
+    tags: [],
+    quests: [quest, { ...quest, number: 3, pulls: [] }],
+  };
+  const result = withCachedHistory(fresh, previous);
+  assert.deepEqual(result.releases, [published]);
+  assert.deepEqual(result.tags, previous.tags);
+  assert.equal(result.quests[0].evidence?.url, published.url);
+  assert.equal(result.quests[1].released, undefined);
 });

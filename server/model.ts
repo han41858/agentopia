@@ -106,7 +106,11 @@ export type Quest = {
   developer?: Agent;
   reviewer?: Agent;
   review?: string;
-  pulls: (Source & { number: number; activities?: ActivityCounts })[];
+  pulls: (Source & {
+    number: number;
+    mergeSha?: string;
+    activities?: ActivityCounts;
+  })[];
   commit?: Source;
   runs: Source[];
 };
@@ -144,9 +148,9 @@ export type Report = {
   forges?: PullQuest[];
   branchInventory?: BranchInventory;
   branchPulls?: BranchPull[];
-  tags?: (string | { name: string; committedAt?: string })[];
+  tags?: { name: string; committedAt?: string }[];
   tagsPartial?: boolean;
-  releases: Omit<Release, 'sha'>[];
+  releases: Release[];
   updatedAt: string;
   warnings: string[];
 };
@@ -865,6 +869,9 @@ export function makeQuests(
       commit,
       pulls: issuePulls.map((item) => ({
         number: item.number,
+        mergeSha: item.merged_at
+          ? (item.merge_commit_sha ?? undefined)
+          : undefined,
         title: item.title,
         url: item.html_url,
         activities: pullLinks.get(item.number)?.activities,
