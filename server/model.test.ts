@@ -968,3 +968,32 @@ test('closed facilities go to history immediately and reopened facilities return
   ]);
   assert.equal(current.finishedAt, undefined);
 });
+
+test('Agentopia shows a reviewed draft in CI until the reviewed PR is merged', () => {
+  const region = repositoryRegion('han41858/agentopia');
+  const proposal = {
+    ...pull,
+    head: {
+      ...pull.head,
+      ref: 'ai/issue-2-codex',
+      repo: { full_name: 'han41858/agentopia' },
+    },
+  };
+  const state = comment(2, 'ready', { developer: 'codex' }, 'agentopia');
+  const automation = run(2, { status: 'completed', conclusion: 'success' });
+  const stage = (candidate: Pull) =>
+    makeQuests(
+      region,
+      [issue(2)],
+      [candidate],
+      [automation],
+      [state],
+      new Map(),
+      [],
+    )[0].stage;
+  assert.equal(stage(proposal), 'ci');
+  assert.equal(
+    stage({ ...proposal, state: 'closed', merged_at: stamp }),
+    'complete',
+  );
+});

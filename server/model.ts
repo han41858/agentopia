@@ -693,7 +693,10 @@ export function makeQuests(
     }
     const victory =
       issuePulls.some((item) => item.merged_at) || state?.status === 'merged';
-    if (stage === 'idle' && victory) {
+    const reviewedPullMerged =
+      state?.status === 'ready' &&
+      issuePulls.some((item) => item.merged_at && item.head.sha === state.head);
+    if ((stage === 'idle' && victory) || reviewedPullMerged) {
       stage = 'complete';
     }
     if (
