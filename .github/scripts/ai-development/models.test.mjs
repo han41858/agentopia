@@ -224,3 +224,47 @@ for (const correctionValid of [true, false]) {
     assert.equal(requests, 2);
   });
 }
+
+for (const status of ['needs_human', 'completed']) {
+  test(`placeholder blocker requests clarification and preserves the stop on ${status}`, async () => {
+    let calls = 0;
+    const models = createModels({
+      keys: { claude: 'mock' },
+      modelNames: { claude: 'mock' },
+      log: () => {},
+      request: async (_, options) => {
+        calls++;
+        if (calls === 2)
+          assert.equal(JSON.parse(options.body).tool_choice.type, 'none');
+        return Response.json({
+          stop_reason: 'end_turn',
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify({
+                status: calls === 1 ? 'needs_human' : status,
+                summary: calls === 1 ? '...' : '재현 조건을 알려 주세요.',
+                title: '',
+                edits: [],
+              }),
+            },
+          ],
+        });
+      },
+    });
+    const result = await models.run({
+      agent: 'claude',
+      mode: 'development',
+      instructions: 'Develop',
+      context: 'Test',
+      inspect: () => '',
+    });
+    assert.equal(calls, 2);
+    assert.equal(result.status, 'needs_human');
+    assert.match(
+      result.summary,
+      status === 'needs_human' ? /재현 조건/ : /중단 사유/,
+    );
+    assert.deepEqual(result.edits, []);
+  });
+}

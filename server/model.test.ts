@@ -301,6 +301,41 @@ test('failed CI requires matching HEAD and deployment requires matching merge SH
   assert.equal(quest.evidence?.title, 'Production');
 });
 
+test('only a trusted checkpoint establishes an unexplained request for human input', () => {
+  const checkpoint = comment(74, 'needs_human', { reason: '...' });
+  assert.equal(
+    readState({ ...checkpoint, body: 'needs_human' }, commitTrail),
+    undefined,
+  );
+  assert.equal(
+    readState({ ...checkpoint, user: { login: 'contributor' } }, commitTrail),
+    undefined,
+  );
+  const [quest] = makeQuests(
+    commitTrail,
+    [issue(74)],
+    [
+      {
+        ...pull,
+        number: 75,
+        state: 'closed',
+        merged_at: stamp,
+        head: { ...pull.head, ref: 'fix/label' },
+        body: '#74의 라벨 자동화 개선',
+      },
+    ],
+    [run(74, { status: 'completed', conclusion: 'success' })],
+    [checkpoint],
+    new Map(),
+    [],
+  );
+  assert.equal(quest.state, 'open');
+  assert.equal(quest.stage, 'attention');
+  assert.match(quest.reason ?? '', /구체적인 중단 사유가 없습니다/);
+  assert.equal(quest.victory, false);
+  assert.deepEqual(quest.pulls, []);
+});
+
 test('intervention preserves the bot reason and a stopped issue is explicit', () => {
   const cancelled = run(2, { status: 'completed', conclusion: 'cancelled' });
   const [quest, stopped] = makeQuests(

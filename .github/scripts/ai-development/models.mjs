@@ -433,7 +433,15 @@ export function createModels({
         'Keep the Korean summary under 400 characters. Use at most 6 findings, with each string under 250 characters and a positive line number. pass requires zero findings; changes_requested requires at least one. For needs_human, identify the concrete blocker.';
       const taskInstructions =
         mode === 'review' ? instructions + '\n' + reviewFormat : instructions;
-      let correctingReview = false;
+      let correction;
+      const missingBlocker =
+        '개발 자동화가 사람 확인을 요청했지만 구체적인 중단 사유를 제공하지 않았습니다.';
+      const unexplainedStop = {
+        status: 'needs_human',
+        title: '',
+        edits: [],
+        summary: missingBlocker,
+      };
       let toolCalls = 0;
       function reserveTools(count) {
         toolCalls += count;
@@ -448,7 +456,7 @@ export function createModels({
 
       for (let turn = 1; turn <= turnLimit; turn++) {
         const started = performance.now();
-        const finalTurn = turn === turnLimit || correctingReview;
+        const finalTurn = turn === turnLimit || Boolean(correction);
         const turnInstructions = finalTurn
           ? `${taskInstructions}
 Return the final structured result now. If evidence is insufficient, return needs_human with the specific blocker.`
@@ -591,17 +599,43 @@ API requests remaining, including this one: ${turnLimit - turn + 1}. Read tools 
             .join('');
         }
         try {
-          return verifyResult(parseJSON(text));
+          const result = parseJSON(text);
+          if (correction === 'blocker' && result?.status !== 'needs_human')
+            return unexplainedStop;
+          if (
+            mode === 'development' &&
+            result?.status === 'needs_human' &&
+            (typeof result.summary !== 'string' ||
+              !/[\p{L}\p{N}]/u.test(result.summary))
+          ) {
+            if (finalTurn) return unexplainedStop;
+            correction = 'blocker';
+            throw new ModelError(missingBlocker);
+          }
+          return verifyResult(result);
         } catch (error) {
-          if (mode !== 'review' || finalTurn || !(error instanceof ModelError))
+          if (
+            correction === 'blocker' &&
+            finalTurn &&
+            error instanceof ModelError
+          )
+            return unexplainedStop;
+          if (
+            (mode !== 'review' && correction !== 'blocker') ||
+            finalTurn ||
+            !(error instanceof ModelError)
+          )
             throw error;
-          correctingReview = true;
+          correction ??= 'review';
           const responseItems = isCodex
             ? output
             : [{ role: 'assistant', content: claudeAssistantContent(output) }];
           input.push(...responseItems, {
             role: 'user',
-            content: `Return the corrected review JSON using the same evidence and verdict. Validation: ${error.message}. ${reviewFormat}`,
+            content:
+              correction === 'blocker'
+                ? 'Keep needs_human and return no edits. Explain in Korean the specific blocker and what information the user must provide. Use the evidence already collected.'
+                : `Return the corrected review JSON using the same evidence and verdict. Validation: ${error.message}. ${reviewFormat}`,
           });
         }
       }
