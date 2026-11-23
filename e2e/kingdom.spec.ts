@@ -56,10 +56,15 @@ test.describe('왕국 기본 표시', () => {
     await expect(
       page.getByRole('list', { name: '기본 파티 구성' }).getByRole('listitem'),
     ).toHaveText(['파티장', 'Codex', 'Claude']);
+    const issue = page.getByRole('button', { name: /^이슈 #4 / });
+    await expect(issue).toBeVisible();
+    await expect(issue.locator('.adventurer-party')).toHaveCount(0);
     await page.getByRole('button', { name: '간단 모드' }).click();
     await expect(
       page.getByRole('list', { name: '활동 범례' }).getByRole('listitem'),
     ).toHaveText(['GitHub', 'Codex', 'Claude']);
+    await expect(issue).toBeVisible();
+    await expect(issue.locator('.adventurer-party')).toHaveCount(0);
   });
 
   test('시설에 올리면 연결된 몬스터를 함께 강조한다', async ({ page }) => {

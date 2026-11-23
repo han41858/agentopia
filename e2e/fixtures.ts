@@ -148,7 +148,15 @@ const alphaQuests: Quest[] = [
     url: issueUrl(alpha, 4),
     stage: 'idle',
     state: 'open',
-    pulls: [],
+    released: true,
+    pulls: [
+      {
+        number: 9,
+        title: alphaForges[3].title,
+        url: pullUrl(alpha, 9),
+        status: 'merged',
+      },
+    ],
     runs: [],
   },
   {
