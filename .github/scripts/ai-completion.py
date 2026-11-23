@@ -82,23 +82,32 @@ def restore_draft(current):
         id=current["node_id"])
 
 
-def current_target(issue, number, state, *, undrafted=False):
+def restore_if_unchanged(current, previous):
+    if (current["state"] == "open" and not current["draft"]
+            and current["head"]["sha"] == previous["head"]["sha"] and current["base"]["ref"] == "dev"
+            and current["body"] == previous["body"] and current["title"] == previous["title"]):
+        restore_draft(current)
+
+
+def current_target(issue, number, state, *, undrafted_pr=None):
     if not eligible(issue) or ready_state(issue) != state:
+        if undrafted_pr:
+            restore_if_unchanged(repo(f"pulls/{number}"), undrafted_pr)
         return None
     current = repo(f"pulls/{number}")
     if current["head"]["sha"] != state["head"] or current["base"]["ref"] != "dev" or current["state"] != "open":
         raise RuntimeError("PR changed since review. Human confirmation required.")
     recovery = state.get("recovery")
     if recovery:
-        if not current["draft"] and not undrafted:
+        if not current["draft"] and not undrafted_pr:
             raise RuntimeError("PR draft status changed since review. Human confirmation required.")
         data = repo(f"issues/{issue}")
         if (fingerprint(data["title"], data.get("body")) != recovery["issue"]
                 or fingerprint(number, current["title"], current["body"]) != recovery["pull"]):
             raise RuntimeError("Issue or PR was edited since review. Human confirmation required.")
     if dev_head() != state["base"]:
-        if undrafted and not current["draft"]:
-            restore_draft(current)
+        if undrafted_pr:
+            restore_if_unchanged(current, undrafted_pr)
         request_recovery(issue, state)
         return None
     return current
@@ -148,7 +157,7 @@ def complete(issue, run_id):
                 query="mutation($id:ID!){markPullRequestReadyForReview(input:{pullRequestId:$id}){pullRequest{id}}}",
                 id=current["node_id"])
         try:
-            if not current_target(issue, number, state, undrafted=undrafted):
+            if not current_target(issue, number, state, undrafted_pr=current if undrafted else None):
                 return
             result = repo(f"pulls/{number}/merge", publisher=True, method="PUT",
                           sha=head, merge_method="squash", commit_title=f"{current['title']} (#{number})")
@@ -157,10 +166,8 @@ def complete(issue, run_id):
         except (ValueError, RuntimeError):
             confirmed = repo(f"pulls/{number}")
             if not confirmed["merged_at"] or confirmed["head"]["sha"] != head or confirmed["base"]["ref"] != "dev":
-                if (undrafted and confirmed["state"] == "open" and not confirmed["draft"]
-                        and confirmed["head"]["sha"] == head and confirmed["base"]["ref"] == "dev"
-                        and confirmed["body"] == current["body"] and confirmed["title"] == current["title"]):
-                    restore_draft(confirmed)
+                if undrafted:
+                    restore_if_unchanged(confirmed, current)
                 raise
     if eligible(issue):
         try:

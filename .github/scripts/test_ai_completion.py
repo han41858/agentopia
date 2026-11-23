@@ -9,7 +9,7 @@ spec.loader.exec_module(completion)
 
 
 class CompletionTest(unittest.TestCase):
-    def run_case(self, ci="success", merged=False, changed=False, status="completed", stale_head=False, merge_error=False):
+    def run_case(self, ci="success", merged=False, changed=False, status="completed", stale_head=False, merge_error=False, stop_after_undraft=False):
         calls = []
         mutations = []
         head = "a" * 40
@@ -38,12 +38,16 @@ class CompletionTest(unittest.TestCase):
             mutations.append(kwargs["query"])
             pull["draft"] = "convertPullRequestToDraft" in kwargs["query"]
 
-        with patch.object(completion, "eligible", return_value=True), patch.object(
+        with patch.object(completion, "eligible", side_effect=lambda _: not (stop_after_undraft and mutations)), patch.object(
             completion, "ready_state", return_value=state
         ), patch.object(completion, "repo", side_effect=repo), patch.object(completion, "api", side_effect=mutation), patch.object(
             completion.time, "sleep"
         ):
-            if merge_error:
+            if stop_after_undraft:
+                completion.complete(1, 7)
+                self.assertTrue(pull["draft"])
+                self.assertEqual(len(mutations), 2)
+            elif merge_error:
                 with self.assertRaisesRegex(RuntimeError, "502"):
                     completion.complete(1, 7)
                 self.assertTrue(pull["draft"])
@@ -69,6 +73,9 @@ class CompletionTest(unittest.TestCase):
 
     def test_merge_error_restores_draft_for_retry(self):
         self.assertEqual(self.run_case(merge_error=True), ["pulls/2/merge", "issues/1"])
+
+    def test_stop_after_undraft_restores_without_merge(self):
+        self.assertEqual(self.run_case(stop_after_undraft=True), [])
 
     def test_resume_after_merge(self):
         self.assertEqual(self.run_case(merged=True), ["issues/1"])

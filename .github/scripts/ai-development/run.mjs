@@ -423,7 +423,12 @@ async function main() {
         await save('recovering', '수동 재개 요청과 게시 상태를 확인했습니다.');
       }
     }
-    if (state.modelRetryRequired && !manualResume) return;
+    if (state.modelRetryRequired && !manualResume) {
+      console.log(
+        '모델 호출을 재개하려면 AI development의 Run workflow에서 dev와 이슈 번호를 선택해 새 실행을 시작하세요.',
+      );
+      return;
+    }
     if (recovery.pending || state.reviewInProgress)
       throw new Stop(
         '이전 실행 결과가 확정되지 않았습니다. 예약된 작업을 확인하세요.',
