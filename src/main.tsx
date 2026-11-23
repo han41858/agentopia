@@ -1493,6 +1493,15 @@ function PlazaDetail({
   );
 }
 
+// Report warnings that can leave the release history missing or out of date.
+// The labels are set where the report is loaded, in server/github-report.ts.
+const releaseWarnings = new Set([
+  '배포',
+  '배포 상태',
+  'Actions',
+  'GitHub API 사용 한도',
+]);
+
 function RegionDetail({
   region,
   snapshot,
@@ -1505,6 +1514,9 @@ function RegionDetail({
   close: () => void;
 }) {
   const [confirmRemoval, setConfirmRemoval] = useState(false);
+  const report = snapshot?.report;
+  const warnings =
+    report?.warnings.filter((label) => releaseWarnings.has(label)) ?? [];
   if (confirmRemoval) {
     return (
       <Dialog
@@ -1557,19 +1569,23 @@ function RegionDetail({
       }
     >
       {snapshot?.error && <p className="fetch-error">{snapshot.error}</p>}
-      {snapshot?.report?.warnings.length ? (
+      {warnings.length > 0 && (
         <p className="fetch-error">
-          일부 기록을 확인하지 못했습니다 ·{' '}
-          {snapshot.report.warnings.join(', ')}
+          일부 기록을 확인하지 못했습니다 · {warnings.join(', ')}
         </p>
-      ) : null}
-      {!!snapshot?.report?.releases.length && (
+      )}
+      {!report && !snapshot?.error && <p>배포 기록을 조회하고 있습니다.</p>}
+      {report &&
+        !report.releases.length &&
+        !warnings.length &&
+        !snapshot?.error && <p>배포 기록이 없습니다.</p>}
+      {!!report?.releases.length && (
         <>
           <h4>
             왕국 배포 기록 <small>(KST)</small>
           </h4>
           <div className="release-history">
-            {snapshot.report.releases.map((release, index) => {
+            {report.releases.map((release, index) => {
               const status = release.status?.split(' · ')[0];
               return (
                 <a
