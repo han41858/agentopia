@@ -572,6 +572,7 @@ Edit only Markdown, TypeScript or CSS in src/, server/, api/, docs/ or README.md
 Use exact unique before/after replacements, null before for create or null after for delete.
 Use a GitMoji and Korean area and summary for the title. Do not claim that checks ran.`,
             inspect: work.inspect,
+            prepareChanges: (edits) => resolveEdits(edits, work),
           });
           delete recovery.pending;
           await checkBase(baseSha);
@@ -581,7 +582,7 @@ Use a GitMoji and Korean area and summary for the title. Do not claim that check
                 `${names[developer]} 개발자가 사용자 판단을 요청했습니다.`,
             );
           phase = '개발 변경 적용';
-          const changes = resolveEdits(plan.edits, work);
+          const changes = plan.changes;
           if (!changes.length && !pull && !recovery.draft)
             throw new Stop('초안 PR로 만들 변경이 없습니다.');
           const title = safeText(plan.title, 110) || '🛠️ 개발: 이슈 변경';
