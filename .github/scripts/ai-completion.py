@@ -91,12 +91,22 @@ def complete(issue, run_id):
             api("graphql", publisher=True, method="POST",
                 query="mutation($id:ID!){markPullRequestReadyForReview(input:{pullRequestId:$id}){pullRequest{id}}}",
                 id=current["node_id"])
-        result = repo(f"pulls/{number}/merge", publisher=True, method="PUT",
-                      sha=head, merge_method="squash", commit_title=f"{current['title']} (#{number})")
-        if not result.get("merged"):
-            raise RuntimeError("GitHub did not confirm the merge.")
+        try:
+            result = repo(f"pulls/{number}/merge", publisher=True, method="PUT",
+                          sha=head, merge_method="squash", commit_title=f"{current['title']} (#{number})")
+            if not result.get("merged"):
+                raise RuntimeError("GitHub did not confirm the merge.")
+        except (subprocess.CalledProcessError, ValueError, RuntimeError):
+            confirmed = repo(f"pulls/{number}")
+            if not confirmed["merged_at"] or confirmed["head"]["sha"] != head or confirmed["base"]["ref"] != "dev":
+                raise
     if eligible(issue):
-        repo(f"issues/{issue}", method="PATCH", state="closed", state_reason="completed")
+        try:
+            repo(f"issues/{issue}", method="PATCH", state="closed", state_reason="completed")
+        except (subprocess.CalledProcessError, ValueError):
+            confirmed = repo(f"issues/{issue}")
+            if (confirmed["state"], confirmed["state_reason"]) != ("closed", "completed"):
+                raise
     print(f"PR #{number} merged, issue #{issue} completed.")
 
 
