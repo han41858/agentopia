@@ -313,3 +313,62 @@ for (const mode of ['development', 'review']) {
     });
   }
 }
+
+for (const [agent, summary, count, diagnostic, retryValid] of [
+  ['claude', ' ', 1, /요약이 비어/, true],
+  ['codex', '가'.repeat(1201), 1, /1201\/1200/, true],
+  ['claude', '수정', 2, /2\/1/, false],
+]) {
+  test(`${agent} development corrects invalid output once: ${diagnostic}`, async () => {
+    let calls = 0;
+    const models = createModels({
+      keys: { [agent]: 'mock' },
+      modelNames: { [agent]: 'mock' },
+      limits: { ...config.limits, edits: 1 },
+      log: () => {},
+      request: async (_, options) => {
+        calls++;
+        const body = JSON.parse(options.body);
+        assert.match(body.instructions ?? body.system, /at most 1 exact edits/);
+        if (calls === 2) {
+          assert.equal(body.tool_choice.type ?? body.tool_choice, 'none');
+          assert.match(
+            (body.input ?? body.messages).at(-1).content,
+            diagnostic,
+          );
+        }
+        const valid = calls === 2 && retryValid;
+        const text = JSON.stringify({
+          status: 'completed',
+          title: '🐛 화면: 팝업 수정',
+          summary: valid ? '팝업을 수정했습니다.' : summary,
+          edits: Array(valid ? 1 : count).fill({
+            path: 'src/example.ts',
+            before: 'a',
+            after: 'b',
+          }),
+        });
+        return Response.json(
+          agent === 'codex'
+            ? {
+                status: 'completed',
+                output: [
+                  { type: 'message', content: [{ type: 'output_text', text }] },
+                ],
+              }
+            : { stop_reason: 'end_turn', content: [{ type: 'text', text }] },
+        );
+      },
+    });
+    const result = models.run({
+      agent,
+      mode: 'development',
+      instructions: 'Develop',
+      context: 'Test',
+      inspect: () => '',
+    });
+    if (retryValid) assert.equal((await result).edits.length, 1);
+    else await assert.rejects(result, diagnostic);
+    assert.equal(calls, 2);
+  });
+}

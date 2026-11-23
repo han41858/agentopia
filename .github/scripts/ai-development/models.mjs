@@ -202,15 +202,19 @@ export function validateReview(value) {
   return value;
 }
 
+const developmentSummaryLimit = 1200;
+
 export function validateDevelopment(value, maxEdits = config.limits.edits) {
   validate(value, developmentSchema, 'development');
-  if (
-    !value.summary.trim() ||
-    value.summary.length > 1200 ||
-    value.edits.length > maxEdits
-  )
+  if (!value.summary.trim())
+    throw new ModelError('개발 결과의 요약이 비어 있습니다.');
+  if (value.summary.length > developmentSummaryLimit)
     throw new ModelError(
-      '개발 결과의 요약 또는 변경 수가 허용 범위를 벗어났습니다.',
+      `개발 요약 길이 초과 (${value.summary.length}/${developmentSummaryLimit}).`,
+    );
+  if (value.edits.length > maxEdits)
+    throw new ModelError(
+      `개발 편집 개수 초과 (${value.edits.length}/${maxEdits}).`,
     );
   if (
     value.status === 'completed' &&
@@ -431,8 +435,11 @@ export function createModels({
         mode === 'review' ? (limits.reviewTurns ?? limits.turns) : limits.turns;
       const reviewFormat =
         'Keep the Korean summary under 400 characters. Use at most 6 findings, with each string under 250 characters and a positive line number. pass requires zero findings; changes_requested requires at least one. For needs_human, identify the concrete blocker.';
+      const developmentFormat = `Return a nonempty Korean summary of at most ${developmentSummaryLimit} UTF-16 code units and at most ${limits.edits} exact edits. Use a single-line GitMoji Korean title of at most 100 UTF-16 code units. If the full change cannot fit safely, return needs_human with a concrete reason and no edits.`;
       const taskInstructions =
-        mode === 'review' ? instructions + '\n' + reviewFormat : instructions;
+        instructions +
+        '\n' +
+        (mode === 'review' ? reviewFormat : developmentFormat);
       let correction;
       const missingBlocker =
         '자동화가 사람 확인을 요청했지만 구체적인 중단 사유를 제공하지 않았습니다.';
@@ -566,6 +573,8 @@ API requests remaining, including this one: ${turnLimit - turn + 1}. Read tools 
             throw new ModelError('Codex 응답이 완료되지 않았습니다.');
           const calls = output.filter(({ type }) => type === 'function_call');
           if (calls.length) {
+            if (correction)
+              throw new ModelError('결과 교정 중 도구 호출이 반환되었습니다.');
             reserveTools(calls.length);
             input.push(
               ...output,
@@ -584,6 +593,8 @@ API requests remaining, including this one: ${turnLimit - turn + 1}. Read tools 
             .join('');
         } else {
           if (data.stop_reason === 'tool_use') {
+            if (correction)
+              throw new ModelError('결과 교정 중 도구 호출이 반환되었습니다.');
             const calls = output.filter(({ type }) => type === 'tool_use');
             if (!calls.length)
               throw new ModelError(
@@ -608,8 +619,9 @@ API requests remaining, including this one: ${turnLimit - turn + 1}. Read tools 
             .map((block) => block.text)
             .join('');
         }
+        let result;
         try {
-          const result = parseJSON(text);
+          result = parseJSON(text);
           if (correction === 'blocker' && result?.status !== 'needs_human')
             return unexplainedStop;
           if (
@@ -630,12 +642,14 @@ API requests remaining, including this one: ${turnLimit - turn + 1}. Read tools 
           )
             return unexplainedStop;
           if (
-            (mode !== 'review' && correction !== 'blocker') ||
+            (mode !== 'review' &&
+              correction !== 'blocker' &&
+              result?.status !== 'completed') ||
             finalTurn ||
             !(error instanceof ModelError)
           )
             throw error;
-          correction ??= 'review';
+          correction ??= mode;
           const responseItems = isCodex
             ? output
             : [{ role: 'assistant', content: claudeAssistantContent(output) }];
@@ -644,7 +658,9 @@ API requests remaining, including this one: ${turnLimit - turn + 1}. Read tools 
             content:
               correction === 'blocker'
                 ? 'Keep the needs_human decision. Explain in Korean the specific blocker and what information the user must provide. Use the evidence already collected.'
-                : `Return the corrected review JSON using the same evidence and verdict. Validation: ${error.message}. ${reviewFormat}`,
+                : correction === 'development'
+                  ? `Correct the development JSON using the same evidence and preserve the full requested behavior. Do not discard necessary edits to fit. Validation: ${error.message}. ${developmentFormat}`
+                  : `Return the corrected review JSON using the same evidence and verdict. Validation: ${error.message}. ${reviewFormat}`,
           });
         }
       }

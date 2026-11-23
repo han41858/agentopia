@@ -61,6 +61,7 @@ GitHub Releases에는 이 워크플로가 발행한 최신 성공 릴리스 하�
 
 저장소 쓰기 권한이 있는 사용자가 열린 이슈에 `ai:develop` 라벨을 붙이면 Codex가 변경을 준비하고 Claude가 해당 커밋을 리뷰합니다. `ai:develop:claude`를 단독으로 붙이면 Claude가 개발하고 Codex가 리뷰합니다. 이슈마다 `ai/issue-<번호>-<개발자>` 브랜치와 `dev` 대상 초안 PR 한 개를 사용합니다. 변경 범위는 `src/`, `server/`, `docs/`의 Markdown·TypeScript·CSS와 `README.md`입니다. `api/`에서는 기존 파일의 내용만 수정할 수 있습니다.
 
+- 개발 완료 응답의 요약이나 편집 개수 등이 형식 검증에서 거부되면 남은 호출 예산 안에서 같은 근거로 한 번 교정합니다. 교정도 실패하면 게시 전에 중단하고 어떤 제한에 걸렸는지 기록합니다.
 - 담당 리뷰어의 리뷰와 같은 커밋의 PR CI(**Test and build**와 **UI test**)가 통과하면 **AI completion**이 초안을 검토 준비 상태로 전환하고 dev에 스쿼시 머지합니다. 머지가 확인되면 이슈를 completed로 닫습니다. 완료 단계만 재시도하려면 AI completion에서 이슈 번호로 수동 실행합니다. PR CI는 모델 키와 게시 토큰 없이 실행됩니다.
 - 이슈의 개발 담당 라벨을 유지한 상태에서 **AI development → Run workflow**에 이슈 번호를 입력하면 기존 초안을 이어서 처리합니다. 다른 이슈의 머지로 `dev`가 앞서면 아래 기준으로 자동 복구합니다. 이슈를 닫거나 `ai:stop`을 붙이면 다음 게시 단계에서 실행을 중단합니다.
 - **Issues → Labels**에서 `ai:develop`, `ai:develop:claude`, `ai:stop`을 만듭니다.
