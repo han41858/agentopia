@@ -301,6 +301,41 @@ test('failed CI requires matching HEAD and deployment requires matching merge SH
   assert.equal(quest.evidence?.title, 'Production');
 });
 
+test('only a trusted checkpoint establishes an unexplained request for human input', () => {
+  const checkpoint = comment(74, 'needs_human', { reason: '...' });
+  assert.equal(
+    readState({ ...checkpoint, body: 'needs_human' }, commitTrail),
+    undefined,
+  );
+  assert.equal(
+    readState({ ...checkpoint, user: { login: 'contributor' } }, commitTrail),
+    undefined,
+  );
+  const [quest] = makeQuests(
+    commitTrail,
+    [issue(74)],
+    [
+      {
+        ...pull,
+        number: 75,
+        state: 'closed',
+        merged_at: stamp,
+        head: { ...pull.head, ref: 'fix/label' },
+        body: '#74의 라벨 자동화 개선',
+      },
+    ],
+    [run(74, { status: 'completed', conclusion: 'success' })],
+    [checkpoint],
+    new Map(),
+    [],
+  );
+  assert.equal(quest.state, 'open');
+  assert.equal(quest.stage, 'attention');
+  assert.match(quest.reason ?? '', /구체적인 중단 사유가 없습니다/);
+  assert.equal(quest.victory, false);
+  assert.deepEqual(quest.pulls, []);
+});
+
 test('intervention preserves the bot reason and a stopped issue is explicit', () => {
   const cancelled = run(2, { status: 'completed', conclusion: 'cancelled' });
   const [quest, stopped] = makeQuests(
@@ -967,4 +1002,65 @@ test('closed facilities go to history immediately and reopened facilities return
     current,
   ]);
   assert.equal(current.finishedAt, undefined);
+});
+
+test('Agentopia shows a reviewed draft in CI until the reviewed PR is merged', () => {
+  const region = repositoryRegion('han41858/agentopia');
+  const proposal = {
+    ...pull,
+    head: {
+      ...pull.head,
+      ref: 'ai/issue-2-codex',
+      repo: { full_name: 'han41858/agentopia' },
+    },
+  };
+  const state = comment(2, 'ready', { developer: 'codex' }, 'agentopia');
+  const automation = run(2, { status: 'completed', conclusion: 'success' });
+  const stage = (candidate: Pull) =>
+    makeQuests(
+      region,
+      [issue(2)],
+      [candidate],
+      [automation],
+      [state],
+      new Map(),
+      [],
+    )[0].stage;
+  assert.equal(stage(proposal), 'ci');
+  assert.equal(
+    stage({ ...proposal, state: 'closed', merged_at: stamp }),
+    'complete',
+  );
+});
+
+test('an old failed CI does not replace a current recovery checkpoint', () => {
+  const [quest] = makeQuests(
+    commitTrail,
+    [issue(2)],
+    [pull],
+    [
+      run(2),
+      run(2, {
+        path: '.github/workflows/ci.yml',
+        id: 500,
+        head_sha: mergeSha,
+        pull_requests: [{ number: pull.number }],
+        html_url: 'https://github.com/example/actions/runs/500',
+        head_branch: pull.head.ref,
+        status: 'completed',
+        conclusion: 'failure',
+      }),
+    ],
+    [comment(2, 'recovering', { reason: '최신 기준 반영 중' })],
+    new Map(),
+    [],
+  );
+  assert.equal(quest.stage, 'revising');
+  assert.equal(quest.reason, '최신 기준 반영 중');
+  assert.ok(quest.adventurers?.every((member) => !member.active));
+  assert.ok(
+    quest.runs.some(
+      (item) => item.url.endsWith('/500') && item.status === 'failure',
+    ),
+  );
 });

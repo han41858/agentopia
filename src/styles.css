@@ -1486,29 +1486,37 @@ svg {
 
 .mode-switch {
   display: inline-flex;
+  gap: 2px;
   padding: 2px;
   border: 1px solid #536372;
   border-radius: 7px;
   background: #15212f;
 }
-.mode-switch button {
+.mode-switch-option {
   display: grid;
   place-items: center;
   width: 34px;
   height: 32px;
-  padding: 0;
   border: 1px solid transparent;
   border-radius: 4px;
-  background: transparent;
   color: #b2bec6;
 }
-.mode-switch button[aria-pressed='true'] {
+.mode-switch-option[data-active='true'] {
   background: #354653;
   border-color: #8ea6b5;
   color: white;
 }
 [data-display-mode='simple'] .world {
   background: #18232c;
+}
+[data-display-mode='simple'] .world-footer .expedition-legend > li {
+  color: #eee9f7;
+}
+[data-display-mode='simple'] .world-footer .expedition-legend img {
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  opacity: 1;
 }
 [data-display-mode='simple'] .map-viewport *,
 [data-display-mode='simple'] .expedition-legend * {
@@ -1570,7 +1578,7 @@ svg {
   }
 }
 @media (pointer: coarse) {
-  .mode-switch button {
+  .mode-switch-option {
     width: 44px;
     height: 44px;
   }

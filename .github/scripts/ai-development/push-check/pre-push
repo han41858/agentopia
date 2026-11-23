@@ -1,0 +1,6 @@
+#!/bin/sh
+# Git supplies the remote ref and its advertised old object ID before sending a normal push.
+read -r local_ref local_oid remote_ref remote_oid || exit 1
+[ "$remote_ref" = "$AI_EXPECTED_REF" ] && [ "$remote_oid" = "$AI_EXPECTED_HEAD" ] || exit 1
+if read -r extra; then exit 1; fi
+exit 0
