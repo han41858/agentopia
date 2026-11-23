@@ -177,6 +177,12 @@ function claudeAssistantContent(blocks) {
   });
 }
 
+function lacksBlocker(summary) {
+  if (typeof summary !== 'string' || !/[\p{L}\p{N}]/u.test(summary))
+    return true;
+  return /^[\s(]*중간\s*확인\s*단계[)\s.!…]*$/u.test(summary);
+}
+
 export function validateReview(value) {
   validate(value, reviewSchema, 'review');
   if (
@@ -448,7 +454,7 @@ export function createModels({
         mode === 'review' ? (limits.reviewTurns ?? limits.turns) : limits.turns;
       const reviewFormat =
         'Keep the Korean summary under 400 characters. Use at most 6 findings, with each string under 250 characters and a positive line number. pass requires zero findings; changes_requested requires at least one. For needs_human, identify the concrete blocker.';
-      const developmentFormat = `Return a nonempty Korean summary of at most ${developmentSummaryLimit} UTF-16 code units and at most ${limits.edits} exact edits. Use a single-line GitMoji Korean title of at most 100 UTF-16 code units. If the full change cannot fit safely, return needs_human with a concrete reason and no edits.`;
+      const developmentFormat = `Return a nonempty Korean summary of at most ${developmentSummaryLimit} UTF-16 code units and at most ${limits.edits} exact edits. Use a single-line GitMoji Korean title of at most 100 UTF-16 code units. Use the read tools for intermediate checks. Reserve needs_human for a blocker that requires a decision or information from the user. If the full change cannot fit safely, return needs_human with a concrete reason and no edits.`;
       const taskInstructions =
         instructions +
         '\n' +
@@ -639,8 +645,7 @@ API requests remaining, including this one: ${turnLimit - turn + 1}. Read tools 
             return unexplainedStop;
           if (
             result?.status === 'needs_human' &&
-            (typeof result.summary !== 'string' ||
-              !/[\p{L}\p{N}]/u.test(result.summary))
+            lacksBlocker(result.summary)
           ) {
             if (finalTurn) return unexplainedStop;
             correction = 'blocker';

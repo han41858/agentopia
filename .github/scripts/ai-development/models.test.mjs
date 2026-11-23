@@ -282,7 +282,7 @@ for (const mode of ['development', 'review']) {
           if (calls === 2 && outcome === 'network') throw Error('offline');
           const result = {
             status: 'needs_human',
-            summary: calls === 1 ? '…' : '대상 브랜치를 확인해 주세요.',
+            summary: calls === 1 ? '(중간 확인 단계)' : '대상 브랜치를 확인해 주세요.',
             ...(mode === 'review'
               ? { findings: [] }
               : { title: '', edits: [] }),
