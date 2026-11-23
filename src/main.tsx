@@ -1,4 +1,8 @@
-import { DisplayModeProvider, ModeSwitch } from './display-mode.tsx';
+import {
+  DisplayModeProvider,
+  ModeSwitch,
+  useDisplayMode,
+} from './display-mode.tsx';
 import { WorldArt } from './world-art.tsx';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
@@ -41,6 +45,7 @@ import type { RefreshJobs, RefreshUsage } from './use-region-refresh.ts';
 import './styles.css';
 
 function App() {
+  const isSimple = useDisplayMode() === 'simple';
   const [settings, setSettings] = useState(readSettings);
   const { token, repositories } = settings;
   const worldRegions = useMemo(
@@ -331,9 +336,12 @@ function App() {
         </section>
 
         <footer className="world-footer">
-          <ul className="expedition-legend" aria-label="기본 파티 구성">
+          <ul
+            className="expedition-legend"
+            aria-label={isSimple ? '활동 범례' : '기본 파티 구성'}
+          >
             <li className="actions">
-              <PartyLeaderGlyph /> 파티장
+              <PartyLeaderGlyph /> {isSimple ? 'GitHub' : '파티장'}
             </li>
             <li className="codex">
               <AdventurerGlyph agent="codex" /> Codex
@@ -342,7 +350,7 @@ function App() {
               <AdventurerGlyph agent="claude" /> Claude
             </li>
             <li className="release">
-              <PortalKeeperGlyph /> 포탈 관리자
+              <PortalKeeperGlyph /> {isSimple ? '릴리즈' : '포탈 관리자'}
             </li>
           </ul>
         </footer>
