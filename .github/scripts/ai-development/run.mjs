@@ -74,7 +74,20 @@ function git(...args) {
 
 function fetchCommit(sha) {
   if (!isSha(sha)) throw new Error('GitHub 응답에 유효한 SHA가 없습니다.');
-  git('fetch', '--quiet', '--no-tags', 'origin', sha);
+  const auth = Buffer.from(`x-access-token:${env.GH_TOKEN}`).toString('base64');
+  execFileSync('git', ['fetch', '--quiet', '--no-tags', 'origin', sha], {
+    stdio: ['ignore', 'ignore', 'ignore'],
+    timeout: 60_000,
+    env: {
+      ...env,
+      GIT_TERMINAL_PROMPT: '0',
+      GIT_CONFIG_COUNT: '2',
+      GIT_CONFIG_KEY_0: `http.https://github.com/${repository}.git.extraheader`,
+      GIT_CONFIG_VALUE_0: `Authorization: Basic ${auth}`,
+      GIT_CONFIG_KEY_1: 'http.followRedirects',
+      GIT_CONFIG_VALUE_1: 'false',
+    },
+  });
 }
 
 async function openPull() {
@@ -271,7 +284,7 @@ Write summaries in Korean. Follow these repository rules:\n${snapshot(baseSha, b
       mode: 'development',
       context,
       instructions: `${rules}\nRead the existing diff and relevant files before proposing changes.
-Edit only text source and docs under src/, server/, api/, docs/ or README.md.
+Edit only Markdown, TypeScript or CSS in src/, server/, api/, docs/ or README.md. In api/ edit existing files only.
 Use exact unique before/after replacements, null before for create or null after for delete.
 Use a GitMoji and Korean area and summary for the title. Do not claim that checks ran.`,
       inspect: work.inspect,

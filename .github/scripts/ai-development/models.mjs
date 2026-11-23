@@ -418,6 +418,18 @@ export function createModels({
       const model = modelNames[agent];
       const turnLimit =
         mode === 'review' ? (limits.reviewTurns ?? limits.turns) : limits.turns;
+      let toolCalls = 0;
+      function reserveTools(count) {
+        toolCalls += count;
+        if (
+          count > limits.toolCallsPerTurn ||
+          toolCalls > limits.toolCallsTotal
+        )
+          throw new Error(
+            'AI 저장소 탐색 도구 호출 한도를 초과했습니다. 작업 범위를 줄여 주세요.',
+          );
+      }
+
       for (let turn = 1; turn <= turnLimit; turn++) {
         const started = performance.now();
         const finalTurn = turn === turnLimit;
@@ -425,7 +437,7 @@ export function createModels({
           ? `${instructions}
 Return the final structured result now. If evidence is insufficient, return needs_human with the specific blocker.`
           : `${instructions}
-API requests remaining, including this one: ${turnLimit - turn + 1}. Return the final structured result once you have enough evidence.`;
+API requests remaining, including this one: ${turnLimit - turn + 1}. Read tools allowed this turn: ${Math.min(limits.toolCallsPerTurn, limits.toolCallsTotal - toolCalls)}. Return the final structured result once you have enough evidence.`;
         const data = await call(
           agent,
           isCodex
@@ -525,6 +537,7 @@ API requests remaining, including this one: ${turnLimit - turn + 1}. Return the 
               .join('');
             return verifyResult(parseJSON(text));
           }
+          reserveTools(calls.length);
           input.push(
             ...output,
             ...calls.map(({ name, arguments: args, call_id }) => ({
@@ -541,6 +554,7 @@ API requests remaining, including this one: ${turnLimit - turn + 1}. Return the 
               throw new Error(
                 'Claude 도구 호출 응답에 실행할 도구가 없습니다.',
               );
+            reserveTools(calls.length);
             const results = calls.map(({ name, input: args, id }) => ({
               type: 'tool_result',
               tool_use_id: id,

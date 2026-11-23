@@ -55,3 +55,27 @@ test('rejects stale edits and file/directory collisions', () => {
     ),
   );
 });
+
+test('blocks JSON configuration and limits API changes to existing file contents', () => {
+  const api = 'api/github.ts';
+  const work = {
+    ...snapshot,
+    files: new Map([[api, '100644']]),
+  };
+  for (const path of [
+    'server/package.json',
+    'src/tsconfig.build.json',
+    'api/new.ts',
+  ]) {
+    assert.throws(() =>
+      resolveEdits([{ path, before: null, after: source }], work),
+    );
+  }
+  assert.throws(() =>
+    resolveEdits([{ path: api, before: source, after: null }], work),
+  );
+  assert.equal(
+    resolveEdits([{ path: api, before: '1', after: '2' }], work)[0].text,
+    'export const value = 2;\n',
+  );
+});

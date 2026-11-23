@@ -22,7 +22,7 @@ function isEditable(path) {
   return (
     path.length <= 250 &&
     /^(?:README\.md$|(?:src|server|api|docs)\/)/.test(path) &&
-    /\.(?:md|tsx?|css|json)$/.test(path) &&
+    /\.(?:md|tsx?|css)$/.test(path) &&
     path
       .split('/')
       .every(
@@ -50,9 +50,16 @@ export function resolveEdits(edits, { files, read }) {
   for (const [index, { path, before, after }] of edits.entries()) {
     if (!isEditable(path))
       throw new Error(
-        '저장소 밖 경로, Git 내부 데이터, 의존성 설치 폴더 또는 비밀 파일을 편집하려 했습니다. 수동 검토가 필요합니다.',
+        '허용 범위 밖의 파일을 편집하려 했습니다. 수동 검토가 필요합니다.',
       );
     const mode = files.get(path);
+    if (path.startsWith('api/') && (!mode || before === null || after === null))
+      throw new EditConflict(
+        path,
+        index,
+        '기존 API 파일의 내용만 수정할 수 있습니다.',
+      );
+
     const ancestors = path.split('/').slice(0, -1);
     if (
       (mode && mode !== '100644') ||

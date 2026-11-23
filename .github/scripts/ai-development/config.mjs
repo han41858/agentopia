@@ -4,6 +4,8 @@ export const config = {
     reviewTurns: 15,
     outputTokens: 12_000,
     edits: 25,
+    toolCallsPerTurn: 4,
+    toolCallsTotal: 24,
     idleTimeout: 120_000,
     requestTimeout: 180_000,
     codexEffort: 'medium',

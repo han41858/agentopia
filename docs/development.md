@@ -41,9 +41,18 @@ GitHub Releases에는 이 워크플로가 발행한 최신 성공 릴리스 하�
 
 ## 이슈에서 AI 초안 PR 만들기
 
-저장소 쓰기 권한이 있는 사용자가 열린 이슈에 `ai:develop` 라벨을 붙이면 Codex가 변경을 준비하고 Claude가 해당 커밋을 리뷰합니다. 이슈마다 `ai/issue-<번호>-codex` 브랜치와 `dev` 대상 초안 PR 한 개를 사용합니다. 변경 범위는 `src/`, `server/`, `api/`, `docs/`의 허용된 텍스트 형식과 `README.md`입니다.
+저장소 쓰기 권한이 있는 사용자가 열린 이슈에 `ai:develop` 라벨을 붙이면 Codex가 변경을 준비하고 Claude가 해당 커밋을 리뷰합니다. 이슈마다 `ai/issue-<번호>-codex` 브랜치와 `dev` 대상 초안 PR 한 개를 사용합니다. 변경 범위는 `src/`, `server/`, `docs/`의 Markdown·TypeScript·CSS와 `README.md`입니다. `api/`에서는 기존 파일의 내용만 수정할 수 있습니다.
 
 - PR의 **Test and build**와 Claude 리뷰 결과를 확인한 뒤 사용자가 검토 준비 전환과 머지를 결정합니다. PR CI는 모델 키와 게시 토큰 없이 실행됩니다.
 - 이슈의 `ai:develop` 라벨을 유지한 상태에서 **AI development → Run workflow**에 이슈 번호를 입력하면 기존 초안을 이어서 처리합니다. `dev`가 앞서 있으면 PR에 `dev`를 반영한 뒤 실행합니다. 이슈를 닫거나 `ai:stop`을 붙이면 다음 게시 단계에서 실행을 중단합니다.
+- **Issues → Labels**에서 `ai:develop`과 `ai:stop`을 만듭니다.
 - Actions에 `ai-development` 환경을 만들고 배포 브랜치를 `dev`로 제한합니다. 환경 시크릿에 `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `AI_AUTOMATION_TOKEN`을, 환경 변수에 `AI_CODEX_MODEL`, `AI_CLAUDE_MODEL`을 설정합니다. 게시 토큰은 Agentopia 저장소의 Contents 및 Pull requests 쓰기 권한을 가진 GitHub App 토큰 또는 fine-grained PAT가 필요합니다. 별도 게시 토큰을 사용해야 PR 이벤트에서 일반 CI가 시작됩니다.
-- 첫 실행 전에 Vercel의 프리뷰 브랜치 설정을 확인합니다. Git 연동이 AI 작업 브랜치의 프리뷰를 실행하는 경우 해당 프리뷰에 민감한 환경 변수가 주입되지 않도록 합니다. 프로덕션 릴리스는 `main` 배포 성공 이벤트로 기록합니다.
+- [`vercel.json`](../vercel.json)의 브랜치 규칙은 `ai/issue-*`의 자동 프리뷰를 끕니다. 활성화 후 첫 PR에서 프리뷰가 생성되지 않는지 확인합니다. 프로덕션 릴리스는 `main` 배포 성공 이벤트로 기록합니다.
+- 비공개 저장소로 전환하면 Git 커밋 조회에도 Actions의 Contents 읽기 권한이 필요합니다. 워크플로는 커밋을 가져오는 명령에만 이 자격 증명을 전달합니다.
+
+### 실행을 재개할 수 없을 때
+
+- 기존 초안 PR을 닫았다면 같은 PR을 다시 열고, 이슈를 연 상태에서 AI 워크플로를 재실행합니다. 이미 머지된 작업의 후속 변경은 새 이슈로 시작합니다.
+- 브랜치 생성 직후 커밋이 실패했고 그 사이 `dev`가 앞서 나갔다면, 작업 브랜치에 보존할 커밋과 연결된 PR이 있는지 먼저 확인합니다. 둘 다 없으면 해당 브랜치를 수동으로 삭제한 뒤 같은 이슈에서 다시 실행합니다.
+
+모델 통신과 편집 검증 코드 일부는 [Commit Trail](https://github.com/han41858/commit-trail)에서 가져왔으며 해당 폴더에 [원본 MIT 고지](../.github/scripts/ai-development/LICENSE.md)를 포함합니다.
