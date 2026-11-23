@@ -172,11 +172,11 @@ test.describe('표시 모드', () => {
     page,
   }) => {
     const github = await openWorld(page);
-    const world = page.getByRole('button', { name: '월드 모드' });
-    const simple = page.getByRole('button', { name: '간단 모드' });
+    const toggle = page.getByRole('button', { name: '간단 모드' });
     const root = page.locator('[data-display-mode]');
     await expect(root).toHaveAttribute('data-display-mode', 'world');
-    await expect(world).toHaveAttribute('aria-pressed', 'true');
+    await expect(toggle).toHaveAttribute('aria-pressed', 'false');
+    await expect(toggle).toHaveAccessibleDescription('현재: 월드 모드');
 
     const positions = () =>
       page
@@ -192,9 +192,10 @@ test.describe('표시 모드', () => {
     const before = await positions();
     const requests = github.calls.length;
 
-    await simple.click();
+    await toggle.click();
     await expect(root).toHaveAttribute('data-display-mode', 'simple');
-    await expect(simple).toHaveAttribute('aria-pressed', 'true');
+    await expect(toggle).toHaveAttribute('aria-pressed', 'true');
+    await expect(toggle).toHaveAccessibleDescription('현재: 간단 모드');
     await expect.poll(positions).toEqual(before);
     // 이후에 보낸 요청(PR #12 집계)이 도착할 때까지 모드 전환으로 생긴 요청이 없습니다.
     await page.getByRole('button', { name: /PR #12/ }).click();
@@ -209,5 +210,10 @@ test.describe('표시 모드', () => {
     await page.reload();
     await settled(page);
     await expect(root).toHaveAttribute('data-display-mode', 'simple');
+
+    // 같은 단추를 다시 누르면 월드 모드로 돌아옵니다.
+    await toggle.click();
+    await expect(root).toHaveAttribute('data-display-mode', 'world');
+    await expect.poll(positions).toEqual(before);
   });
 });
