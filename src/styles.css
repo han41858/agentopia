@@ -368,7 +368,7 @@ svg {
 .adventurer-glyph.review .adventurer-role {
   animation: read-scroll 1.8s ease-in-out infinite;
 }
-.monster-marker .adventurer-glyph.review .adventurer-avatar {
+.adventurer-glyph.review .adventurer-avatar {
   animation: review-nod 1.8s ease-in-out infinite;
 }
 @keyframes review-nod {
