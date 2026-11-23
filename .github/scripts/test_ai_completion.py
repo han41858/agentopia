@@ -1,7 +1,7 @@
 import importlib.util
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 spec = importlib.util.spec_from_file_location("completion", Path(__file__).with_name("ai-completion.py"))
 completion = importlib.util.module_from_spec(spec)
@@ -38,6 +38,13 @@ class CompletionTest(unittest.TestCase):
             else:
                 completion.complete(1, 7)
         return calls
+
+    def test_paginated_comments(self):
+        result = Mock(returncode=0, stdout='{"id":1}\n{"id":2}\n')
+        with patch.object(completion.subprocess, "run", return_value=result) as run:
+            self.assertEqual(completion.api("comments", pages=True), [{"id": 1}, {"id": 2}])
+            self.assertIn("--paginate", run.call_args.args[0])
+            self.assertNotIn("--slurp", run.call_args.args[0])
 
     def test_merge_before_close(self):
         self.assertEqual(self.run_case(), ["pulls/2/merge", "issues/1"])
