@@ -1,17 +1,16 @@
 # SVG 도감
 
-월드맵과 상세 화면은 같은 SVG 원본을 사용합니다. 데스크톱 기준 왕궁은 96px, 개발 광장은 80px, PR 시설은 48px입니다. Codex·Claude는 28px, 파티장·포탈 관리자는 32px입니다. 연결된 커밋 수에 따라 일반 몬스터는 32~56px, 보스는 64~80px로 자랍니다. 유산은 누적 지표에 따라 40~88px로 성장합니다. 모바일에서는 월드맵 전체에 같은 배율을 적용합니다. 모든 SVG는 `vector-effect: non-scaling-stroke`를 사용해, 표시 크기와 관계없이 외곽선이 1.5px로 그려집니다. 파일명을 누르면 원본을 열 수 있습니다.
+월드맵과 상세 화면은 같은 SVG 원본을 사용합니다. 데스크톱 기준 왕궁은 96px, 개발 광장은 80px, PR 시설은 48px입니다. Codex·Claude는 28px, 파티장은 32px입니다. 연결된 커밋 수에 따라 일반 몬스터는 32~56px, 보스는 64~80px로 자랍니다. 유산은 누적 지표에 따라 40~88px로 성장합니다. 모바일에서는 월드맵 전체에 같은 배율을 적용합니다. 모든 SVG는 `vector-effect: non-scaling-stroke`를 사용해, 표시 크기와 관계없이 외곽선이 1.5px로 그려집니다. 파일명을 누르면 원본을 열 수 있습니다.
 
 ## 캐릭터와 몬스터
 
-| 미리보기                                               | 이름        | 표시 기준                                                           | 원본                                                                |
-| ------------------------------------------------------ | ----------- | ------------------------------------------------------------------- | ------------------------------------------------------------------- |
-| ![파티장](../assets/characters/party-leader.svg)       | 파티장      | PR에서 CI 실행 중                                                   | [party-leader.svg](../assets/characters/party-leader.svg)           |
-| ![Codex](../assets/characters/adventurer-codex.svg)    | Codex       | 참여가 확인된 Codex                                                 | [adventurer-codex.svg](../assets/characters/adventurer-codex.svg)   |
-| ![Claude](../assets/characters/adventurer-claude.svg)  | Claude      | 참여가 확인된 Claude                                                | [adventurer-claude.svg](../assets/characters/adventurer-claude.svg) |
-| ![포탈 관리자](../assets/characters/portal-keeper.svg) | 포탈 관리자 | 게시 기록이 있는 왕궁 팝업 및 릴리스 태그와 머지 커밋이 일치한 이슈 | [portal-keeper.svg](../assets/characters/portal-keeper.svg)         |
-| ![몬스터](../assets/characters/monster.svg)            | 몬스터      | 일반 이슈                                                           | [monster.svg](../assets/characters/monster.svg)                     |
-| ![보스 몬스터](../assets/characters/monster-boss.svg)  | 보스 몬스터 | 하위 이슈가 있는 상위 이슈                                          | [monster-boss.svg](../assets/characters/monster-boss.svg)           |
+| 미리보기                                              | 이름        | 표시 기준                  | 원본                                                                |
+| ----------------------------------------------------- | ----------- | -------------------------- | ------------------------------------------------------------------- |
+| ![파티장](../assets/characters/party-leader.svg)      | 파티장      | PR에서 CI 실행 중          | [party-leader.svg](../assets/characters/party-leader.svg)           |
+| ![Codex](../assets/characters/adventurer-codex.svg)   | Codex       | 참여가 확인된 Codex        | [adventurer-codex.svg](../assets/characters/adventurer-codex.svg)   |
+| ![Claude](../assets/characters/adventurer-claude.svg) | Claude      | 참여가 확인된 Claude       | [adventurer-claude.svg](../assets/characters/adventurer-claude.svg) |
+| ![몬스터](../assets/characters/monster.svg)           | 몬스터      | 일반 이슈                  | [monster.svg](../assets/characters/monster.svg)                     |
+| ![보스 몬스터](../assets/characters/monster-boss.svg) | 보스 몬스터 | 하위 이슈가 있는 상위 이슈 | [monster-boss.svg](../assets/characters/monster-boss.svg)           |
 
 ## 왕궁과 유산
 

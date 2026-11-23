@@ -36,7 +36,6 @@ export const simpleSprites = {
   adventurerCodex: badge('CX', '#27564e'),
   adventurerClaude: badge('CL', '#704934'),
   partyLeader: badge('A', '#3e5176'),
-  portalKeeper: badge('R', '#654769'),
 };
 export const simpleHeritage = symbol(
   '<rect x="18" y="5" width="12" height="36" rx="1" fill="#6c97a0"/><path d="M12 42h24"/>',

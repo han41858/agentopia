@@ -542,9 +542,6 @@ svg {
 .expedition-legend .claude {
   color: #ffbf9e;
 }
-.expedition-legend .release {
-  color: #e1c4ff;
-}
 .refresh-button {
   position: relative;
   isolation: isolate;
@@ -659,9 +656,6 @@ svg {
 }
 .quest-row small {
   color: #bdadc9;
-}
-.release-keeper {
-  vertical-align: middle;
 }
 .release-history {
   display: grid;
