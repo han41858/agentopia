@@ -1509,6 +1509,15 @@ svg {
 [data-display-mode='simple'] .world {
   background: #18232c;
 }
+[data-display-mode='simple'] .world-footer .expedition-legend > li {
+  color: #eee9f7;
+}
+[data-display-mode='simple'] .world-footer .expedition-legend img {
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  opacity: 1;
+}
 [data-display-mode='simple'] .map-viewport *,
 [data-display-mode='simple'] .expedition-legend * {
   animation: none !important;

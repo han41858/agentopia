@@ -429,6 +429,9 @@ export function createModels({
       const model = modelNames[agent];
       const turnLimit =
         mode === 'review' ? (limits.reviewTurns ?? limits.turns) : limits.turns;
+      const reviewFormat =
+        'Keep the Korean summary under 400 characters. Use at most 6 findings, with each string under 250 characters and a positive line number. pass requires zero findings; changes_requested requires at least one. For needs_human, identify the concrete blocker.';
+      let correctingReview = false;
       let toolCalls = 0;
       function reserveTools(count) {
         toolCalls += count;
@@ -443,7 +446,7 @@ export function createModels({
 
       for (let turn = 1; turn <= turnLimit; turn++) {
         const started = performance.now();
-        const finalTurn = turn === turnLimit;
+        const finalTurn = turn === turnLimit || correctingReview;
         const turnInstructions = finalTurn
           ? `${instructions}
 Return the final structured result now. If evidence is insufficient, return needs_human with the specific blocker.`
@@ -481,7 +484,10 @@ API requests remaining, including this one: ${turnLimit - turn + 1}. Read tools 
               }
             : {
                 model,
-                system: instructions,
+                system:
+                  mode === 'review'
+                    ? instructions + '\n' + reviewFormat
+                    : instructions,
                 messages: input,
                 max_tokens: limits.outputTokens,
                 output_config: { format: { type: 'json_schema', schema } },
@@ -577,14 +583,28 @@ API requests remaining, including this one: ${turnLimit - turn + 1}. Read tools 
               { role: 'user', content: results },
             );
           } else if (data.stop_reason === 'end_turn') {
-            return verifyResult(
-              parseJSON(
-                output
-                  .filter(({ type }) => type === 'text')
-                  .map(({ text }) => text)
-                  .join(''),
-              ),
-            );
+            const text = output
+              .filter((block) => block.type === 'text')
+              .map((block) => block.text)
+              .join('');
+            try {
+              return verifyResult(parseJSON(text));
+            } catch (error) {
+              if (
+                mode !== 'review' ||
+                finalTurn ||
+                !(error instanceof ModelError)
+              )
+                throw error;
+              correctingReview = true;
+              input.push(
+                { role: 'assistant', content: claudeAssistantContent(output) },
+                {
+                  role: 'user',
+                  content: `Return the corrected review JSON using the same evidence and verdict. Validation: ${error.message}. ${reviewFormat}`,
+                },
+              );
+            }
           } else {
             throw new ModelError('Claude 응답이 완료되지 않았습니다.');
           }
