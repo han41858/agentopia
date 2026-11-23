@@ -1,0 +1,57 @@
+import importlib.util
+import unittest
+from pathlib import Path
+from unittest.mock import Mock, patch
+
+spec = importlib.util.spec_from_file_location("completion", Path(__file__).with_name("ai-completion.py"))
+completion = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(completion)
+
+
+class CompletionTest(unittest.TestCase):
+    def run_case(self, ci="success", merged=False, changed=False):
+        calls = []
+        head = "a" * 40
+        state = {"head": head, "base": "base", "runId": 7}
+        pull = {"number": 2, "state": "closed" if merged else "open", "merged_at": merged,
+                "head": {"sha": head, "repo": {"full_name": completion.REPO}},
+                "base": {"ref": "dev", "sha": "updated" if changed else "base"},
+                "draft": True, "title": "Fix", "body": "<!-- agentopia-ai-issue:1 -->", "node_id": "id"}
+
+        def repo(path, **kwargs):
+            if path.startswith("pulls?"):
+                return [pull]
+            if path.startswith("actions/"):
+                return {"workflow_runs": [{"pull_requests": [{"number": 2}], "status": "completed",
+                                           "conclusion": ci, "html_url": "CI"}]}
+            if path == "pulls/2":
+                return pull
+            calls.append(path)
+            return {"merged": True}
+
+        with patch.object(completion, "eligible", return_value=True), patch.object(
+            completion, "ready_state", return_value=state
+        ), patch.object(completion, "repo", side_effect=repo), patch.object(completion, "api"):
+            if changed or ci != "success":
+                with self.assertRaises(RuntimeError):
+                    completion.complete(1, 7)
+            else:
+                completion.complete(1, 7)
+        return calls
+
+    def test_paginated_comments(self):
+        result = Mock(returncode=0, stdout='{"id":1}\n{"id":2}\n')
+        with patch.object(completion.subprocess, "run", return_value=result) as run:
+            self.assertEqual(completion.api("comments", pages=True), [{"id": 1}, {"id": 2}])
+            self.assertIn("--paginate", run.call_args.args[0])
+            self.assertNotIn("--slurp", run.call_args.args[0])
+
+    def test_merge_before_close(self):
+        self.assertEqual(self.run_case(), ["pulls/2/merge", "issues/1"])
+
+    def test_resume_after_merge(self):
+        self.assertEqual(self.run_case(merged=True), ["issues/1"])
+
+    def test_failed_ci_or_changed_base(self):
+        self.assertEqual(self.run_case(ci="failure"), [])
+        self.assertEqual(self.run_case(changed=True), [])
