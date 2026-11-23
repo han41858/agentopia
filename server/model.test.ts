@@ -287,16 +287,17 @@ test('failed CI requires matching HEAD and deployment requires matching merge SH
     [comment(2, 'merged')],
     new Map(),
     [
-      { title: 'Unrelated', url: 'https://github.com', stage: 'failed', sha },
+      { title: 'Unrelated', url: 'https://github.com', stage: 'complete', sha },
       {
         title: 'Production',
         url: 'https://github.com',
-        stage: 'deploying',
+        stage: 'complete',
         sha: mergeSha,
       },
     ],
   );
-  assert.equal(quest.stage, 'deploying');
+  assert.equal(quest.stage, 'complete');
+  assert.equal(quest.released, true);
   assert.equal(quest.evidence?.title, 'Production');
 });
 
@@ -355,7 +356,7 @@ test('API gets only the allowed repository and keeps authenticated reports out o
   assert.equal(authenticated.status, 200);
   assert.equal(publicReport.status, 200);
   assert.deepEqual(JSON.parse(publicReport.body).warnings, ['PR']);
-  assert.equal(calls.length, 10);
+  assert.equal(calls.length, 12);
   assert.ok(
     calls.every(({ url }) =>
       url.startsWith('https://api.github.com/repos/han41858/videx/'),
@@ -363,11 +364,11 @@ test('API gets only the allowed repository and keeps authenticated reports out o
   );
   assert.ok(
     calls
-      .slice(0, 5)
+      .slice(0, 6)
       .every(({ authorization }) => authorization === 'Bearer test_token'),
   );
   assert.ok(
-    calls.slice(5).every(({ authorization }) => authorization === null),
+    calls.slice(6).every(({ authorization }) => authorization === null),
   );
 });
 

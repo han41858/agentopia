@@ -70,7 +70,7 @@ export async function getReport(
     }
   }
 
-  const [issuePage, pullPage, workflow, releasePage] = await Promise.all([
+  const [issuePage, pullPage, workflow, releasePage, tags] = await Promise.all([
     get<Issue[]>(
       `/issues${recent}&state=all&sort=updated&direction=desc`,
     ).catch((error) => {
@@ -91,6 +91,15 @@ export async function getReport(
     optional(
       '릴리스',
       get<GitHubRelease[]>('/releases?per_page=30', undefined, 45_000),
+      [],
+    ),
+    optional(
+      '태그',
+      get<{ name: string; commit: { sha: string } }[]>(
+        '/tags?per_page=30',
+        undefined,
+        120_000,
+      ),
       [],
     ),
   ]);
@@ -227,13 +236,15 @@ export async function getReport(
     Promise.all(issueTasks),
     commentsTask,
   ]);
+  const tagCommits = new Map(tags.map((tag) => [tag.name, tag.commit.sha]));
   const releases: Release[] = releasePage.flatMap((release) =>
     !release.draft && release.published_at
       ? [
           {
             title: release.tag_name,
             url: release.html_url,
-            status: release.prerelease ? '사전 릴리스' : '게시됨',
+            status: release.prerelease ? '사전 릴리스' : '릴리스',
+            sha: tagCommits.get(release.tag_name),
             at: release.published_at,
             stage: 'complete' as const,
           },
@@ -276,7 +287,8 @@ export async function getReport(
     ),
     releases: releases
       .toSorted((a, b) => (b.at ?? '').localeCompare(a.at ?? ''))
-      .slice(0, 5),
+      .map(({ sha, ...release }) => release),
+    tags: tags.map((tag) => tag.name),
     updatedAt: new Date().toISOString(),
     warnings: [...warnings].sort(),
   };

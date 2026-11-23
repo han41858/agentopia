@@ -143,6 +143,10 @@ test('release history uses published releases and excludes drafts and workflow r
   context.mock.method(globalThis, 'fetch', async (input: string) => {
     const path = new URL(input).pathname;
     if (path.endsWith('/actions/runs')) return Response.json({ workflow_runs });
+    if (path.endsWith('/tags'))
+      return Response.json(
+        ['v1', 'tag-only'].map((name) => ({ name, commit: { sha: 'abc' } })),
+      );
     if (path.endsWith('/releases'))
       return Response.json([
         { ...release, draft: true },
@@ -162,6 +166,7 @@ test('release history uses published releases and excludes drafts and workflow r
     'GET',
   );
   assert.equal(response.status, 200);
+  assert.deepEqual(JSON.parse(response.body).tags, ['v1', 'tag-only']);
   assert.deepEqual(JSON.parse(response.body).releases, [
     {
       title: 'v2-beta',
@@ -173,7 +178,7 @@ test('release history uses published releases and excludes drafts and workflow r
     {
       title: 'v1',
       url: release.html_url,
-      status: '게시됨',
+      status: '릴리스',
       at: release.published_at,
       stage: 'complete',
     },

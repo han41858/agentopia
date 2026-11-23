@@ -379,7 +379,7 @@ export function PlazaDetail({
 
 // Report warnings that can leave the release history missing or out of date.
 // The labels are set where the report is loaded, in server/github-report.ts.
-const releaseWarnings = new Set(['릴리스', 'GitHub API 사용 한도']);
+const releaseWarnings = new Set(['릴리스', '태그', 'GitHub API 사용 한도']);
 
 export function RegionDetail({
   region,
@@ -394,6 +394,19 @@ export function RegionDetail({
 }) {
   const [confirmRemoval, setConfirmRemoval] = useState(false);
   const report = snapshot?.report;
+  const publishedTags = new Set(
+    report?.releases.map((release) => release.title),
+  );
+  const tagRows = (report?.tags ?? [])
+    .filter((tag) => !publishedTags.has(tag))
+    .map((tag) => ({
+      title: tag,
+      url: `https://github.com/${region.slug}/tree/${encodeURIComponent(tag)}`,
+      status: '태그',
+      stage: 'idle',
+      at: undefined,
+    }));
+  const history = [...(report?.releases ?? []), ...tagRows];
   const warnings =
     report?.warnings.filter((label) => releaseWarnings.has(label)) ?? [];
   if (confirmRemoval) {
@@ -454,22 +467,21 @@ export function RegionDetail({
         </p>
       )}
       {!report && !snapshot?.error && <p>배포 기록을 조회하고 있습니다.</p>}
-      {report &&
-        !report.releases.length &&
-        !warnings.length &&
-        !snapshot?.error && <p>배포 기록이 없습니다.</p>}
-      {!!report?.releases.length && (
+      {report && !history.length && !warnings.length && !snapshot?.error && (
+        <p>배포 기록이 없습니다.</p>
+      )}
+      {history.length > 0 && (
         <>
           <h4>
             왕국 배포 기록 <small>(KST)</small>
           </h4>
           <div className="release-history">
-            {report.releases.map((release, index) => {
-              const status = release.status?.split(' · ')[0];
+            {history.map((release) => {
+              const status = release.status;
               return (
                 <a
                   className="release-row"
-                  key={index}
+                  key={release.title}
                   href={release.url}
                   target="_blank"
                   rel="noreferrer"
@@ -482,11 +494,9 @@ export function RegionDetail({
                       {releaseTime.format(new Date(release.at))}
                     </time>
                   ) : (
-                    <span>시각 미확인</span>
+                    <span aria-label="게시 시각 없음">—</span>
                   )}
-                  <span className={`badge ${release.stage}`}>
-                    {status === 'failure' ? 'failed' : status || '미확인'}
-                  </span>
+                  <span className={`badge ${release.stage}`}>{status}</span>
                   <span className="release-name">{release.title}</span>
                 </a>
               );

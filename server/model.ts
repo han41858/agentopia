@@ -89,6 +89,7 @@ export type Quest = {
   stage: Stage;
   state: Issue['state'];
   stateReason?: Issue['state_reason'];
+  released?: boolean;
   victory?: boolean;
   adventurers?: Adventurer[];
   activities?: ActivityCounts;
@@ -143,6 +144,7 @@ export type Report = {
   forges?: PullQuest[];
   branchInventory?: BranchInventory;
   branchPulls?: BranchPull[];
+  tags?: string[];
   releases: Omit<Release, 'sha'>[];
   updatedAt: string;
   warnings: string[];
@@ -198,7 +200,7 @@ export type Comment = {
   html_url: string;
   updated_at: string;
 };
-export type Release = Source & { stage: Stage; sha?: string; at?: string };
+export type Release = Source & { stage: 'complete'; sha?: string; at?: string };
 type AutomationState = {
   issue: number;
   runId: number;
@@ -851,6 +853,7 @@ export function makeQuests(
           issue.sub_issues_summary?.total ?? 0,
           childrenByIssue.get(issue.number) ?? 0,
         ) || undefined,
+      released: deployment ? true : undefined,
       parent: parents.get(issue.number),
       reason,
       detail,

@@ -123,7 +123,7 @@ export function MonsterMarker({
         members={members}
         resting={resting}
         leader={quest.stage === 'ci' ? 'active' : undefined}
-        deploying={quest.stage === 'deploying'}
+        released={quest.released}
       />
     </button>
   );

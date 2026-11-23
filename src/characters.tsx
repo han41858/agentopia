@@ -100,17 +100,17 @@ export function AdventurerParty({
   resting,
   detailed = false,
   leader,
-  deploying = false,
+  released = false,
   forge = false,
 }: {
   members: Adventurer[];
   resting: string;
   detailed?: boolean;
   leader?: 'active' | 'resting';
-  deploying?: boolean;
+  released?: boolean;
   forge?: boolean;
 }) {
-  if (!leader && !deploying && !members.length) return null;
+  if (!leader && !released && !members.length) return null;
   return (
     <span className={`adventurer-party${detailed ? ' detailed' : ''}`}>
       {leader && (
@@ -125,9 +125,9 @@ export function AdventurerParty({
           {detailed && <strong>{partyLeaderLabel(leader)}</strong>}
         </span>
       )}
-      {deploying && (
-        <span className="adventurer" title="포탈 관리자 · 배포 중">
-          <PortalKeeperGlyph className="working-portal-keeper" />
+      {released && (
+        <span className="adventurer" title="포탈 관리자 · 릴리스 게시됨">
+          <PortalKeeperGlyph />
         </span>
       )}
       {members.map((member) => (

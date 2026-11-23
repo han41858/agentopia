@@ -102,6 +102,7 @@ export function reportSnapshot(report: Report, previous?: Snapshot): Snapshot {
     branchPulls: missingPulls
       ? (oldReport.branchPulls ?? report.branchPulls)
       : report.branchPulls,
+    tags: warnings.has('태그') ? (oldReport.tags ?? report.tags) : report.tags,
     releases:
       missingDeployments && !report.releases.length
         ? oldReport.releases
