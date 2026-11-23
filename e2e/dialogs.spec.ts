@@ -88,12 +88,7 @@ test.describe('상세 창', () => {
 
     await expect(dialog.getByText('모험가 전투')).toBeVisible();
     const counters = dialog.getByRole('group', { name: '이슈 활동' });
-    for (const name of [
-      '고유 커밋 3개',
-      '이슈 댓글 4개',
-      'PR 댓글 2개',
-      '리뷰 1개',
-    ]) {
+    for (const name of ['고유 커밋 3개', 'PR 댓글 2개', '리뷰 1개']) {
       await expect(
         counters.getByRole('img', { name, exact: true }),
       ).toBeVisible();
@@ -108,7 +103,7 @@ test.describe('상세 창', () => {
       dialog.getByRole('link', { name: /PR #11 · ✨ 지도: 새 시설 추가/ }),
     ).toBeVisible();
     // 댓글 단추는 이 이슈의 댓글 기록을 조회해 보여 줍니다.
-    await dialog.getByRole('button', { name: '댓글 4개' }).click();
+    await counters.getByRole('button', { name: '이슈 댓글 4개' }).click();
     await expect(dialog.locator('.activity-entry')).toHaveCount(2);
     await expect(
       dialog.getByText('지도 개편 범위를 정리했습니다.'),
@@ -142,7 +137,9 @@ test.describe('상세 창', () => {
     await expect(dialog.getByRole('img', { name: '실행 실패' })).toBeVisible();
     // 이슈 집계(댓글 6개)가 활동량에 반영됩니다. PR 집계 값(5)이면 실패합니다.
     await expect(
-      dialog.getByRole('group', { name: '이슈 활동' }).getByRole('img'),
+      dialog
+        .getByRole('group', { name: '이슈 활동' })
+        .locator('.activity-counter'),
     ).toHaveText(['0', '6', '0', '0']);
     expect(github.queries('summary')).toEqual([
       { repo: alpha, summary: 'issue', number: '2' },

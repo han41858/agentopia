@@ -1442,12 +1442,12 @@ svg {
   width: 28px;
   height: 28px;
 }
-.pull-dialog .activity-counter {
+:is(.issue-dialog, .pull-dialog) .activity-counter {
   flex: none;
   gap: 2px;
   padding: 3px;
 }
-.pull-dialog .activity-counter[aria-expanded='true'] {
+:is(.issue-dialog, .pull-dialog) .activity-counter[aria-expanded='true'] {
   outline: 1px solid currentColor;
 }
 @media (max-width: 420px) {
@@ -1469,7 +1469,7 @@ svg {
 }
 
 @media (pointer: coarse) {
-  .pull-dialog .activity-counter {
+  :is(.issue-dialog, .pull-dialog) .activity-counter {
     min-width: 44px;
     min-height: 44px;
     justify-content: center;

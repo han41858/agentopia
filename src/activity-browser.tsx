@@ -241,7 +241,13 @@ export function useActivitySummary({
   return { activity: loaded ?? initial, status };
 }
 
-export function IssueActivityCounters(props: ActivitySummaryProps) {
+export function IssueActivityCounters(
+  props: ActivitySummaryProps & {
+    fallbackComments?: number;
+    commentsOpen: boolean;
+    toggleComments: () => void;
+  },
+) {
   const { activity, status } = useActivitySummary(props);
   const counters = [
     [
@@ -250,7 +256,11 @@ export function IssueActivityCounters(props: ActivitySummaryProps) {
       activity?.commits,
       activity?.partialCommits,
     ],
-    [activityDisplay.comments.Icon, '이슈 댓글', activity?.issueComments],
+    [
+      activityDisplay.comments.Icon,
+      '이슈 댓글',
+      activity?.issueComments ?? props.fallbackComments,
+    ],
     [MessagesSquare, 'PR 댓글', activity?.pullComments],
     [activityDisplay.reviews.Icon, '리뷰', activity?.reviews],
   ] as const;
@@ -261,18 +271,37 @@ export function IssueActivityCounters(props: ActivitySummaryProps) {
           count === undefined
             ? label + ' 미확인'
             : `${label} ${count}개${partial ? ' 이상' : ''}`;
-        return (
+        const content = (
+          <>
+            <Icon size={16} aria-hidden="true" />
+            {count === undefined
+              ? '—'
+              : count.toLocaleString('ko-KR') + (partial ? '+' : '')}
+          </>
+        );
+        const title =
+          count === undefined && status ? name + ' · ' + status : name;
+        return label === '이슈 댓글' ? (
+          <button
+            type="button"
+            className="text-button activity-counter"
+            key={label}
+            aria-label={name}
+            title={title}
+            aria-expanded={props.commentsOpen}
+            onClick={props.toggleComments}
+          >
+            {content}
+          </button>
+        ) : (
           <span
             className="activity-counter"
             key={label}
             role="img"
             aria-label={name}
-            title={name}
+            title={title}
           >
-            <Icon size={16} aria-hidden="true" />
-            {count === undefined
-              ? '—'
-              : count.toLocaleString('ko-KR') + (partial ? '+' : '')}
+            {content}
           </span>
         );
       })}

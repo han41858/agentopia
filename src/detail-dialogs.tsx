@@ -37,6 +37,7 @@ import { releaseTime, OutLink, ResultLink, Dialog } from './dialog.tsx';
 import {
   useActivityBrowser,
   ActivityBrowser,
+  ActivityEntries,
   useActivitySummary,
   IssueActivityCounters,
 } from './activity-browser.tsx';
@@ -52,6 +53,9 @@ export function QuestDetail({
   token: string;
   close: () => void;
 }) {
+  const [comments, setComments] = useState<'unopened' | 'open' | 'closed'>(
+    'unopened',
+  );
   const [activityPull, setActivityPull] = useState<number>();
   const [visitedPulls, setVisitedPulls] = useState<number[]>([]);
   return (
@@ -68,6 +72,11 @@ export function QuestDetail({
           issue={quest.number}
           pulls={quest.pulls.map(({ number }) => number).join(',')}
           initial={quest.activity}
+          fallbackComments={quest.issueComments}
+          commentsOpen={comments === 'open'}
+          toggleComments={() =>
+            setComments(comments === 'open' ? 'closed' : 'open')
+          }
         />
       }
       close={close}
@@ -125,13 +134,16 @@ export function QuestDetail({
           현재 커밋의 AI 리뷰 결과 <strong>{quest.review}</strong>
         </p>
       )}
-      <ActivityBrowser
-        region={region.slug}
-        number={quest.number}
-        token={token}
-        kinds={['comments']}
-        counts={{ comments: quest.issueComments }}
-      />
+      {comments !== 'unopened' && (
+        <div hidden={comments !== 'open'}>
+          <ActivityEntries
+            region={region.slug}
+            number={quest.number}
+            token={token}
+            kind="comments"
+          />
+        </div>
+      )}
       {(quest.pulls.length > 0 || quest.commit) && <h4>공략 결과</h4>}
       {quest.commit && <ResultLink item={quest.commit} />}
       {quest.pulls.map((item) => (
