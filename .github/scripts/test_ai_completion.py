@@ -9,8 +9,9 @@ spec.loader.exec_module(completion)
 
 
 class CompletionTest(unittest.TestCase):
-    def run_case(self, ci="success", merged=False, changed=False, status="completed", stale_head=False):
+    def run_case(self, ci="success", merged=False, changed=False, status="completed", stale_head=False, merge_error=False):
         calls = []
+        mutations = []
         head = "a" * 40
         state = {"head": head, "base": "base", "runId": 7}
         pull = {"number": 2, "state": "closed" if merged else "open", "merged_at": merged,
@@ -19,6 +20,10 @@ class CompletionTest(unittest.TestCase):
                 "draft": True, "title": "Fix", "body": "<!-- agentopia-ai-issue:1 -->", "node_id": "id"}
 
         def repo(path, **kwargs):
+            if path == "git/ref/heads/dev":
+                return {"object": {"sha": "updated" if changed else "base"}}
+            if path == "pulls/2/merge" and merge_error:
+                raise RuntimeError("HTTP 502")
             if path.startswith("pulls?"):
                 return [pull]
             if path.startswith("actions/"):
@@ -29,12 +34,23 @@ class CompletionTest(unittest.TestCase):
             calls.append(path)
             return {"merged": True}
 
+        def mutation(path, **kwargs):
+            mutations.append(kwargs["query"])
+            pull["draft"] = "convertPullRequestToDraft" in kwargs["query"]
+
         with patch.object(completion, "eligible", return_value=True), patch.object(
             completion, "ready_state", return_value=state
-        ), patch.object(completion, "repo", side_effect=repo), patch.object(completion, "api"), patch.object(
+        ), patch.object(completion, "repo", side_effect=repo), patch.object(completion, "api", side_effect=mutation), patch.object(
             completion.time, "sleep"
         ):
-            if changed or stale_head or ci != "success" or status != "completed":
+            if merge_error:
+                with self.assertRaisesRegex(RuntimeError, "502"):
+                    completion.complete(1, 7)
+                self.assertTrue(pull["draft"])
+                self.assertEqual(len(mutations), 2)
+                merge_error = False
+                completion.complete(1, 7)
+            elif changed or stale_head or ci != "success" or status != "completed":
                 with self.assertRaises(RuntimeError):
                     completion.complete(1, 7)
             else:
@@ -51,6 +67,9 @@ class CompletionTest(unittest.TestCase):
     def test_merge_before_close(self):
         self.assertEqual(self.run_case(), ["pulls/2/merge", "issues/1"])
 
+    def test_merge_error_restores_draft_for_retry(self):
+        self.assertEqual(self.run_case(merge_error=True), ["pulls/2/merge", "issues/1"])
+
     def test_resume_after_merge(self):
         self.assertEqual(self.run_case(merged=True), ["issues/1"])
 
@@ -63,9 +82,11 @@ class CompletionTest(unittest.TestCase):
             "issue": completion.fingerprint("task", ""), "pull": completion.fingerprint(2, "Fix", "<!-- agentopia-ai-issue:1 -->")}}
         pull = {"number": 2, "title": "Fix", "body": "<!-- agentopia-ai-issue:1 -->", "draft": True,
                 "state": "open", "merged_at": None, "head": {"sha": "reviewed", "repo": {"full_name": completion.REPO}},
-                "base": {"sha": "new", "ref": "dev"}}
+                "base": {"sha": "old", "ref": "dev"}}
         def repo(path, **kwargs):
             self.assertFalse(kwargs)
+            if path == "git/ref/heads/dev":
+                return {"object": {"sha": "new"}}
             if path.startswith("pulls?"):
                 return [pull]
             if path.startswith("actions/"):

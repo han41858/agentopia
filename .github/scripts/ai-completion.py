@@ -72,6 +72,16 @@ def request_recovery(issue, state):
     print(f"Issue #{issue}: dev advanced; requested a fresh review and CI on the updated branch.")
 
 
+def dev_head():
+    return repo("git/ref/heads/dev")["object"]["sha"]
+
+
+def restore_draft(current):
+    api("graphql", publisher=True, method="POST",
+        query="mutation($id:ID!){convertPullRequestToDraft(input:{pullRequestId:$id}){pullRequest{id}}}",
+        id=current["node_id"])
+
+
 def current_target(issue, number, state, *, undrafted=False):
     if not eligible(issue) or ready_state(issue) != state:
         return None
@@ -86,11 +96,9 @@ def current_target(issue, number, state, *, undrafted=False):
         if (fingerprint(data["title"], data.get("body")) != recovery["issue"]
                 or fingerprint(number, current["title"], current["body"]) != recovery["pull"]):
             raise RuntimeError("Issue or PR was edited since review. Human confirmation required.")
-    if current["base"]["sha"] != state["base"]:
+    if dev_head() != state["base"]:
         if undrafted and not current["draft"]:
-            api("graphql", publisher=True, method="POST",
-                query="mutation($id:ID!){convertPullRequestToDraft(input:{pullRequestId:$id}){pullRequest{id}}}",
-                id=current["node_id"])
+            restore_draft(current)
         request_recovery(issue, state)
         return None
     return current
@@ -125,7 +133,7 @@ def complete(issue, run_id):
                 if ci["conclusion"] != "success":
                     raise RuntimeError(f"CI did not pass: {ci['html_url']}")
                 break
-            if repo(f"pulls/{number}")["base"]["sha"] != state["base"]:
+            if dev_head() != state["base"]:
                 if not current_target(issue, number, state):
                     return
             time.sleep(10)
@@ -134,13 +142,14 @@ def complete(issue, run_id):
         current = current_target(issue, number, state)
         if not current:
             return
-        if current["draft"]:
+        undrafted = current["draft"]
+        if undrafted:
             api("graphql", publisher=True, method="POST",
                 query="mutation($id:ID!){markPullRequestReadyForReview(input:{pullRequestId:$id}){pullRequest{id}}}",
                 id=current["node_id"])
-        if not current_target(issue, number, state, undrafted=current["draft"]):
-            return
         try:
+            if not current_target(issue, number, state, undrafted=undrafted):
+                return
             result = repo(f"pulls/{number}/merge", publisher=True, method="PUT",
                           sha=head, merge_method="squash", commit_title=f"{current['title']} (#{number})")
             if not result.get("merged"):
@@ -148,6 +157,10 @@ def complete(issue, run_id):
         except (ValueError, RuntimeError):
             confirmed = repo(f"pulls/{number}")
             if not confirmed["merged_at"] or confirmed["head"]["sha"] != head or confirmed["base"]["ref"] != "dev":
+                if (undrafted and confirmed["state"] == "open" and not confirmed["draft"]
+                        and confirmed["head"]["sha"] == head and confirmed["base"]["ref"] == "dev"
+                        and confirmed["body"] == current["body"] and confirmed["title"] == current["title"]):
+                    restore_draft(confirmed)
                 raise
     if eligible(issue):
         try:

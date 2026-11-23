@@ -78,8 +78,8 @@ const getIssue = () => repo(`/issues/${number}`);
 const ref = async (name, missing) =>
   (await repo(`/git/ref/heads/${name}`, { missing }))?.object.sha;
 
-async function guard(identity) {
-  const issue = await getIssue();
+async function guard(identity, initialIssue) {
+  const issue = initialIssue ?? (await getIssue());
   const labels = issue.labels.map(({ name }) => name);
   if (
     (identity && fingerprint(issue.title, issue.body) !== identity) ||
@@ -381,8 +381,20 @@ async function main() {
     delete recovery.pending;
     await save(status, message);
   }
+  async function runModel(request) {
+    try {
+      return await models.run(request);
+    } catch (error) {
+      // No publication is attempted by the model client.
+      state.modelRetryRequired = true;
+      delete recovery.pending;
+      delete state.reviewInProgress;
+      throw error;
+    }
+  }
+  let models;
   try {
-    const issue = await guard(recovery.issue);
+    const issue = await getIssue();
     if (
       previous &&
       (!previous.data.recovery?.issue || previous.data.issue !== number)
@@ -390,11 +402,32 @@ async function main() {
       throw new Stop(
         '기존 상태의 작업 출처를 확인할 수 없어 자동 재개를 중지했습니다.',
       );
+    recovery.issue ??= fingerprint(issue.title, issue.body);
+    await guard(recovery.issue, issue);
+    const manualResume =
+      previous &&
+      previous.data.runId !== state.runId &&
+      env.GITHUB_EVENT_NAME === 'workflow_dispatch' &&
+      !recoveryRun &&
+      !sender.endsWith('[bot]') &&
+      (['needs_human', 'failed'].includes(previous.data.status) ||
+        recovery.pending);
+    if (manualResume) {
+      await verifyArtifacts();
+      // An unacknowledged review comment can exist even when HEAD is unchanged.
+      if (recovery.pending !== 'review-publication') {
+        delete recovery.pending;
+        delete state.reviewInProgress;
+        delete state.modelRetryRequired;
+        recovery.restarts = recovery.updates = recovery.conflicts = 0;
+        await save('recovering', '수동 재개 요청과 게시 상태를 확인했습니다.');
+      }
+    }
+    if (state.modelRetryRequired && !manualResume) return;
     if (recovery.pending || state.reviewInProgress)
       throw new Stop(
         '이전 실행 결과가 확정되지 않았습니다. 예약된 작업을 확인하세요.',
       );
-    recovery.issue ??= fingerprint(issue.title, issue.body);
     const modelNames = {
       codex: env.AI_CODEX_MODEL?.trim(),
       claude: env.AI_CLAUDE_MODEL?.trim(),
@@ -403,11 +436,12 @@ async function main() {
       throw new Stop(
         'AI 환경의 게시 토큰과 모델 변수를 설정한 뒤 다시 실행하세요.',
       );
-    const models = createModels({
+    models = createModels({
       keys: { codex: env.OPENAI_API_KEY, claude: env.ANTHROPIC_API_KEY },
       modelNames,
     });
     models.verify();
+    if (recoveryRun && (await ref(base)) === state.base) return;
     for (;;) {
       try {
         let pull = await verifyArtifacts();
@@ -511,7 +545,7 @@ Write summaries in Korean. Follow these repository rules:\n${snapshot(baseSha, b
           await checkBase(baseSha);
           const work = snapshot(baseSha, head);
           phase = 'Codex 개발';
-          const plan = await models.run({
+          const plan = await runModel({
             agent: 'codex',
             mode: 'development',
             context,
@@ -594,7 +628,7 @@ Use a GitMoji and Korean area and summary for the title. Do not claim that check
         );
         await checkBase(baseSha);
         phase = 'Claude 리뷰';
-        const review = await models.run({
+        const review = await runModel({
           agent: 'claude',
           mode: 'review',
           context,
@@ -651,6 +685,7 @@ Report material findings with their location, impact, evidence and fix. Do not e
       }
     }
   } catch (error) {
+    if (!previous && !recovery.issue) throw error;
     if (error instanceof Stop) {
       await save('needs_human', error.message);
       return;

@@ -60,7 +60,7 @@ GitHub Releases에는 이 워크플로가 발행한 최신 성공 릴리스 하�
 - Claude 리뷰와 같은 커밋의 PR CI(**Test and build**와 **UI test**)가 통과하면 **AI completion**이 초안을 검토 준비 상태로 전환하고 dev에 스쿼시 머지합니다. 머지가 확인되면 이슈를 completed로 닫습니다. 완료 단계만 재시도하려면 AI completion에서 이슈 번호로 수동 실행합니다. PR CI는 모델 키와 게시 토큰 없이 실행됩니다.
 - 이슈의 `ai:develop` 라벨을 유지한 상태에서 **AI development → Run workflow**에 이슈 번호를 입력하면 기존 초안을 이어서 처리합니다. 다른 이슈의 머지로 `dev`가 앞서면 아래 기준으로 자동 복구합니다. 이슈를 닫거나 `ai:stop`을 붙이면 다음 게시 단계에서 실행을 중단합니다.
 - **Issues → Labels**에서 `ai:develop`과 `ai:stop`을 만듭니다.
-- Actions에 `ai-development` 환경을 만들고 배포 브랜치를 `dev`로 제한합니다. 환경 시크릿에 `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `AI_AUTOMATION_TOKEN`을, 환경 변수에 `AI_CODEX_MODEL`, `AI_CLAUDE_MODEL`을 설정합니다. 게시 토큰은 Agentopia 저장소의 Contents 및 Pull requests 쓰기 권한을 가진 GitHub App 토큰 또는 fine-grained PAT가 필요합니다. 별도 게시 토큰을 사용해야 PR 이벤트에서 일반 CI가 시작됩니다.
+- Actions에 `ai-development` 환경을 만들고 배포 브랜치를 `dev`로 제한합니다. 환경 시크릿에 `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `AI_AUTOMATION_TOKEN`을, 환경 변수에 `AI_CODEX_MODEL`, `AI_CLAUDE_MODEL`을 설정합니다. 게시 토큰은 Agentopia 저장소의 Contents 및 Pull requests 쓰기 권한을 가진 GitHub App 토큰 또는 fine-grained PAT가 필요합니다. 기준 갱신 push에 이미 dev에 반영된 워크플로 파일 변경이 포함되어 GitHub가 권한 오류를 반환하면 해당 토큰의 Workflows 쓰기 권한도 확인합니다. 별도 게시 토큰을 사용해야 PR 이벤트에서 일반 CI가 시작됩니다.
 - [`vercel.json`](../vercel.json)의 브랜치 규칙은 `ai/issue-*`의 자동 프리뷰를 끕니다. 활성화 후 첫 PR에서 프리뷰가 생성되지 않는지 확인합니다. 프로덕션 릴리스는 `main` 배포 성공 이벤트로 기록합니다.
 - 비공개 저장소로 전환하면 Git 커밋 조회에도 Actions의 Contents 읽기 권한이 필요합니다. 워크플로는 커밋을 가져오는 명령에만 이 자격 증명을 전달합니다.
 
@@ -74,6 +74,7 @@ GitHub Releases에는 이 워크플로가 발행한 최신 성공 릴리스 하�
 ### 실행을 재개할 수 없을 때
 
 - 기존 초안 PR을 닫았다면 같은 PR을 다시 열고, 이슈를 연 상태에서 AI 워크플로를 재실행합니다. 이미 머지된 작업의 후속 변경은 새 이슈로 시작합니다.
-- 브랜치 생성 직후 커밋이 실패했고 그 사이 `dev`가 앞서 나갔다면, 작업 브랜치에 보존할 커밋과 연결된 PR이 있는지 먼저 확인합니다. 둘 다 없으면 해당 브랜치를 수동으로 삭제한 뒤 같은 이슈에서 다시 실행합니다.
+- 모델 통신 실패, 실행 중단 또는 기준 갱신 한도 도달 후에는 이슈 내용과 작업 브랜치 HEAD, 초안 PR 및 리뷰 댓글을 확인합니다. 쓰기 권한 사용자가 **AI development → Run workflow**에서 `dev`와 이슈 번호를 선택하고 `recovery_run`을 비워 새 실행을 시작하면, 저장된 게시 상태와 실제 상태가 일치할 때 예약과 한도를 초기화합니다.
+- HEAD나 PR이 기록과 다르거나 리뷰 댓글 게시 결과가 불확실하면 수동 실행도 중단됩니다. 기존 커밋과 리뷰를 확인해 해당 PR을 수동으로 마무리하거나 남은 작업을 새 이슈로 분리합니다. 기록된 브랜치를 삭제하면 저장된 HEAD와 일치하지 않습니다.
 
 모델 통신과 편집 검증 코드 일부는 [Commit Trail](https://github.com/han41858/commit-trail)에서 가져왔으며 해당 폴더에 [원본 MIT 고지](../.github/scripts/ai-development/LICENSE.md)를 포함합니다.

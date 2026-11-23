@@ -8,6 +8,9 @@ import { test } from 'node:test';
 for (const scenario of [
   'duplicate',
   'completion-dispatch',
+  'interrupted-development',
+  'first-guard',
+  'initial-stop',
   'before',
   'resume-before-pr',
   'interrupted-review-record',
@@ -104,6 +107,7 @@ for (const scenario of [
     const states = [];
     let issueBody = 'Update README.';
     let interrupted = false;
+    let resumed = false;
     let last,
       reviewCalls = 0,
       creations = 0;
@@ -116,15 +120,17 @@ for (const scenario of [
       developmentCalls = 0,
       commits = 0,
       reviews = 0,
-      blocked = false;
+      blocked = scenario === 'initial-stop';
     t.mock.method(globalThis, 'fetch', async (url, options) => {
       const { hostname, pathname, searchParams } = new URL(url);
       const body = options.body && JSON.parse(options.body);
       if (hostname === 'api.openai.com') {
         developmentCalls++;
+        if (scenario === 'interrupted-development' && !resumed)
+          throw Error('connection lost');
         if (
           (scenario === 'before' && developmentCalls === 1) ||
-          scenario === 'restart-limit'
+          (scenario === 'restart-limit' && !resumed)
         )
           advance();
         if (scenario === 'before' && developmentCalls === 2)
@@ -153,10 +159,11 @@ for (const scenario of [
       }
       if (hostname === 'api.anthropic.com') {
         reviewCalls++;
-        if (scenario === 'interrupted-review') throw Error('connection lost');
+        if (scenario === 'interrupted-review' && !resumed)
+          throw Error('connection lost');
         if (
           (scenario === 'during-review' && reviewCalls === 1) ||
-          scenario === 'update-limit'
+          (scenario === 'update-limit' && !resumed)
         )
           advance();
         return Response.json({
@@ -211,6 +218,8 @@ for (const scenario of [
       const path = pathname.slice(prefix.length);
       if (path === '/collaborators/tester/permission')
         return Response.json({ permission: 'write' });
+      if (path === '/issues/15' && scenario === 'first-guard' && !resumed)
+        throw Error('initial network failure');
       if (path === '/issues/15')
         return Response.json({
           title: 'Test issue',
@@ -298,9 +307,40 @@ for (const scenario of [
 
     const runner = new URL('./run.mjs?case=' + scenario, import.meta.url);
     const uncertain = scenario.startsWith('interrupted');
-    if (uncertain || scenario === 'resume-before-pr')
+    if (
+      uncertain ||
+      scenario === 'first-guard' ||
+      scenario === 'resume-before-pr'
+    )
       await assert.rejects(import(runner + '?first'));
     else await import(runner + '?first');
+    async function manualResume() {
+      process.env.GITHUB_RUN_ID = '2';
+      resumed = true;
+      await import(runner + '?manual');
+      assert.equal(saved().status, 'ready');
+      assert.equal(commits, 1);
+      assert.equal(creations, 1);
+    }
+    if (
+      [
+        'initial-stop',
+        'first-guard',
+        'interrupted-development',
+        'interrupted-review',
+      ].includes(scenario)
+    ) {
+      if (scenario.startsWith('interrupted')) {
+        assert.equal(saved().status, 'failed');
+        assert.equal(saved().recovery.pending, undefined);
+        const calls = developmentCalls + reviewCalls;
+        await import(runner + '?duplicate');
+        assert.equal(developmentCalls + reviewCalls, calls);
+      }
+      blocked = false;
+      await manualResume();
+      return;
+    }
     if (
       ['restart-limit', 'update-limit', 'merge-conflict'].includes(scenario)
     ) {
@@ -313,11 +353,11 @@ for (const scenario of [
           saved().recovery.updates,
           scenario === 'merge-conflict' ? 1 : 2,
         );
+      if (scenario !== 'merge-conflict') await manualResume();
       return;
     }
     if (scenario === 'completion-dispatch') {
       const original = saved();
-      advance();
       process.env.GITHUB_RUN_ID = '2';
       writeFileSync(
         event,
@@ -327,6 +367,9 @@ for (const scenario of [
           inputs: { issue: '15', recovery_run: String(original.runId) },
         }),
       );
+      await import(runner + '?no-drift');
+      assert.deepEqual(saved(), original);
+      advance();
       await import(runner + '?from-completion');
       assert.equal(saved().recovery.updates, 1);
       assert.equal(saved().base, base);
@@ -339,6 +382,8 @@ for (const scenario of [
       assert.equal(commits, 1);
       return;
     }
+    if (['interrupted-review-record', 'interrupted-commit'].includes(scenario))
+      process.env.GITHUB_RUN_ID = '2';
     if (scenario === 'manual-head') {
       git(remote, 'switch', branch);
       git(remote, 'commit', '--allow-empty', '-m', 'human change');
