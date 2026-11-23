@@ -17,11 +17,17 @@ def api(path, *, publisher=False, pages=False, method="GET", **fields):
         env["GH_TOKEN"] = env["AI_AUTOMATION_TOKEN"]
     args = ["gh", "api", "--method", method, path]
     if pages:
-        args += ["--paginate", "--slurp"]
+        args += ["--paginate", "--jq", ".[] | @json"]
     for key, value in fields.items():
         args += ["-f", f"{key}={value}"]
-    result = json.loads(subprocess.check_output(args, env=env))
-    return [item for page in result for item in page] if pages else result
+    response = subprocess.run(args, env=env, capture_output=True, text=True)
+    if response.returncode:
+        status = re.search(r"HTTP [0-9]{3}", response.stderr)
+        reason = status[0] if status else f"gh exit {response.returncode}"
+        raise RuntimeError(f"GitHub {method} {path.partition('?')[0]}: {reason}")
+    if pages:
+        return [json.loads(line) for line in response.stdout.splitlines() if line]
+    return json.loads(response.stdout)
 
 
 def repo(path, **options):
@@ -96,21 +102,21 @@ def complete(issue, run_id):
                           sha=head, merge_method="squash", commit_title=f"{current['title']} (#{number})")
             if not result.get("merged"):
                 raise RuntimeError("GitHub did not confirm the merge.")
-        except (subprocess.CalledProcessError, ValueError, RuntimeError):
+        except (ValueError, RuntimeError):
             confirmed = repo(f"pulls/{number}")
             if not confirmed["merged_at"] or confirmed["head"]["sha"] != head or confirmed["base"]["ref"] != "dev":
                 raise
     if eligible(issue):
         try:
             repo(f"issues/{issue}", method="PATCH", state="closed", state_reason="completed")
-        except (subprocess.CalledProcessError, ValueError):
+        except (ValueError, RuntimeError):
             confirmed = repo(f"issues/{issue}")
             if (confirmed["state"], confirmed["state_reason"]) != ("closed", "completed"):
                 raise
     print(f"PR #{number} merged, issue #{issue} completed.")
 
 
-if __name__ == "__main__":
+def main():
     event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text())
     run = event.get("workflow_run")
     if run:
@@ -119,3 +125,11 @@ if __name__ == "__main__":
             complete(int(match[1]), run["id"])
     else:
         complete(int(os.environ["AI_ISSUE"]), None)
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except RuntimeError as error:
+        print(f"::error::{error}", flush=True)
+        raise
