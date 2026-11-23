@@ -1,3 +1,4 @@
+import { DisplayModeProvider, ModeSwitch } from './display-mode.tsx';
 import { WorldArt } from './world-art.tsx';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
@@ -242,6 +243,7 @@ function App() {
             </h1>
           </div>
           <div className="world-controls">
+            <ModeSwitch />
             <button
               className="connect add-repository-button"
               aria-label="저장소 추가"
@@ -463,4 +465,8 @@ function App() {
   );
 }
 
-createRoot(document.getElementById('root')!).render(<App />);
+createRoot(document.getElementById('root')!).render(
+  <DisplayModeProvider>
+    <App />
+  </DisplayModeProvider>,
+);

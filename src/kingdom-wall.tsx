@@ -44,6 +44,7 @@ export function KingdomWall() {
       if (
         previous &&
         !reducedMotion.matches &&
+        !wall.closest('[data-display-mode="simple"]') &&
         typeof wall.animate === 'function'
       ) {
         motion = wall.animate(
