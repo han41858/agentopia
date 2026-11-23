@@ -5,7 +5,9 @@
   "outputDirectory": "dist",
   "git": {
     "deploymentEnabled": {
-      "ai/issue-*": false
+      "**": false,
+      "main": true,
+      "dev": true
     }
   }
 }

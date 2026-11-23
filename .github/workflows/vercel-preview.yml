@@ -1,0 +1,36 @@
+name: Labeled Vercel preview
+
+on:
+  pull_request_target:
+    types: [opened, reopened, synchronize, edited, labeled]
+  issues:
+    types: [labeled]
+
+permissions:
+  contents: read
+  issues: read
+  pull-requests: read
+
+jobs:
+  preview:
+    if: >-
+      (github.event.action != 'labeled' || github.event.label.name == 'preview') &&
+      (github.event_name == 'issues' ||
+        (github.event.pull_request.head.repo.full_name == github.repository &&
+         github.event.pull_request.head.ref != 'main' &&
+         github.event.pull_request.head.ref != 'dev'))
+    runs-on: ubuntu-latest
+    concurrency:
+      group: agentopia-labeled-vercel-previews
+      queue: max
+    steps:
+      # This job can read a deployment credential. Only run default-branch code.
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: refs/heads/${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      - name: Request previews for eligible PR heads
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: python3 .github/scripts/vercel-preview.py
