@@ -12,7 +12,6 @@ import {
 import type { PullQuest, Quest, Region } from '../server/model.ts';
 import {
   AdventurerGlyph,
-  AdventurerParty,
   agentNames,
   MonsterGlyph,
   partyLabel,
@@ -28,7 +27,6 @@ import {
   monsterRest,
   MonsterStatusIcons,
   pullStatus,
-  partyLeaderState,
   Badge,
   IssueBadge,
 } from './map-markers.tsx';
@@ -248,13 +246,6 @@ export function PullDetail({
       <PullStatus pull={pull} />
       {status && <small role="status">{status}</small>}
       {entries}
-      <AdventurerParty
-        members={pull.adventurers ?? []}
-        leader={partyLeaderState(pull)}
-        resting="대기"
-        detailed
-        forge
-      />
       {!!pull.issues?.length && (
         <ul className="facility-issues" aria-label="연결된 이슈">
           {pull.issues.map((number) => (
