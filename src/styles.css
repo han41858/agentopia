@@ -81,26 +81,32 @@ svg {
 .world-controls {
   display: flex;
   align-items: center;
-  gap: 12px;
 }
 .world-header {
-  justify-content: space-between;
+  --header-button-size: 38px;
+  gap: 12px;
 }
 .world-controls {
-  flex-wrap: wrap;
-  justify-content: flex-end;
+  flex: none;
   gap: 6px;
-  min-width: 0;
 }
 .world-heading {
+  --crest-size: 42px;
   display: flex;
-  flex-shrink: 0;
+  flex: 1;
+  flex-wrap: wrap;
   align-items: center;
+  align-content: flex-start;
   gap: 10px;
+  min-width: var(--crest-size);
+  height: var(--crest-size);
+  /* Clip the entire title when it wraps below the crest. */
+  overflow: hidden;
 }
 .crest {
-  width: 42px;
-  height: 42px;
+  flex: none;
+  width: var(--crest-size);
+  height: var(--crest-size);
   display: grid;
   place-items: center;
   color: var(--gold);
@@ -109,8 +115,10 @@ svg {
   background: #20262f;
 }
 .brand {
+  flex: none;
   color: #f6dc9f;
   font: 800 20px/1.2 var(--display);
+  white-space: nowrap;
 }
 .connect {
   display: inline-flex;
@@ -128,11 +136,15 @@ svg {
   border-color: var(--gold);
 }
 .add-repository-button,
-.ticket-button {
-  width: 38px;
-  height: 38px;
-  justify-content: center;
+.ticket-button,
+.refresh-button {
+  width: var(--header-button-size);
+  height: var(--header-button-size);
   padding: 0;
+}
+.add-repository-button,
+.ticket-button {
+  justify-content: center;
 }
 .ticket-button[data-tone='checking'] {
   color: #e6c488;
@@ -546,8 +558,6 @@ svg {
   position: relative;
   isolation: isolate;
   overflow: hidden;
-  width: 38px;
-  height: 38px;
   display: grid;
   place-items: center;
   border: 1px solid #405361;
@@ -1472,6 +1482,7 @@ svg {
 
 .mode-switch {
   display: inline-flex;
+  height: var(--header-button-size);
   gap: 2px;
   padding: 2px;
   border: 1px solid #536372;
@@ -1482,7 +1493,6 @@ svg {
   display: grid;
   place-items: center;
   width: 34px;
-  height: 32px;
   border: 1px solid transparent;
   border-radius: 4px;
   color: #b2bec6;
@@ -1555,18 +1565,13 @@ svg {
 [data-display-mode='simple'] .facility-sprite {
   filter: none;
 }
-@media (max-width: 420px) {
+@media (max-width: 420px), (pointer: coarse) {
   .world-header {
-    flex-wrap: wrap;
+    --header-button-size: 44px;
+    gap: 8px;
   }
-  .world-controls {
-    margin-left: auto;
-  }
-}
-@media (pointer: coarse) {
   .mode-switch-option {
-    width: 44px;
-    height: 44px;
+    width: var(--header-button-size);
   }
 }
 
