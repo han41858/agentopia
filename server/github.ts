@@ -84,7 +84,12 @@ export async function githubResponse(
       return reply(200, await pullReviews(region, pull, authorization));
     const force = url.searchParams.get('refresh') === '1';
     const [result, branchInventory] = await Promise.all([
-      regionReport(region, authorization, force),
+      regionReport(
+        region,
+        authorization,
+        force,
+        url.searchParams.get('history') !== 'cached',
+      ),
       url.searchParams.get('branches') === '1'
         ? readBranches(region, authorization, force).catch(() => undefined)
         : undefined,

@@ -1,3 +1,4 @@
+import { withPublishedRelease } from '../server/model.ts';
 import type { Adventurer, Report, Stage } from '../server/model.ts';
 
 export function reportForges(report?: Report) {
@@ -73,6 +74,18 @@ export function retainParticipants(
   return members;
 }
 
+// Authenticated history stays in the tab, scoped to the repository and token.
+export function withCachedHistory(report: Report, previous: Report): Report {
+  const releases = previous.releases;
+  return {
+    ...report,
+    tags: previous.tags,
+    tagsPartial: previous.tagsPartial,
+    releases,
+    quests: report.quests.map((quest) => withPublishedRelease(quest, releases)),
+  };
+}
+
 export function reportSnapshot(report: Report, previous?: Snapshot): Snapshot {
   if (!previous?.report) return { report };
   const oldReport = previous.report;
@@ -80,7 +93,7 @@ export function reportSnapshot(report: Report, previous?: Snapshot): Snapshot {
   const missingPulls = warnings.has('PR') || warnings.has('열린 PR');
   const missingRuns = warnings.has('Actions') || warnings.has('AI 상태 기록');
   const missingLinks = warnings.has('PR 이슈 연결 및 리뷰');
-  const missingDeployments = warnings.has('배포') || warnings.has('배포 상태');
+  const missingDeployments = warnings.has('릴리스');
   const prior = new Map(
     previous.report.quests.map((quest) => [quest.number, quest]),
   );
@@ -102,6 +115,10 @@ export function reportSnapshot(report: Report, previous?: Snapshot): Snapshot {
     branchPulls: missingPulls
       ? (oldReport.branchPulls ?? report.branchPulls)
       : report.branchPulls,
+    tags: warnings.has('태그') ? (oldReport.tags ?? report.tags) : report.tags,
+    tagsPartial: warnings.has('태그')
+      ? oldReport.tagsPartial
+      : report.tagsPartial,
     releases:
       missingDeployments && !report.releases.length
         ? oldReport.releases

@@ -1,12 +1,6 @@
 import type { BranchInventory } from './branch-roads.ts';
 import { observeGitHub } from './github-query.ts';
-import {
-  linkedPullIssues,
-  makeForges,
-  makeQuests,
-  runIssue,
-  runStage,
-} from './model.ts';
+import { linkedPullIssues, makeForges, makeQuests, runIssue } from './model.ts';
 import type {
   Comment,
   Issue,
@@ -16,7 +10,6 @@ import type {
   Release,
   Report,
   Run,
-  Stage,
 } from './model.ts';
 import {
   publicReportTtl,
@@ -24,6 +17,7 @@ import {
   GitHubError,
   client,
 } from './github-client.ts';
+import { readTags } from './github-tags.ts';
 import { nativePullLinks } from './github-pull-links.ts';
 
 export const publicReports = new Map<
@@ -31,21 +25,12 @@ export const publicReports = new Map<
   { requestedAt: number; pending: boolean; value: Promise<Report> }
 >();
 
-export type Deployment = { id: number; environment: string; sha: string };
-
-export type DeploymentStatus = {
-  created_at?: string;
-  state: string;
-  description?: string;
-};
-
-export const releaseStages: Record<string, Stage> = {
-  queued: 'queued',
-  pending: 'queued',
-  in_progress: 'deploying',
-  success: 'complete',
-  error: 'failed',
-  failure: 'failed',
+type GitHubRelease = {
+  tag_name: string;
+  html_url: string;
+  draft: boolean;
+  prerelease: boolean;
+  published_at: string | null;
 };
 
 export const pageSize = 50;
@@ -74,6 +59,7 @@ export async function getReport(
   region: Region,
   token?: string,
   force = false,
+  includeHistory = true,
 ): Promise<Report> {
   const get = client(region, token, force);
   const warnings = new Set<string>();
@@ -86,30 +72,49 @@ export async function getReport(
     }
   }
 
-  const [issuePage, pullPage, workflow, deployments] = await Promise.all([
-    get<Issue[]>(
-      `/issues${recent}&state=all&sort=updated&direction=desc`,
-    ).catch((error) => {
-      if (!(error instanceof GitHubError) || error.status !== 410) throw error;
-      warnings.add('이슈 비활성화');
-      return [];
-    }),
-    optional(
-      'PR',
-      get<Pull[]>(`/pulls${recent}&state=all&sort=updated&direction=desc`),
-      [],
-    ),
-    optional(
-      'Actions',
-      get<{ workflow_runs: Run[] }>('/actions/runs?per_page=100'),
-      { workflow_runs: [] },
-    ),
-    optional(
-      '배포',
-      get<Deployment[]>('/deployments?per_page=5', undefined, 45_000),
-      [],
-    ),
-  ]);
+  const history = includeHistory
+    ? optional(
+        '릴리스',
+        get<GitHubRelease[]>('/releases?per_page=30', undefined, 45_000),
+        [],
+      )
+    : Promise.resolve([]);
+  const latestPublishedTag = history.then(
+    (rows) =>
+      rows
+        .filter((row) => !row.draft && row.published_at)
+        .sort((a, b) => b.published_at!.localeCompare(a.published_at!))[0]
+        ?.tag_name,
+  );
+  const [issuePage, pullPage, workflow, releasePage, tagResult] =
+    await Promise.all([
+      get<Issue[]>(
+        `/issues${recent}&state=all&sort=updated&direction=desc`,
+      ).catch((error) => {
+        if (!(error instanceof GitHubError) || error.status !== 410)
+          throw error;
+        warnings.add('이슈 비활성화');
+        return [];
+      }),
+      optional(
+        'PR',
+        get<Pull[]>(`/pulls${recent}&state=all&sort=updated&direction=desc`),
+        [],
+      ),
+      optional(
+        'Actions',
+        get<{ workflow_runs: Run[] }>('/actions/runs?per_page=100'),
+        { workflow_runs: [] },
+      ),
+      history,
+      includeHistory
+        ? optional(
+            '태그',
+            readTags(region, token, force, latestPublishedTag),
+            undefined,
+          )
+        : undefined,
+    ]);
   const runs = [...workflow.workflow_runs].sort((a, b) => b.id - a.id);
   const issues = new Map(
     issuePage
@@ -238,57 +243,59 @@ export async function getReport(
     );
     if (issue && !issue.pull_request) issues.set(issue.number, issue);
   });
-  const deploymentTasks = deployments.map(
-    async (deployment): Promise<Release | undefined> => {
-      const statuses = await optional(
-        '배포 상태',
-        get<DeploymentStatus[]>(
-          `/deployments/${deployment.id}/statuses?per_page=1`,
-          undefined,
-          120_000,
-        ),
-        [],
-      );
-      const status = statuses[0];
-      if (!status || !Object.hasOwn(releaseStages, status.state)) return;
-      return {
-        title: deployment.environment,
-        url: `https://github.com/${region.slug}/deployments`,
-        status: status.description
-          ? `${status.state} · ${status.description}`
-          : status.state,
-        at: status.created_at,
-        sha: deployment.sha,
-        stage: releaseStages[status.state],
-      };
-    },
-  );
-  const [, , repoDeployments, comments] = await Promise.all([
+  const [, , comments] = await Promise.all([
     Promise.all(subIssueTasks),
     Promise.all(issueTasks),
-    Promise.all(deploymentTasks),
     commentsTask,
   ]);
-  const releaseRuns = runs.filter(
-    (run) =>
-      run.path.split('@')[0] === '.github/workflows/production-release.yml' ||
-      run.path.split('@')[0] === '.github/workflows/release.yml',
-  );
-  const releases: Release[] = repoDeployments.filter(
-    (entry) => entry !== undefined,
-  );
-  // Recovery workflows execute against the automation ref. Only deployment records identify a deployed commit.
-  for (const run of releaseRuns.slice(0, 5)) {
-    const outcome = runStage(run);
-    const stage = outcome === 'developing' ? 'deploying' : outcome;
-    releases.push({
-      title: run.name,
-      at: run.updated_at,
-      url: run.html_url,
-      status: run.conclusion ?? run.status,
-      stage,
-    });
+  const tags = tagResult?.tags ?? [];
+  if (tagResult?.dateLookupFailed) warnings.add('태그 커밋 시각');
+  const tagCommits = new Map(tags.map((tag) => [tag.name, tag.sha]));
+  for (const [name, sha] of tagResult?.releaseCommits ?? [])
+    tagCommits.set(name, sha);
+  // Only issue attribution needs a release outside the observed tag window resolved.
+  if (pulls.some((pull) => pull.merged_at && pull.merge_commit_sha)) {
+    await Promise.all(
+      releasePage
+        .filter(
+          (release) =>
+            !release.draft &&
+            release.published_at &&
+            !tagCommits.get(release.tag_name),
+        )
+        .toSorted((a, b) =>
+          (b.published_at ?? '').localeCompare(a.published_at ?? ''),
+        )
+        .slice(0, token ? releasePage.length : 1)
+        .map(async (release) => {
+          const commit = await optional(
+            '릴리스 커밋',
+            get<{ sha: string }>(
+              `/commits/refs%2Ftags%2F${encodeURIComponent(release.tag_name)}`,
+              undefined,
+              120_000,
+            ),
+            undefined,
+          );
+          if (commit?.sha) tagCommits.set(release.tag_name, commit.sha);
+        }),
+    );
   }
+  const releases: Release[] = releasePage.flatMap((release) =>
+    !release.draft && release.published_at
+      ? [
+          {
+            title: release.tag_name,
+            url: release.html_url,
+            status: release.prerelease ? '사전 릴리스' : '릴리스',
+            sha: tagCommits.get(release.tag_name),
+            at: release.published_at,
+            stage: 'complete' as const,
+          },
+        ]
+      : [],
+  );
+  releases.sort((a, b) => (b.at ?? '').localeCompare(a.at ?? ''));
   const quests = makeQuests(
     region,
     [...issues.values()],
@@ -323,22 +330,21 @@ export async function getReport(
           ]
         : [],
     ),
-    releases: releases
-      .toSorted((a, b) => (b.at ?? '').localeCompare(a.at ?? ''))
-      .map(({ title, url, status, stage, at }) => ({
-        at,
-        title,
-        url,
-        status,
-        stage,
-      })),
+    releases,
+    tags: tags.map(({ name, committedAt }) => ({ name, committedAt })),
+    tagsPartial: tagResult?.partial,
     updatedAt: new Date().toISOString(),
     warnings: [...warnings].sort(),
   };
 }
 
-export function regionReport(region: Region, token?: string, force = false) {
-  if (token) return getReport(region, token, force);
+export function regionReport(
+  region: Region,
+  token?: string,
+  force = false,
+  includeHistory = true,
+) {
+  if (token) return getReport(region, token, force, includeHistory || force);
   const cached = publicReports.get(region.slug);
   const now = Date.now();
   const limit = publicRateLimit.current;

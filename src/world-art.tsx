@@ -1,3 +1,5 @@
+import { useDisplayMode } from './display-mode.tsx';
+import { simpleFacility, simpleHeritage, simpleSprites } from './simple-art.ts';
 import adventurerClaude from '../assets/characters/adventurer-claude.svg';
 import adventurerCodex from '../assets/characters/adventurer-codex.svg';
 import monsterBoss from '../assets/characters/monster-boss.svg';
@@ -54,6 +56,20 @@ const images = {
 
 export type WorldSprite = keyof typeof images;
 
+const diagramImages: Partial<Record<WorldSprite, string>> = {
+  ...simpleSprites,
+  legacyArchive: simpleHeritage,
+  legacyHallOfHeroes: simpleHeritage,
+  legacySageLibrary: simpleHeritage,
+  legacyMonument: simpleHeritage,
+};
+
+export function spriteUrl(sprite: WorldSprite, mode: 'simple' | 'world') {
+  return mode === 'world'
+    ? images[sprite]
+    : (diagramImages[sprite] ?? simpleFacility);
+}
+
 export function WorldArt({
   sprite,
   size,
@@ -63,9 +79,11 @@ export function WorldArt({
   size: number;
   className?: string;
 }) {
+  const mode = useDisplayMode();
   return (
     <img
-      src={images[sprite]}
+      src={spriteUrl(sprite, mode)}
+      data-sprite={sprite}
       width={size}
       height={size}
       className={className}
