@@ -81,6 +81,8 @@ export function placeBranchRoads(
   };
 }
 
+export type RoadPlacement = ReturnType<typeof placeBranchRoads>;
+
 export function BranchRoadMap({
   placement,
   highlightedPull,
