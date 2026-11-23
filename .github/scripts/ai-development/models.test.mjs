@@ -135,3 +135,43 @@ test('Claude replays the complete streamed signature and stable system prompt on
   });
   assert.equal(review.status, 'pass');
 });
+
+test('Claude corrects an invalid review using the same evidence before publication', async () => {
+  let requests = 0;
+  const models = createModels({
+    keys: { claude: 'mock' },
+    modelNames: { claude: 'mock' },
+    log: () => {},
+    request: async (_, options) => {
+      requests++;
+      const body = JSON.parse(options.body);
+      if (requests === 2) {
+        assert.equal(body.tool_choice.type, 'none');
+        assert.match(body.messages.at(-1).content, /Validation/);
+      }
+      return Response.json({
+        stop_reason: 'end_turn',
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify({
+              status: 'pass',
+              findings: [],
+              summary:
+                requests === 1 ? 'a'.repeat(1000) : '검토를 완료했습니다.',
+            }),
+          },
+        ],
+      });
+    },
+  });
+  const review = await models.run({
+    agent: 'claude',
+    mode: 'review',
+    context: 'Test',
+    instructions: 'Review',
+    inspect: () => '',
+  });
+  assert.equal(review.status, 'pass');
+  assert.equal(requests, 2);
+});
