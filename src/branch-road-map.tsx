@@ -2,7 +2,8 @@ import { objectSizes } from './object-sizes.ts';
 import { useId, useLayoutEffect, useRef, useState } from 'react';
 import { MoreHorizontal } from 'lucide-react';
 import { createPortal } from 'react-dom';
-import { WorldArt } from './world-art.tsx';
+import { useDisplayMode } from './display-mode.tsx';
+import { WorldArt, spriteUrl } from './world-art.tsx';
 import { measureRoadLayout } from './road-layout.ts';
 import type { Layout } from './road-layout.ts';
 import { branchCenters, buildBranchRoads } from '../server/branch-roads.ts';
@@ -108,6 +109,7 @@ export function BranchRoadMap({
   } = placement;
   const row = useRef<HTMLDivElement>(null);
   const mask = useId();
+  const mode = useDisplayMode();
   const [region, setRegion] = useState<HTMLElement | null>(null);
   const [layout, setLayout] = useState<Layout>();
   // Serialized copy of `layout`, kept so each measurement is compared once.
@@ -251,10 +253,10 @@ export function BranchRoadMap({
                   y={layout.roadTop}
                   fill="white"
                 />
-                {layout.artwork.map(({ src, ...rect }, i) => (
+                {layout.artwork.map(({ sprite, ...rect }, i) => (
                   <image
                     key={i}
-                    href={src}
+                    href={spriteUrl(sprite, mode)}
                     {...rect}
                     style={{ filter: 'brightness(0)' }}
                   />

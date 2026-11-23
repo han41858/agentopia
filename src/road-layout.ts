@@ -1,3 +1,4 @@
+import type { WorldSprite } from './world-art.tsx';
 import { branchIssueNumber } from '../server/branch-roads.ts';
 import type { BranchRoad } from '../server/branch-roads.ts';
 
@@ -17,7 +18,7 @@ export type Layout = {
   paths: Path[];
   roadTop: number;
   artwork: {
-    src: string;
+    sprite: WorldSprite;
     x: number;
     y: number;
     width: number;
@@ -186,7 +187,7 @@ export function measureRoadLayout(
         '[data-road-role="plaza"] img, .facility-core img',
       ),
     ].map((img) => ({
-      src: img.currentSrc || img.src,
+      sprite: img.dataset.sprite as WorldSprite,
       ...box(img),
     })),
     obstacles: [

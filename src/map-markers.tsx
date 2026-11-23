@@ -99,6 +99,9 @@ export function MonsterMarker({
   return (
     <button
       data-road-issue={quest.number}
+      data-working={
+        (activeStages.has(quest.stage) && quest.stage !== 'queued') || undefined
+      }
       className={`expedition monster-marker${boss ? ' boss-marker' : ''}${alerts.has(quest.stage) ? ' blocked' : ''}${defeated ? ' closed-issue' : ''}`}
       aria-label={`이슈 #${quest.number} · ${quest.title} · ${status}${activityEffectsLabel(quest.activity)}`}
       title={`${quest.title} · ${status}`}
@@ -225,6 +228,9 @@ export function FacilityMarker({
       className={`expedition pull-marker facility-marker${alerts.has(pull.stage) ? ' blocked' : ''}`}
       data-highlight={inspected ? 'selected' : related ? 'related' : undefined}
       data-stage={pull.stage}
+      data-working={
+        (activeStages.has(pull.stage) && pull.stage !== 'queued') || undefined
+      }
       data-facility={kind}
       title={label}
       aria-label={`${label}${activityEffectsLabel(pull.activity)}`}
