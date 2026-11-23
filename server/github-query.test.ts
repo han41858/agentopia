@@ -211,13 +211,18 @@ test('anonymous history bounds date and release lookups when the tag page is ful
       return Response.json(tags, {
         headers: { link: '<https://api.github.com/next>; rel="next"' },
       });
-    if (path === '/commits')
+    if (path === '/commits') {
+      const params = new URL(url).searchParams;
+      assert.equal(params.get('per_page'), '30');
+      const sha = params.get('sha');
+      assert.ok(sha === 'sha-0' || sha === 'sha-1');
       return Response.json([
         {
-          sha: 'sha-0',
+          sha,
           commit: { committer: { date: '2026-11-10T00:00:00Z' } },
         },
       ]);
+    }
     if (path === '/releases')
       return Response.json(
         [1, 2, 3].map((i) => ({
@@ -252,9 +257,9 @@ test('anonymous history bounds date and release lookups when the tag page is ful
   const report = JSON.parse(res.body);
   assert.equal(report.tagsPartial, true);
   assert.equal(report.tags.length, 30);
-  assert.ok(report.warnings.includes('태그 커밋 시각'));
+  assert.ok(!report.warnings.includes('태그 커밋 시각'));
   assert.equal(report.tags[0].committedAt, '2026-11-10T00:00:00Z');
-  assert.equal(report.tags[1].committedAt, undefined);
+  assert.equal(report.tags[2].committedAt, undefined);
   assert.equal(report.releases[0].sha, 'merged');
   assert.deepEqual(
     paths.filter(
@@ -263,7 +268,7 @@ test('anonymous history bounds date and release lookups when the tag page is ful
         p.startsWith('/git/commits/') ||
         p.startsWith('/commits/'),
     ),
-    ['/commits', '/commits/refs%2Ftags%2Fold%2F3'],
+    ['/commits', '/commits', '/commits/refs%2Ftags%2Fold%2F3'],
   );
 });
 
@@ -356,4 +361,31 @@ test('cached publication evidence follows the current merged PRs', () => {
   assert.deepEqual(result.tags, previous.tags);
   assert.equal(result.quests[0].evidence?.url, published.url);
   assert.equal(result.quests[1].released, undefined);
+});
+
+test('a failed tag ancestry request preserves tags and reports a lookup warning', async (context) => {
+  let attempts = 0;
+  context.mock.method(globalThis, 'fetch', async (input: string) => {
+    const path = new URL(input).pathname;
+    if (path.endsWith('/tags'))
+      return Response.json(
+        ['a', 'b'].map((sha) => ({ name: sha, commit: { sha } })),
+      );
+    if (path.endsWith('/commits')) {
+      attempts++;
+      return Response.json({ message: 'unavailable' }, { status: 503 });
+    }
+    if (path.endsWith('/actions/runs'))
+      return Response.json({ workflow_runs: [] });
+    return Response.json([]);
+  });
+  const result = await githubResponse(
+    new URL('https://agentopia.test/api/github?repo=example/tag-date-error'),
+    'GET',
+  );
+  const report = JSON.parse(result.body);
+  assert.equal(result.status, 200);
+  assert.deepEqual(report.tags, [{ name: 'a' }, { name: 'b' }]);
+  assert.ok(report.warnings.includes('태그 커밋 시각'));
+  assert.equal(attempts, 1);
 });

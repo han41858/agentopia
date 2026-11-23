@@ -42,7 +42,7 @@ export async function readTags(
           : [],
       ),
     );
-    return { tags, releaseCommits, partial: false, missingDates: false };
+    return { tags, releaseCommits, partial: false, dateLookupFailed: false };
   }
 
   let partial = false;
@@ -55,18 +55,33 @@ export async function readTags(
     },
     120_000,
   );
-  // One bounded page supplies dates for matching commits without a request per tag.
-  const commits = page.length
-    ? await client(region, undefined, force)<
-        {
-          sha: string;
-          commit: { committer: { date: string } | null };
-        }[]
-      >('/commits?per_page=100', undefined, 120_000).catch(() => [])
-    : [];
-  const dates = new Map(
-    commits.map((row) => [row.sha, row.commit.committer?.date]),
-  );
+  // Start at observed tag commits: the default branch need not contain them.
+  const pending = new Set(page.map((tag) => tag.commit.sha));
+  const dates = new Map<string, string>();
+  const get = client(region); // SHA-anchored pages remain valid across refreshes.
+  let dateLookupFailed = false;
+  for (let attempt = 0; attempt < 2 && pending.size; attempt++) {
+    const anchor = pending.values().next().value!;
+    pending.delete(anchor);
+    try {
+      const commits = await get<
+        { sha: string; commit: { committer: { date: string } | null } }[]
+      >(
+        `/commits?sha=${encodeURIComponent(anchor)}&per_page=30`,
+        undefined,
+        2 * 60 * 60_000,
+      );
+      for (const { sha, commit } of commits) {
+        if (commit.committer?.date) {
+          dates.set(sha, commit.committer.date);
+          pending.delete(sha);
+        }
+      }
+    } catch {
+      dateLookupFailed = true;
+      break;
+    }
+  }
   const tags = page.map(({ name, commit }) => ({
     name,
     sha: commit.sha,
@@ -76,6 +91,6 @@ export async function readTags(
     tags,
     releaseCommits: new Map<string, string>(),
     partial,
-    missingDates: tags.some((tag) => !tag.committedAt),
+    dateLookupFailed,
   };
 }

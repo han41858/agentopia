@@ -237,7 +237,7 @@ export async function getReport(
     commentsTask,
   ]);
   const tags = tagResult?.tags ?? [];
-  if (tagResult?.missingDates) warnings.add('태그 커밋 시각');
+  if (tagResult?.dateLookupFailed) warnings.add('태그 커밋 시각');
   const tagCommits = new Map(tags.map((tag) => [tag.name, tag.sha]));
   for (const [name, sha] of tagResult?.releaseCommits ?? [])
     tagCommits.set(name, sha);
@@ -283,6 +283,7 @@ export async function getReport(
         ]
       : [],
   );
+  releases.sort((a, b) => (b.at ?? '').localeCompare(a.at ?? ''));
   const quests = makeQuests(
     region,
     [...issues.values()],
@@ -317,9 +318,7 @@ export async function getReport(
           ]
         : [],
     ),
-    releases: releases.toSorted((a, b) =>
-      (b.at ?? '').localeCompare(a.at ?? ''),
-    ),
+    releases,
     tags: tags.map(({ name, committedAt }) => ({ name, committedAt })),
     tagsPartial: tagResult?.partial,
     updatedAt: new Date().toISOString(),

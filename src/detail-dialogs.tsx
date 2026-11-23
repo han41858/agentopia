@@ -531,6 +531,13 @@ export function RegionDetail({
               더 보기 ({visibleCount}/{history.length})
             </button>
           )}
+          {tagRows.some((tag) => !tag.at) &&
+            !warnings.includes('태그 커밋 시각') && (
+              <p>
+                조회 범위에서 커밋 시각을 확인할 수 없는 태그는 목록 끝에
+                표시합니다.
+              </p>
+            )}
           {report?.tagsPartial && (
             <p>익명 조회는 GitHub가 반환한 첫 30개 태그 안에서 정렬합니다.</p>
           )}

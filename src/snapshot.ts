@@ -1,3 +1,4 @@
+import { withPublishedRelease } from '../server/model.ts';
 import type { Adventurer, Report, Stage } from '../server/model.ts';
 
 export function reportForges(report?: Report) {
@@ -81,21 +82,7 @@ export function withCachedHistory(report: Report, previous: Report): Report {
     tags: previous.tags,
     tagsPartial: previous.tagsPartial,
     releases,
-    quests: report.quests.map((quest) => {
-      const release = releases.find(
-        (item) =>
-          item.sha && quest.pulls.some((pull) => pull.mergeSha === item.sha),
-      );
-      if (!release) return quest;
-      return quest.stage === 'complete'
-        ? {
-            ...quest,
-            released: true,
-            evidence: release,
-            reason: release.status,
-          }
-        : { ...quest, released: true };
-    }),
+    quests: report.quests.map((quest) => withPublishedRelease(quest, releases)),
   };
 }
 

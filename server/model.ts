@@ -517,6 +517,17 @@ function pullDiscussion(
   };
 }
 
+export function withPublishedRelease(quest: Quest, releases: Release[]): Quest {
+  const release = releases.find(
+    (item) =>
+      item.sha && quest.pulls.some((pull) => pull.mergeSha === item.sha),
+  );
+  if (!release) return quest;
+  return quest.stage === 'complete'
+    ? { ...quest, released: true, evidence: release, reason: release.status }
+    : { ...quest, released: true };
+}
+
 export function makeQuests(
   region: Region,
   issues: Issue[],
@@ -615,14 +626,6 @@ export function makeQuests(
             ({ number }) => number === pull?.number,
           )),
     );
-    const deployment = releases.find((release) =>
-      issuePulls.some(
-        (pr) =>
-          pr.merged_at &&
-          pr.merge_commit_sha &&
-          pr.merge_commit_sha === release.sha,
-      ),
-    );
     const branch =
       pull && pullIssue(pull, region) === issue.number ? pull.head.ref : '';
     const developer =
@@ -690,11 +693,7 @@ export function makeQuests(
     }
     const victory =
       issuePulls.some((item) => item.merged_at) || state?.status === 'merged';
-    if (deployment && victory && (stage === 'complete' || stage === 'idle')) {
-      ({ stage } = deployment);
-      evidence = deployment;
-      reason = deployment.status;
-    } else if (stage === 'idle' && victory) {
+    if (stage === 'idle' && victory) {
       stage = 'complete';
     }
     if (
@@ -828,7 +827,7 @@ export function makeQuests(
       reviews: activity.reviews,
     };
 
-    return {
+    const quest: Quest = {
       number: issue.number,
       title: issue.title,
       url: issue.html_url,
@@ -858,7 +857,6 @@ export function makeQuests(
           issue.sub_issues_summary?.total ?? 0,
           childrenByIssue.get(issue.number) ?? 0,
         ) || undefined,
-      released: deployment ? true : undefined,
       parent: parents.get(issue.number),
       reason,
       detail,
@@ -883,5 +881,6 @@ export function makeQuests(
       })),
       runs: [...automation, ...(ci ? [ci] : [])].slice(0, 8).map(runSource),
     };
+    return withPublishedRelease(quest, releases);
   });
 }
