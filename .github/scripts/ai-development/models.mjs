@@ -177,6 +177,16 @@ function claudeAssistantContent(blocks) {
   });
 }
 
+// A standalone progress note carries no request for a human decision.
+function isCheckpoint(summary) {
+  return (
+    typeof summary === 'string' &&
+    /^[\s(]*(?:중간\s*)?(?:확인|점검)\s*(?:단계|중(?:입니다)?)[)\s.!…]*$/u.test(
+      summary,
+    )
+  );
+}
+
 export function validateReview(value) {
   validate(value, reviewSchema, 'review');
   if (
@@ -448,12 +458,13 @@ export function createModels({
         mode === 'review' ? (limits.reviewTurns ?? limits.turns) : limits.turns;
       const reviewFormat =
         'Keep the Korean summary under 400 characters. Use at most 6 findings, with each string under 250 characters and a positive line number. pass requires zero findings; changes_requested requires at least one. For needs_human, identify the concrete blocker.';
-      const developmentFormat = `Return a nonempty Korean summary of at most ${developmentSummaryLimit} UTF-16 code units and at most ${limits.edits} exact edits. Use a single-line GitMoji Korean title of at most 100 UTF-16 code units. If the full change cannot fit safely, return needs_human with a concrete reason and no edits.`;
+      const developmentFormat = `Return a nonempty Korean summary of at most ${developmentSummaryLimit} UTF-16 code units and at most ${limits.edits} exact edits. Use a single-line GitMoji Korean title of at most 100 UTF-16 code units. Use the read tools for intermediate checks. Reserve needs_human for a blocker that requires a decision or information from the user. If the full change cannot fit safely, return needs_human with a concrete reason and no edits.`;
       const taskInstructions =
         instructions +
         '\n' +
         (mode === 'review' ? reviewFormat : developmentFormat);
       let correction;
+      let resumedCheckpoint = false;
       const missingBlocker =
         '자동화가 사람 확인을 요청했지만 구체적인 중단 사유를 제공하지 않았습니다.';
       const unexplainedStop = {
@@ -637,6 +648,29 @@ API requests remaining, including this one: ${turnLimit - turn + 1}. Read tools 
           result = parseJSON(text);
           if (correction === 'blocker' && result?.status !== 'needs_human')
             return unexplainedStop;
+          if (
+            result?.status === 'needs_human' &&
+            isCheckpoint(result.summary)
+          ) {
+            if (resumedCheckpoint || finalTurn) return unexplainedStop;
+            resumedCheckpoint = true;
+            input.push(
+              ...(isCodex
+                ? output
+                : [
+                    {
+                      role: 'assistant',
+                      content: claudeAssistantContent(output),
+                    },
+                  ]),
+              {
+                role: 'user',
+                content:
+                  'Continue from this intermediate checkpoint. Use the remaining read tools when available, or provide the final result. If you need a human decision, describe the concrete blocker.',
+              },
+            );
+            continue;
+          }
           if (
             result?.status === 'needs_human' &&
             (typeof result.summary !== 'string' ||
