@@ -382,7 +382,9 @@ Report material findings with their location, impact, evidence and fix. Do not e
     }
     await save(
       'failed',
-      'AI 실행에 실패했습니다. Actions 로그를 확인한 뒤 이슈 번호로 다시 실행하세요.',
+      error.diagnostic
+        ? `${error.diagnostic}. 이슈 번호로 다시 실행하세요.`
+        : 'AI 실행에 실패했습니다. Actions 로그를 확인한 뒤 이슈 번호로 다시 실행하세요.',
     );
     throw error;
   }
