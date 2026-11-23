@@ -1,4 +1,10 @@
-import { createContext, useContext, useId, useState, type ReactNode } from 'react';
+import {
+  createContext,
+  useContext,
+  useId,
+  useState,
+  type ReactNode,
+} from 'react';
 import { Map as MapIcon, Workflow } from 'lucide-react';
 
 type Mode = 'world' | 'simple';
