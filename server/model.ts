@@ -660,6 +660,9 @@ export function makeQuests(
           }
         : undefined;
     let reason = state?.reason;
+    if (state?.status === 'needs_human' && !/[\p{L}\p{N}]/u.test(reason ?? ''))
+      reason =
+        '자동화가 사람 확인을 요청했습니다. 실행 기록에 구체적인 중단 사유가 없습니다.';
     let detail = state?.detail;
     const outcome = run && runStage(run);
     if (

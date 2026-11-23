@@ -224,3 +224,92 @@ for (const correctionValid of [true, false]) {
     assert.equal(requests, 2);
   });
 }
+
+for (const status of ['needs_human', 'completed']) {
+  test(`placeholder blocker requests clarification and preserves the stop on ${status}`, async () => {
+    let calls = 0;
+    const models = createModels({
+      keys: { claude: 'mock' },
+      modelNames: { claude: 'mock' },
+      log: () => {},
+      request: async (_, options) => {
+        calls++;
+        if (calls === 2)
+          assert.equal(JSON.parse(options.body).tool_choice.type, 'none');
+        return Response.json({
+          stop_reason: 'end_turn',
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify({
+                status: calls === 1 ? 'needs_human' : status,
+                summary: calls === 1 ? '...' : '재현 조건을 알려 주세요.',
+                title: '',
+                edits: [],
+              }),
+            },
+          ],
+        });
+      },
+    });
+    const result = await models.run({
+      agent: 'claude',
+      mode: 'development',
+      instructions: 'Develop',
+      context: 'Test',
+      inspect: () => '',
+    });
+    assert.equal(calls, 2);
+    assert.equal(result.status, 'needs_human');
+    assert.match(
+      result.summary,
+      status === 'needs_human' ? /재현 조건/ : /중단 사유/,
+    );
+    assert.deepEqual(result.edits, []);
+  });
+}
+
+for (const mode of ['development', 'review']) {
+  for (const outcome of ['network', 'max_tokens', 'explained']) {
+    test(`${mode} retains human decision after ${outcome} clarification`, async () => {
+      let calls = 0;
+      const models = createModels({
+        keys: { claude: 'mock' },
+        modelNames: { claude: 'mock' },
+        log: () => {},
+        request: async () => {
+          calls++;
+          if (calls === 2 && outcome === 'network') throw Error('offline');
+          const result = {
+            status: 'needs_human',
+            summary: calls === 1 ? '…' : '대상 브랜치를 확인해 주세요.',
+            ...(mode === 'review'
+              ? { findings: [] }
+              : { title: '', edits: [] }),
+          };
+          return Response.json({
+            stop_reason:
+              calls === 2 && outcome === 'max_tokens'
+                ? 'max_tokens'
+                : 'end_turn',
+            content: [{ type: 'text', text: JSON.stringify(result) }],
+          });
+        },
+      });
+      const result = await models.run({
+        agent: 'claude',
+        mode,
+        instructions: 'Verify',
+        context: 'Test',
+        inspect: () => '',
+      });
+      assert.equal(calls, 2);
+      assert.equal(result.status, 'needs_human');
+      assert.match(
+        result.summary,
+        outcome === 'explained' ? /브랜치/ : /중단 사유/,
+      );
+      assert.deepEqual(mode === 'review' ? result.findings : result.edits, []);
+    });
+  }
+}
