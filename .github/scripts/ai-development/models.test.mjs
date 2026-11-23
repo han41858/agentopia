@@ -282,7 +282,7 @@ for (const mode of ['development', 'review']) {
           if (calls === 2 && outcome === 'network') throw Error('offline');
           const result = {
             status: 'needs_human',
-            summary: calls === 1 ? '(중간 확인 단계)' : '대상 브랜치를 확인해 주세요.',
+            summary: calls === 1 ? '…' : '대상 브랜치를 확인해 주세요.',
             ...(mode === 'review'
               ? { findings: [] }
               : { title: '', edits: [] }),
@@ -370,5 +370,42 @@ for (const [agent, summary, count, diagnostic, retryValid] of [
     if (retryValid) assert.equal((await result).edits.length, 1);
     else await assert.rejects(result, diagnostic);
     assert.equal(calls, 2);
+  });
+}
+
+for (const repeat of [false, true]) {
+  test(`Claude resumes a checkpoint once (repeated: ${repeat})`, async () => {
+    let calls = 0;
+    const models = createModels({
+      keys: { claude: 'mock' },
+      modelNames: { claude: 'mock' },
+      log: () => {},
+      request: async (_, options) => {
+        calls++;
+        if (calls === 2)
+          assert.equal(JSON.parse(options.body).tool_choice, undefined);
+        const result =
+          calls === 1 || repeat
+            ? {
+                status: 'needs_human',
+                summary: '(중간 확인 단계)',
+                findings: [],
+              }
+            : { status: 'pass', summary: '검토 완료', findings: [] };
+        return Response.json({
+          stop_reason: 'end_turn',
+          content: [{ type: 'text', text: JSON.stringify(result) }],
+        });
+      },
+    });
+    const result = await models.run({
+      agent: 'claude',
+      mode: 'review',
+      instructions: 'Review',
+      context: 'Test',
+      inspect: () => '',
+    });
+    assert.equal(calls, 2);
+    assert.equal(result.status, repeat ? 'needs_human' : 'pass');
   });
 }

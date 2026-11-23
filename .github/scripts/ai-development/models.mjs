@@ -177,10 +177,14 @@ function claudeAssistantContent(blocks) {
   });
 }
 
-function lacksBlocker(summary) {
-  if (typeof summary !== 'string' || !/[\p{L}\p{N}]/u.test(summary))
-    return true;
-  return /^[\s(]*중간\s*확인\s*단계[)\s.!…]*$/u.test(summary);
+// A standalone progress note carries no request for a human decision.
+function isCheckpoint(summary) {
+  return (
+    typeof summary === 'string' &&
+    /^[\s(]*(?:중간\s*)?(?:확인|점검)\s*(?:단계|중(?:입니다)?)[)\s.!…]*$/u.test(
+      summary,
+    )
+  );
 }
 
 export function validateReview(value) {
@@ -460,6 +464,7 @@ export function createModels({
         '\n' +
         (mode === 'review' ? reviewFormat : developmentFormat);
       let correction;
+      let resumedCheckpoint = false;
       const missingBlocker =
         '자동화가 사람 확인을 요청했지만 구체적인 중단 사유를 제공하지 않았습니다.';
       const unexplainedStop = {
@@ -645,7 +650,31 @@ API requests remaining, including this one: ${turnLimit - turn + 1}. Read tools 
             return unexplainedStop;
           if (
             result?.status === 'needs_human' &&
-            lacksBlocker(result.summary)
+            isCheckpoint(result.summary)
+          ) {
+            if (resumedCheckpoint || finalTurn) return unexplainedStop;
+            resumedCheckpoint = true;
+            input.push(
+              ...(isCodex
+                ? output
+                : [
+                    {
+                      role: 'assistant',
+                      content: claudeAssistantContent(output),
+                    },
+                  ]),
+              {
+                role: 'user',
+                content:
+                  'Continue from this intermediate checkpoint. Use the remaining read tools when available, or provide the final result. If you need a human decision, describe the concrete blocker.',
+              },
+            );
+            continue;
+          }
+          if (
+            result?.status === 'needs_human' &&
+            (typeof result.summary !== 'string' ||
+              !/[\p{L}\p{N}]/u.test(result.summary))
           ) {
             if (finalTurn) return unexplainedStop;
             correction = 'blocker';
