@@ -80,7 +80,7 @@ export function reportSnapshot(report: Report, previous?: Snapshot): Snapshot {
   const missingPulls = warnings.has('PR') || warnings.has('열린 PR');
   const missingRuns = warnings.has('Actions') || warnings.has('AI 상태 기록');
   const missingLinks = warnings.has('PR 이슈 연결 및 리뷰');
-  const missingDeployments = warnings.has('배포') || warnings.has('배포 상태');
+  const missingDeployments = warnings.has('릴리스');
   const prior = new Map(
     previous.report.quests.map((quest) => [quest.number, quest]),
   );

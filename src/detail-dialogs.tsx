@@ -379,12 +379,7 @@ export function PlazaDetail({
 
 // Report warnings that can leave the release history missing or out of date.
 // The labels are set where the report is loaded, in server/github-report.ts.
-const releaseWarnings = new Set([
-  '배포',
-  '배포 상태',
-  'Actions',
-  'GitHub API 사용 한도',
-]);
+const releaseWarnings = new Set(['릴리스', 'GitHub API 사용 한도']);
 
 export function RegionDetail({
   region,

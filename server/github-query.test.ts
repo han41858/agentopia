@@ -121,7 +121,7 @@ test('quiet intervals back off independently and active or changed work restores
   assert.equal(refreshDue(1_000, base, true), 181_000);
 });
 
-test('release history includes skipped, failed and successful runs with their GitHub timestamps', async (context) => {
+test('release history uses published releases and excludes drafts and workflow runs', async (context) => {
   const workflow_runs = ['success', 'failure', 'skipped'].map(
     (conclusion, id) => ({
       id,
@@ -133,26 +133,49 @@ test('release history includes skipped, failed and successful runs with their Gi
       conclusion,
     }),
   );
-  context.mock.method(globalThis, 'fetch', async (input: string) =>
-    Response.json(
-      new URL(input).pathname.endsWith('/actions/runs')
-        ? { workflow_runs }
-        : [],
-    ),
-  );
+  const release = {
+    tag_name: 'v1',
+    html_url: 'https://github.com/example/release-history/releases/tag/v1',
+    published_at: '2026-11-22T02:00:00Z',
+    draft: false,
+    prerelease: false,
+  };
+  context.mock.method(globalThis, 'fetch', async (input: string) => {
+    const path = new URL(input).pathname;
+    if (path.endsWith('/actions/runs')) return Response.json({ workflow_runs });
+    if (path.endsWith('/releases'))
+      return Response.json([
+        { ...release, draft: true },
+        { ...release, published_at: null },
+        {
+          ...release,
+          tag_name: 'v2-beta',
+          prerelease: true,
+          published_at: '2026-11-23T02:00:00Z',
+        },
+        release,
+      ]);
+    return Response.json([]);
+  });
   const response = await githubResponse(
     new URL('https://agentopia.test/api/github?repo=example/release-history'),
     'GET',
   );
   assert.equal(response.status, 200);
-  assert.deepEqual(
-    JSON.parse(response.body).releases.map(
-      (release: { status: string; at: string }) => [release.status, release.at],
-    ),
-    [
-      ['skipped', '2026-11-22T02:00:00Z'],
-      ['failure', '2026-11-22T01:00:00Z'],
-      ['success', '2026-11-22T00:00:00Z'],
-    ],
-  );
+  assert.deepEqual(JSON.parse(response.body).releases, [
+    {
+      title: 'v2-beta',
+      url: release.html_url,
+      status: '사전 릴리스',
+      at: '2026-11-23T02:00:00Z',
+      stage: 'complete',
+    },
+    {
+      title: 'v1',
+      url: release.html_url,
+      status: '게시됨',
+      at: release.published_at,
+      stage: 'complete',
+    },
+  ]);
 });
