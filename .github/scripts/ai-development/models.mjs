@@ -1,4 +1,5 @@
 import { setTimeout as wait } from 'node:timers/promises';
+import { EditConflict } from './workspace.mjs';
 import { agents, config } from './config.mjs';
 
 // Only messages composed here from fixed labels may be published to the issue.
@@ -445,7 +446,15 @@ export function createModels({
 
   return {
     verify,
-    async run({ agent, mode, instructions, context, inspect, issueTitle }) {
+    async run({
+      agent,
+      mode,
+      instructions,
+      context,
+      inspect,
+      issueTitle,
+      prepareChanges,
+    }) {
       const schema = mode === 'development' ? developmentSchema : reviewSchema;
       const verifyResult =
         mode === 'development'
@@ -486,7 +495,8 @@ export function createModels({
 
       for (let turn = 1; turn <= turnLimit; turn++) {
         const started = performance.now();
-        const finalTurn = turn === turnLimit || Boolean(correction);
+        const finalTurn =
+          turn === turnLimit || (Boolean(correction) && correction !== 'edits');
         const turnInstructions = finalTurn
           ? `${taskInstructions}
 Return the final structured result now. If evidence is insufficient, return needs_human with the specific blocker.`
@@ -597,7 +607,7 @@ API requests remaining, including this one: ${turnLimit - turn + 1}. Read tools 
             throw new ModelError('Codex 응답이 완료되지 않았습니다.');
           const calls = output.filter(({ type }) => type === 'function_call');
           if (calls.length) {
-            if (correction)
+            if (correction && correction !== 'edits')
               throw new ModelError('결과 교정 중 도구 호출이 반환되었습니다.');
             reserveTools(calls.length);
             input.push(
@@ -617,7 +627,7 @@ API requests remaining, including this one: ${turnLimit - turn + 1}. Read tools 
             .join('');
         } else {
           if (data.stop_reason === 'tool_use') {
-            if (correction)
+            if (correction && correction !== 'edits')
               throw new ModelError('결과 교정 중 도구 호출이 반환되었습니다.');
             const calls = output.filter(({ type }) => type === 'tool_use');
             if (!calls.length)
@@ -680,7 +690,14 @@ API requests remaining, including this one: ${turnLimit - turn + 1}. Read tools 
             correction = 'blocker';
             throw new ModelError(missingBlocker);
           }
-          return verifyResult(result);
+          const verified = verifyResult(result);
+          if (
+            mode === 'development' &&
+            verified.status === 'completed' &&
+            prepareChanges
+          )
+            return { ...verified, changes: prepareChanges(verified.edits) };
+          return verified;
         } catch (error) {
           if (
             correction === 'blocker' &&
@@ -693,10 +710,11 @@ API requests remaining, including this one: ${turnLimit - turn + 1}. Read tools 
               correction !== 'blocker' &&
               result?.status !== 'completed') ||
             finalTurn ||
-            !(error instanceof ModelError)
+            correction === 'edits' ||
+            !(error instanceof ModelError || error instanceof EditConflict)
           )
             throw error;
-          correction ??= mode;
+          correction ??= error instanceof EditConflict ? 'edits' : mode;
           const responseItems = isCodex
             ? output
             : [{ role: 'assistant', content: claudeAssistantContent(output) }];
@@ -705,9 +723,11 @@ API requests remaining, including this one: ${turnLimit - turn + 1}. Read tools 
             content:
               correction === 'blocker'
                 ? 'Keep the needs_human decision. Explain in Korean the specific blocker and what information the user must provide. Use the evidence already collected.'
-                : correction === 'development'
-                  ? `Correct the development JSON using the same evidence and preserve the full requested behavior. Do not discard necessary edits to fit. Validation: ${error.message}. ${developmentFormat}`
-                  : `Return the corrected review JSON using the same evidence and verdict. Validation: ${error.message}. ${reviewFormat}`,
+                : correction === 'edits'
+                  ? `The proposed edits could not be applied: ${error.message}. Read the affected source if necessary and return the complete corrected plan against the same HEAD. Earlier edits in the plan apply in order. Preserve all requested changes; if blocked, explain why. ${developmentFormat}`
+                  : correction === 'development'
+                    ? `Correct the development JSON using the same evidence and preserve the full requested behavior. Do not discard necessary edits to fit. Validation: ${error.message}. ${developmentFormat}`
+                    : `Return the corrected review JSON using the same evidence and verdict. Validation: ${error.message}. ${reviewFormat}`,
           });
         }
       }

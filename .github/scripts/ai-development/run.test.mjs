@@ -8,6 +8,9 @@ import { test } from 'node:test';
 for (const scenario of [
   'duplicate',
   'issue-title-fallback',
+  'stale-edit',
+  'repeated-stale-edit',
+  'blocked-edit',
   'claude-label',
   'completion-dispatch',
   'interrupted-development',
@@ -167,6 +170,18 @@ for (const scenario of [
         const edits = commits
           ? []
           : [{ path: 'README.md', before: 'Test', after: 'Updated' }];
+        if (scenario === 'blocked-edit')
+          edits[0].path = '.github/workflows/ci.yml';
+        if (
+          (scenario === 'stale-edit' && developmentCalls === 1) ||
+          scenario === 'repeated-stale-edit'
+        )
+          edits[0].before = 'absent source';
+        if (scenario.includes('stale-edit') && developmentCalls === 2) {
+          assert.match(body.input.at(-1).content, /README.md.*원문/);
+          assert.equal(commits, 0);
+          assert.equal(creations, 0);
+        }
         return modelResponse({
           status: 'completed',
           title:
@@ -334,6 +349,18 @@ for (const scenario of [
     });
 
     const runner = new URL('./run.mjs?case=' + scenario, import.meta.url);
+    if (scenario === 'repeated-stale-edit' || scenario === 'blocked-edit') {
+      await assert.rejects(import(runner + '?first'));
+      assert.equal(saved().status, 'failed');
+      assert.match(
+        saved().reason,
+        scenario === 'blocked-edit' ? /허용 범위/ : /1번째 편집.*원문/,
+      );
+      assert.equal(developmentCalls, scenario === 'blocked-edit' ? 1 : 2);
+      assert.equal(commits, 0);
+      assert.equal(creations, 0);
+      return;
+    }
     const uncertain = scenario.startsWith('interrupted');
     if (
       uncertain ||
@@ -449,7 +476,10 @@ for (const scenario of [
     assert.equal(saved().head, git(remote, 'rev-parse', branch));
     assert.equal(saved().base, base);
     assert.equal(saved().reviews[0].head, saved().head);
-    assert.equal(developmentCalls, scenario === 'before' ? 2 : 1);
+    assert.equal(
+      developmentCalls,
+      ['before', 'stale-edit'].includes(scenario) ? 2 : 1,
+    );
     assert.equal(commits, 1);
     assert.equal(creations, 1);
     assert.equal(reviews, 1);
