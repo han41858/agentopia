@@ -297,7 +297,7 @@ async function readClaudeStream(events) {
       else if (delta.type === 'thinking_delta')
         block.thinking += delta.thinking;
       else if (delta.type === 'signature_delta')
-        block.signature = delta.signature;
+        block.signature = (block.signature ?? '') + delta.signature;
     } else if (event.type === 'content_block_stop') {
       if (partialInputs.has(event.index)) {
         const json = partialInputs.get(event.index);
@@ -400,7 +400,10 @@ export function createModels({
       }
       throw Object.assign(
         new Error(`${name} API HTTP ${status}. (${stage}, ${rejectionReason})`),
-        { requestRejected: [400, 401, 403, 404, 422, 429].includes(status) },
+        {
+          diagnostic: `${name} API HTTP ${status} (${stage}, ${rejectionReason})`,
+          requestRejected: [400, 401, 403, 404, 422, 429].includes(status),
+        },
       );
     }
   }
@@ -470,7 +473,7 @@ API requests remaining, including this one: ${turnLimit - turn + 1}. Read tools 
               }
             : {
                 model,
-                system: turnInstructions,
+                system: instructions,
                 messages: input,
                 max_tokens: limits.outputTokens,
                 output_config: { format: { type: 'json_schema', schema } },
@@ -494,6 +497,7 @@ API requests remaining, including this one: ${turnLimit - turn + 1}. Read tools 
               model,
               turn,
               ok: false,
+              diagnostic: error.diagnostic,
               elapsedMs: Math.round(performance.now() - started),
             }),
           );

@@ -57,3 +57,81 @@ for (const agent of ['codex', 'claude']) {
     });
   }
 }
+
+test('Claude replays the complete streamed signature and stable system prompt on tool continuation', async () => {
+  let first;
+  const models = createModels({
+    keys: { claude: 'mock' },
+    modelNames: { claude: 'mock' },
+    log: () => {},
+    request: async (_, options) => {
+      const body = JSON.parse(options.body);
+      if (first) {
+        assert.equal(body.system, first.system);
+        assert.deepEqual(body.messages[1].content[0], {
+          type: 'thinking',
+          thinking: 'test',
+          signature: 'first-second',
+        });
+        return Response.json({
+          stop_reason: 'end_turn',
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify({
+                status: 'pass',
+                summary: '검토 완료',
+                findings: [],
+              }),
+            },
+          ],
+        });
+      }
+      first = body;
+      const events = [
+        { type: 'message_start', message: {} },
+        {
+          type: 'content_block_start',
+          index: 0,
+          content_block: { type: 'thinking', thinking: '' },
+        },
+        {
+          type: 'content_block_delta',
+          index: 0,
+          delta: { type: 'thinking_delta', thinking: 'test' },
+        },
+        ...['first-', 'second'].map((signature) => ({
+          type: 'content_block_delta',
+          index: 0,
+          delta: { type: 'signature_delta', signature },
+        })),
+        { type: 'content_block_stop', index: 0 },
+        {
+          type: 'content_block_start',
+          index: 1,
+          content_block: {
+            type: 'tool_use',
+            name: 'list_files',
+            id: 'tool',
+            input: { query: 'src', offset: 0 },
+          },
+        },
+        { type: 'content_block_stop', index: 1 },
+        { type: 'message_delta', delta: { stop_reason: 'tool_use' } },
+        { type: 'message_stop' },
+      ];
+      return new Response(
+        events.map((e) => 'data: ' + JSON.stringify(e) + '\n\n').join(''),
+        { headers: { 'content-type': 'text/event-stream' } },
+      );
+    },
+  });
+  const review = await models.run({
+    agent: 'claude',
+    mode: 'review',
+    instructions: 'Review',
+    context: 'Test',
+    inspect: () => 'src/file.ts',
+  });
+  assert.equal(review.status, 'pass');
+});
