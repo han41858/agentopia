@@ -39,6 +39,10 @@ PR과 `dev` 푸시에서는 [CI](../.github/workflows/ci.yml)의 **UI test** 작
 
 GitHub 저장소를 Vercel에 연결하고 Node.js 24 기반 Vite 프로젝트로 배포합니다. 빌드 명령과 출력 경로는 [vercel.json](../vercel.json)에 있습니다. 별도 DB는 필요하지 않습니다.
 
+Git 연동은 `main`을 프로덕션으로, `dev`를 프리뷰로 자동 배포합니다. 같은 저장소의 다른 브랜치는 열린 PR에 `preview` 라벨이 있거나, GitHub가 그 PR로 종료될 것으로 연결한 같은 저장소 이슈에 `preview` 라벨이 있을 때 [프리뷰 워크플로](../.github/workflows/vercel-preview.yml)가 배포합니다. PR 생성 후 라벨을 추가하거나 새 커밋을 푸시해도 적용됩니다. 라벨을 제거하면 이후 커밋은 다시 현재 라벨을 기준으로 판정합니다. 기존 배포는 유지됩니다.
+
+**Settings → Environments → vercel-preview**에서 배포를 허용할 브랜치로 `dev`와 `main`을 지정하고 Agentopia에 배포할 수 있는 팀 토큰을 환경 시크릿 `VERCEL_TOKEN`으로 등록합니다. 같은 토큰을 저장소 시크릿에도 등록했다면 환경으로 이전한 뒤 저장소에서 제거합니다. PR 대상 이벤트에는 기준 브랜치가 적용됩니다. 러너는 기본 브랜치의 스크립트로 PR의 최신 커밋을 확인하고 Vercel에 빌드를 요청합니다. PR 검사 목록의 **Vercel Preview URL → Details**에서 해당 커밋의 프리뷰를 열 수 있습니다. 이 검사의 성공은 URL 발급을 의미합니다. 빌드 완료 여부는 Vercel에서 확인합니다.
+
 저장소의 [main 룰셋](../.github/rulesets/main.json)을 적용하면 `main` 대상 PR은 Vercel 프리뷰 검사를 통과해야 머지할 수 있습니다. 작업 및 PR 작성 규칙은 [개발 지침](../AGENTS.md)을 따릅니다.
 
 ## 프로덕션 릴리스 기록
@@ -61,7 +65,6 @@ GitHub Releases에는 이 워크플로가 발행한 최신 성공 릴리스 하�
 - 이슈의 개발 담당 라벨을 유지한 상태에서 **AI development → Run workflow**에 이슈 번호를 입력하면 기존 초안을 이어서 처리합니다. 다른 이슈의 머지로 `dev`가 앞서면 아래 기준으로 자동 복구합니다. 이슈를 닫거나 `ai:stop`을 붙이면 다음 게시 단계에서 실행을 중단합니다.
 - **Issues → Labels**에서 `ai:develop`, `ai:develop:claude`, `ai:stop`을 만듭니다.
 - Actions에 `ai-development` 환경을 만들고 배포 브랜치를 `dev`로 제한합니다. 환경 시크릿에 `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `AI_AUTOMATION_TOKEN`을, 환경 변수에 `AI_CODEX_MODEL`, `AI_CLAUDE_MODEL`을 설정합니다. 게시 토큰은 Agentopia 저장소의 Contents 및 Pull requests 쓰기 권한을 가진 GitHub App 토큰 또는 fine-grained PAT가 필요합니다. 기준 갱신 push에 이미 dev에 반영된 워크플로 파일 변경이 포함되어 GitHub가 권한 오류를 반환하면 해당 토큰의 Workflows 쓰기 권한도 확인합니다. 별도 게시 토큰을 사용해야 PR 이벤트에서 일반 CI가 시작됩니다.
-- [`vercel.json`](../vercel.json)의 브랜치 규칙은 `ai/issue-*`의 자동 프리뷰를 끕니다. 활성화 후 첫 PR에서 프리뷰가 생성되지 않는지 확인합니다. 프로덕션 릴리스는 `main` 배포 성공 이벤트로 기록합니다.
 - 비공개 저장소로 전환하면 Git 커밋 조회에도 Actions의 Contents 읽기 권한이 필요합니다. 워크플로는 커밋을 가져오는 명령에만 이 자격 증명을 전달합니다.
 
 ### 병렬 작업 중 기준 브랜치 갱신
