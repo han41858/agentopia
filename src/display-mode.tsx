@@ -11,8 +11,8 @@ const ModeContext = createContext<{
   select: () => {},
 });
 const options = [
-  { value: 'world', label: '월드 모드', Icon: MapIcon },
-  { value: 'simple', label: '간단 모드', Icon: Workflow },
+  { value: 'world', Icon: MapIcon },
+  { value: 'simple', Icon: Workflow },
 ] as const;
 
 export function useDisplayMode() {
@@ -46,20 +46,26 @@ export function DisplayModeProvider({ children }: { children: ReactNode }) {
 
 export function ModeSwitch() {
   const { mode, select } = useContext(ModeContext);
+  const isSimple = mode === 'simple';
+
   return (
-    <div className="mode-switch" role="group" aria-label="지도 표시 모드">
-      {options.map(({ value, label, Icon }) => (
-        <button
+    <button
+      className="mode-switch"
+      type="button"
+      aria-label="간단 모드"
+      aria-pressed={isSimple}
+      title={isSimple ? '현재: 간단 모드' : '현재: 월드 모드'}
+      onClick={() => select(isSimple ? 'world' : 'simple')}
+    >
+      {options.map(({ value, Icon }) => (
+        <span
           key={value}
-          type="button"
-          aria-pressed={mode === value}
-          aria-label={label}
-          title={label}
-          onClick={() => select(value)}
+          className="mode-switch-option"
+          data-active={mode === value}
         >
           <Icon size={17} aria-hidden="true" />
-        </button>
+        </span>
       ))}
-    </div>
+    </button>
   );
 }
