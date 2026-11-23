@@ -79,6 +79,7 @@ export async function githubGet(
   headers: Record<string, string>,
   ttl: number,
   check: (response: Response) => Promise<void>,
+  allowNotFound = false,
 ) {
   const requestUrl = new URL(url);
   const endpoint =
@@ -86,7 +87,7 @@ export async function githubGet(
       .replace(/^\/repos\/[^/]+\/[^/]+/, '')
       .replace(/\/\d+(?=\/|$)/g, '/:id') || '/';
   const scope = credentialScope(token);
-  const key = `${scope}:${url}`;
+  const key = `${allowNotFound ? 'allow-404:' : ''}${scope}:${url}`;
   const now = Date.now();
   const entry = token ? undefined : cached.get(key);
   const previous =
@@ -126,10 +127,11 @@ export async function githubGet(
     if (response.status === 304 && previous) {
       result = { ...previous, checkedAt: Date.now() };
     } else {
-      await check(response);
+      const missing = allowNotFound && response.status === 404;
+      if (!missing) await check(response);
       result = {
-        body: await response.json(),
-        etag: response.headers.get('etag'),
+        body: missing ? null : await response.json(),
+        etag: missing ? null : response.headers.get('etag'),
         next: /rel="next"/.test(response.headers.get('link') ?? ''),
         link: response.headers.get('link'),
         checkedAt: Date.now(),

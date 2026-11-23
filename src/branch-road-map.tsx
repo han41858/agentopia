@@ -23,9 +23,7 @@ export function placeBranchRoads(
   pulls: BranchPull[] = [],
 ) {
   const roads = inventory ? buildBranchRoads(inventory, pulls) : [];
-  const { palace, plaza, bridge } = inventory
-    ? branchCenters(inventory, pulls)
-    : {};
+  const { palace, plaza, bridge } = inventory ? branchCenters(inventory) : {};
   const nonPalace = roads.filter((road) => road.role !== 'palace');
   const byName = new Map(nonPalace.map((road) => [road.name, road]));
   const chosen = new Map<string, BranchRoad>();
@@ -250,7 +248,6 @@ export function BranchRoadMap({
                 <rect
                   width={layout.width}
                   height={layout.height}
-                  y={layout.roadTop}
                   fill="white"
                 />
                 {layout.artwork.map(({ sprite, ...rect }, i) => (
@@ -289,6 +286,7 @@ export function BranchRoadMap({
                   <path
                     key={path.key}
                     d={path.d}
+                    strokeDasharray={path.guide ? '2 5' : undefined}
                     data-merged={path.merged}
                     data-active={
                       (highlightedIssue !== undefined &&

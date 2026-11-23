@@ -23,20 +23,16 @@ export type BranchRoad = {
   pulls: BranchPull[];
 };
 
-export function branchCenters(
-  inventory: BranchInventory,
-  pulls: readonly BranchPull[],
-) {
+export const preferredPalaceBranches = ['main', 'master'] as const;
+
+export function branchCenters(inventory: BranchInventory) {
   const names = new Set([inventory.defaultBranch, ...inventory.names]);
-  if (names.has('main') && names.has('dev'))
-    return { palace: 'main', plaza: 'dev', bridge: true };
+  const palace =
+    preferredPalaceBranches.find((name) => names.has(name)) ??
+    inventory.defaultBranch;
   const plaza =
-    names.has('dev') &&
-    inventory.defaultBranch !== 'dev' &&
-    pulls.some((pull) => pull.base === 'dev' && names.has(pull.head))
-      ? 'dev'
-      : undefined;
-  return { palace: inventory.defaultBranch, plaza, bridge: false };
+    palace === inventory.defaultBranch ? undefined : inventory.defaultBranch;
+  return { palace, plaza, bridge: plaza !== undefined };
 }
 
 export function buildBranchRoads(
@@ -52,7 +48,7 @@ export function buildBranchRoads(
       }
     }
   }
-  const { palace, plaza } = branchCenters(inventory, pulls);
+  const { palace, plaza } = branchCenters(inventory);
   const byHead = new Map<string, BranchPull[]>();
   for (const pull of pulls) {
     if (!names.has(pull.head)) continue;
