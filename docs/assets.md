@@ -4,11 +4,13 @@
 
 ## 캐릭터와 몬스터
 
-- [![파티장](../assets/characters/party-leader.svg)](../assets/characters/party-leader.svg) 파티장: PR에서 CI 실행 중
-- [![Codex](../assets/characters/adventurer-codex.svg)](../assets/characters/adventurer-codex.svg) Codex: 참여가 확인된 Codex
-- [![Claude](../assets/characters/adventurer-claude.svg)](../assets/characters/adventurer-claude.svg) Claude: 참여가 확인된 Claude
-- [![몬스터](../assets/characters/monster.svg)](../assets/characters/monster.svg) 몬스터: 일반 이슈
-- [![보스 몬스터](../assets/characters/monster-boss.svg)](../assets/characters/monster-boss.svg) 보스 몬스터: 하위 이슈가 있는 상위 이슈
+| 미리보기                                              | 이름        | 표시 기준                  | 원본                                                                |
+| ----------------------------------------------------- | ----------- | -------------------------- | ------------------------------------------------------------------- |
+| ![파티장](../assets/characters/party-leader.svg)      | 파티장      | PR에서 CI 실행 중          | [party-leader.svg](../assets/characters/party-leader.svg)           |
+| ![Codex](../assets/characters/adventurer-codex.svg)   | Codex       | 참여가 확인된 Codex        | [adventurer-codex.svg](../assets/characters/adventurer-codex.svg)   |
+| ![Claude](../assets/characters/adventurer-claude.svg) | Claude      | 참여가 확인된 Claude       | [adventurer-claude.svg](../assets/characters/adventurer-claude.svg) |
+| ![몬스터](../assets/characters/monster.svg)           | 몬스터      | 일반 이슈                  | [monster.svg](../assets/characters/monster.svg)                     |
+| ![보스 몬스터](../assets/characters/monster-boss.svg) | 보스 몬스터 | 하위 이슈가 있는 상위 이슈 | [monster-boss.svg](../assets/characters/monster-boss.svg)           |
 
 ## 왕궁과 유산
 

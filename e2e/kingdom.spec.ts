@@ -55,7 +55,11 @@ test.describe('왕국 기본 표시', () => {
     await openWorld(page);
     await expect(
       page.getByRole('list', { name: '기본 파티 구성' }).getByRole('listitem'),
-    ).toHaveText(['파티장', 'Codex', 'Claude', '포탈 관리자']);
+    ).toHaveText(['파티장', 'Codex', 'Claude']);
+    await page.getByRole('button', { name: '간단 모드' }).click();
+    await expect(
+      page.getByRole('list', { name: '활동 범례' }).getByRole('listitem'),
+    ).toHaveText(['GitHub', 'Codex', 'Claude']);
   });
 
   test('시설에 올리면 연결된 몬스터를 함께 강조한다', async ({ page }) => {
