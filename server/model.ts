@@ -89,6 +89,7 @@ export type Quest = {
   stage: Stage;
   state: Issue['state'];
   stateReason?: Issue['state_reason'];
+  released?: boolean;
   victory?: boolean;
   adventurers?: Adventurer[];
   activities?: ActivityCounts;
@@ -105,7 +106,11 @@ export type Quest = {
   developer?: Agent;
   reviewer?: Agent;
   review?: string;
-  pulls: (Source & { number: number; activities?: ActivityCounts })[];
+  pulls: (Source & {
+    number: number;
+    mergeSha?: string;
+    activities?: ActivityCounts;
+  })[];
   commit?: Source;
   runs: Source[];
 };
@@ -143,7 +148,9 @@ export type Report = {
   forges?: PullQuest[];
   branchInventory?: BranchInventory;
   branchPulls?: BranchPull[];
-  releases: Omit<Release, 'sha'>[];
+  tags?: { name: string; committedAt?: string }[];
+  tagsPartial?: boolean;
+  releases: Release[];
   updatedAt: string;
   warnings: string[];
 };
@@ -198,7 +205,7 @@ export type Comment = {
   html_url: string;
   updated_at: string;
 };
-export type Release = Source & { stage: Stage; sha?: string; at?: string };
+export type Release = Source & { stage: 'complete'; sha?: string; at?: string };
 type AutomationState = {
   issue: number;
   runId: number;
@@ -510,6 +517,17 @@ function pullDiscussion(
   };
 }
 
+export function withPublishedRelease(quest: Quest, releases: Release[]): Quest {
+  const release = releases.find(
+    (item) =>
+      item.sha && quest.pulls.some((pull) => pull.mergeSha === item.sha),
+  );
+  if (!release) return quest;
+  return quest.stage === 'complete'
+    ? { ...quest, released: true, evidence: release, reason: release.status }
+    : { ...quest, released: true };
+}
+
 export function makeQuests(
   region: Region,
   issues: Issue[],
@@ -608,14 +626,6 @@ export function makeQuests(
             ({ number }) => number === pull?.number,
           )),
     );
-    const deployment = releases.find((release) =>
-      issuePulls.some(
-        (pr) =>
-          pr.merged_at &&
-          pr.merge_commit_sha &&
-          pr.merge_commit_sha === release.sha,
-      ),
-    );
     const branch =
       pull && pullIssue(pull, region) === issue.number ? pull.head.ref : '';
     const developer =
@@ -683,11 +693,7 @@ export function makeQuests(
     }
     const victory =
       issuePulls.some((item) => item.merged_at) || state?.status === 'merged';
-    if (deployment && victory && (stage === 'complete' || stage === 'idle')) {
-      ({ stage } = deployment);
-      evidence = deployment;
-      reason = deployment.status;
-    } else if (stage === 'idle' && victory) {
+    if (stage === 'idle' && victory) {
       stage = 'complete';
     }
     if (
@@ -821,7 +827,7 @@ export function makeQuests(
       reviews: activity.reviews,
     };
 
-    return {
+    const quest: Quest = {
       number: issue.number,
       title: issue.title,
       url: issue.html_url,
@@ -861,6 +867,9 @@ export function makeQuests(
       commit,
       pulls: issuePulls.map((item) => ({
         number: item.number,
+        mergeSha: item.merged_at
+          ? (item.merge_commit_sha ?? undefined)
+          : undefined,
         title: item.title,
         url: item.html_url,
         activities: pullLinks.get(item.number)?.activities,
@@ -872,5 +881,6 @@ export function makeQuests(
       })),
       runs: [...automation, ...(ci ? [ci] : [])].slice(0, 8).map(runSource),
     };
+    return withPublishedRelease(quest, releases);
   });
 }

@@ -652,6 +652,9 @@ svg {
 .quest-row small {
   color: #bdadc9;
 }
+.release-keeper {
+  vertical-align: middle;
+}
 .release-history {
   display: grid;
   grid-template-columns: max-content max-content minmax(0, 1fr);
@@ -674,8 +677,8 @@ svg {
   padding: 2px 5px;
 }
 .release-name {
-  overflow: hidden;
-  text-overflow: ellipsis;
+  white-space: normal;
+  overflow-wrap: anywhere;
   color: var(--gold);
 }
 .release-row:hover .release-name,
@@ -1114,8 +1117,7 @@ svg {
   opacity: 0.7;
   filter: saturate(0.6);
 }
-.working-party-leader,
-.working-portal-keeper {
+.working-party-leader {
   animation: forge-test 1.6s ease-in-out infinite;
 }
 .facility-core > .aura-opinion {

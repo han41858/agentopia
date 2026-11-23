@@ -9,6 +9,7 @@ import {
   partyStates,
   reportForges,
   reportSnapshot,
+  withCachedHistory,
 } from './snapshot.ts';
 import type { Snapshot } from './snapshot.ts';
 
@@ -21,6 +22,7 @@ export type RefreshJobs = {
       interval: number;
       report?: Report;
       branchCheckedAt?: number;
+      historyCheckedAt?: number;
     }
   >;
 };
@@ -139,12 +141,19 @@ export function useRegionRefresh({
       const branchCheckedAt = checkBranches
         ? Date.now()
         : previous?.branchCheckedAt;
+      const cachedHistory =
+        token &&
+        !force &&
+        Date.now() - (previous?.historyCheckedAt ?? -Infinity) < 120_000
+          ? previous?.report
+          : undefined;
       let usage: RefreshConsumption | undefined;
       try {
         const params = new URLSearchParams({ repo: slug, measure: 'refresh' });
         if (force) params.set('refresh', '1');
         if (checkBranches) params.set('branches', '1');
-        const report = await request<Report>(
+        if (cachedHistory) params.set('history', 'cached');
+        const fetched = await request<Report>(
           params,
           token,
           controller.signal,
@@ -153,6 +162,9 @@ export function useRegionRefresh({
           },
         );
         if (controller.signal.aborted) return;
+        const report = cachedHistory
+          ? withCachedHistory(fetched, cachedHistory)
+          : fetched;
         const prior = previous?.report && partyStates(previous.report);
         const current = partyStates(report);
         const changed =
@@ -171,7 +183,20 @@ export function useRegionRefresh({
           Boolean(active) || report.warnings.length > 0,
           changed,
         );
-        jobs.set(slug, { last: Date.now(), report, interval, branchCheckedAt });
+        const historyCheckedAt = cachedHistory
+          ? previous?.historyCheckedAt
+          : report.warnings.some((label) =>
+                ['릴리스', '태그', '릴리스 커밋'].includes(label),
+              )
+            ? undefined
+            : Date.now();
+        jobs.set(slug, {
+          last: Date.now(),
+          report,
+          interval,
+          branchCheckedAt,
+          historyCheckedAt,
+        });
         setSnapshots((current) => ({
           ...current,
           [slug]: reportSnapshot(report, current[slug]),
