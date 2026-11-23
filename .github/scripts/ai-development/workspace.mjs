@@ -1,0 +1,190 @@
+import { execFileSync } from 'node:child_process';
+
+const maxBuffer = 8 * 1024 * 1024;
+const maxFileBytes = 1024 * 1024;
+const protectedNames = /^(?:\.git|node_modules)$/i;
+const environmentFile = /^\.env(?:\.|$)/i;
+
+function outputPage(text, start, span) {
+  const lines = text.split('\n');
+  const offset = Math.max(0, start - 1);
+  const result = lines
+    .slice(offset, offset + span)
+    .map((line, index) => `${offset + index + 1}: ${line.slice(0, 1500)}`);
+  // The next page offset describes the lines actually served, including long minified lines.
+  while (result.join('\n').length > 5500) result.pop();
+  if (offset + result.length < lines.length)
+    result.push(`Next line: ${offset + result.length + 1}`);
+  return result.join('\n');
+}
+
+function isEditable(path) {
+  return (
+    path.length <= 250 &&
+    /^(?:README\.md$|(?:src|server|api|docs)\/)/.test(path) &&
+    /\.(?:md|tsx?|css)$/.test(path) &&
+    path
+      .split('/')
+      .every(
+        (part) =>
+          /^[\p{L}\p{N}_.-]+$/u.test(part) &&
+          part !== '.' &&
+          part !== '..' &&
+          !protectedNames.test(part) &&
+          !environmentFile.test(part),
+      )
+  );
+}
+
+class EditConflict extends Error {
+  constructor(path, index, reason) {
+    super(`${path} (${index + 1}번째 편집): ${reason}`);
+    this.path = path;
+    this.index = index;
+    this.reason = reason;
+  }
+}
+
+export function resolveEdits(edits, { files, read }) {
+  const updated = new Map();
+  for (const [index, { path, before, after }] of edits.entries()) {
+    if (!isEditable(path))
+      throw new Error(
+        '허용 범위 밖의 파일을 편집하려 했습니다. 수동 검토가 필요합니다.',
+      );
+    const mode = files.get(path);
+    if (path.startsWith('api/') && (!mode || before === null || after === null))
+      throw new EditConflict(
+        path,
+        index,
+        '기존 API 파일의 내용만 수정할 수 있습니다.',
+      );
+
+    const ancestors = path.split('/').slice(0, -1);
+    if (
+      (mode && mode !== '100644') ||
+      ancestors.some((_, i) =>
+        files.has(ancestors.slice(0, i + 1).join('/')),
+      ) ||
+      [...files.keys()].some((file) => file.startsWith(`${path}/`))
+    ) {
+      throw new Error(
+        '일반 파일 이외의 경로 또는 기존 폴더를 변경하려 했습니다. 수동 검토가 필요합니다.',
+      );
+    }
+    const current = updated.has(path)
+      ? updated.get(path)
+      : mode
+        ? read(path)
+        : null;
+    if (before === null) {
+      if (current !== null || after === null)
+        throw new EditConflict(
+          path,
+          index,
+          '새 파일 편집이 기존 파일 또는 다른 편집과 충돌했습니다.',
+        );
+      updated.set(path, after);
+    } else if (after === null) {
+      if (current !== before)
+        throw new EditConflict(
+          path,
+          index,
+          '삭제할 파일 내용이 최신 HEAD와 정확히 일치하지 않습니다.',
+        );
+      updated.set(path, null);
+    } else {
+      const first = current?.indexOf(before) ?? -1;
+      if (!before || first < 0)
+        throw new EditConflict(
+          path,
+          index,
+          '편집할 원문을 찾을 수 없습니다. 파일의 실제 내용을 다시 확인하세요.',
+        );
+      if (current.indexOf(before, first + 1) !== -1)
+        throw new EditConflict(
+          path,
+          index,
+          '같은 원문이 여러 곳에 있습니다. 앞뒤 문맥을 포함해 한 곳을 지정하세요.',
+        );
+      updated.set(
+        path,
+        current.slice(0, first) + after + current.slice(first + before.length),
+      );
+    }
+    const content = updated.get(path);
+    if (
+      content !== null &&
+      (content.includes('\0') || Buffer.byteLength(content) > maxFileBytes)
+    )
+      throw new Error(
+        '편집 결과가 일반 텍스트 파일의 크기 제한을 벗어났습니다.',
+      );
+  }
+  const changes = [...updated].filter(
+    ([path, value]) => value !== (files.has(path) ? read(path) : null),
+  );
+  const finalFiles = new Set(files.keys());
+  for (const [path, value] of changes) {
+    if (value === null) finalFiles.delete(path);
+    else finalFiles.add(path);
+  }
+  for (const path of finalFiles) {
+    const pieces = path.split('/');
+    if (
+      pieces
+        .slice(0, -1)
+        .some((_, i) => finalFiles.has(pieces.slice(0, i + 1).join('/')))
+    )
+      throw new Error(
+        '여러 편집이 같은 파일과 폴더 경로를 사용합니다. 수동으로 검토하세요.',
+      );
+  }
+  return changes.map(([path, text]) => ({ path, text }));
+}
+
+export function snapshot(base, head) {
+  const git = (...args) =>
+    execFileSync('git', args, { encoding: 'utf8', maxBuffer, timeout: 30_000 });
+  const files = new Map(
+    git('ls-tree', '-rz', head)
+      .split('\0')
+      .filter(Boolean)
+      .map((entry) => {
+        const tab = entry.indexOf('\t');
+        return [entry.slice(tab + 1), entry.slice(0, 6)];
+      }),
+  );
+  const read = (path) => {
+    if (files.get(path) !== '100644')
+      throw new Error('일반 파일을 찾을 수 없습니다.');
+    const text = git('show', `${head}:${path}`);
+    if (text.includes('\0') || Buffer.byteLength(text) > maxFileBytes)
+      throw new Error('텍스트를 읽을 수 없습니다.');
+    return text;
+  };
+  const diff = () =>
+    git('diff', '--no-ext-diff', '--no-textconv', base, head, '--');
+  return {
+    files,
+    read,
+    inspect(name, input) {
+      if (name === 'read_diff') return outputPage(diff(), input.line, 120);
+      if (name === 'read_file') {
+        if (!isEditable(input.path) && input.path !== 'AGENTS.md')
+          return 'Path outside the allowed source and documentation.';
+        return outputPage(read(input.path), input.line, 120);
+      }
+      const paths = [...files.keys()].filter(
+        (path) =>
+          isEditable(path) &&
+          path.toLowerCase().includes(input.query.toLowerCase()),
+      );
+      const offset = Math.max(0, input.offset);
+      const page = paths.slice(offset, offset + 80);
+      if (offset + page.length < paths.length)
+        page.push(`Next offset: ${offset + page.length}`);
+      return page.join('\n');
+    },
+  };
+}
