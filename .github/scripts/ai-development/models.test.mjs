@@ -175,3 +175,52 @@ test('Claude corrects an invalid review using the same evidence before publicati
   assert.equal(review.status, 'pass');
   assert.equal(requests, 2);
 });
+
+for (const correctionValid of [true, false]) {
+  test(`Codex review allows one correction (valid: ${correctionValid})`, async () => {
+    let requests = 0;
+    let priorOutput;
+    const models = createModels({
+      keys: { codex: 'mock' },
+      modelNames: { codex: 'mock' },
+      log: () => {},
+      request: async (_, options) => {
+        const body = JSON.parse(options.body);
+        requests++;
+        assert.match(body.instructions, /at most 6 findings/);
+        if (requests === 2) {
+          assert.equal(body.tool_choice, 'none');
+          assert.deepEqual(body.input.slice(1, -1), priorOutput);
+          assert.match(
+            body.input.at(-1).content,
+            /same evidence and verdict.*Validation:/,
+          );
+        }
+        const text = JSON.stringify({
+          status: 'pass',
+          findings: [],
+          summary:
+            correctionValid && requests === 2 ? '검토 완료' : 'a'.repeat(1000),
+        });
+        priorOutput = [
+          {
+            type: 'message',
+            role: 'assistant',
+            content: [{ type: 'output_text', text }],
+          },
+        ];
+        return Response.json({ status: 'completed', output: priorOutput });
+      },
+    });
+    const result = models.run({
+      agent: 'codex',
+      mode: 'review',
+      context: 'Test',
+      instructions: 'Review',
+      inspect: () => '',
+    });
+    if (correctionValid) assert.equal((await result).status, 'pass');
+    else await assert.rejects(result);
+    assert.equal(requests, 2);
+  });
+}
