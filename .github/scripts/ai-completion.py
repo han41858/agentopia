@@ -52,10 +52,13 @@ def ready_state(issue):
     return None
 
 
-def eligible(issue):
+def eligible(issue, developer=None):
     data = repo(f"issues/{issue}")
     labels = {label["name"] for label in data["labels"]}
-    return data["state"] == "open" and "ai:develop" in labels and "ai:stop" not in labels
+    roles = {"codex": "ai:develop", "claude": "ai:develop:claude"}
+    selected = labels.intersection(roles.values())
+    return (data["state"] == "open" and "ai:stop" not in labels and len(selected) == 1
+            and (developer is None or roles.get(developer) in selected))
 
 
 def fingerprint(*parts):
@@ -90,7 +93,7 @@ def restore_if_unchanged(current, previous):
 
 
 def current_target(issue, number, state, *, undrafted_pr=None):
-    if not eligible(issue) or ready_state(issue) != state:
+    if not eligible(issue, state.get("developer", "codex")) or ready_state(issue) != state:
         if undrafted_pr:
             restore_if_unchanged(repo(f"pulls/{number}"), undrafted_pr)
         return None
@@ -121,7 +124,10 @@ def complete(issue, run_id):
         print("No matching successful review.")
         return
     head = state["head"]
-    branch = f"ai/issue-{issue}-codex"
+    developer = state.get("developer", "codex")
+    if developer not in {"claude", "codex"}:
+        return
+    branch = f"ai/issue-{issue}-{developer}"
     pulls = repo(f"pulls?state=all&base=dev&head=han41858:{branch}")
     matches = [p for p in pulls if p["head"]["sha"] == head
                and p["head"]["repo"] and p["head"]["repo"]["full_name"] == REPO
@@ -169,7 +175,7 @@ def complete(issue, run_id):
                 if undrafted:
                     restore_if_unchanged(confirmed, current)
                 raise
-    if eligible(issue):
+    if eligible(issue, developer):
         try:
             repo(f"issues/{issue}", method="PATCH", state="closed", state_reason="completed")
         except (ValueError, RuntimeError):
