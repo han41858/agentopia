@@ -3,6 +3,7 @@ import {
   ClipboardCheck,
   GitCommitHorizontal,
   MessageCircle,
+  MessagesSquare,
 } from 'lucide-react';
 import type {
   ActivityCounts,
@@ -240,33 +241,46 @@ export function useActivitySummary({
   return { activity: loaded ?? initial, status };
 }
 
-export function ActivityTotals(props: ActivitySummaryProps) {
+export function IssueActivityCounters(props: ActivitySummaryProps) {
   const { activity, status } = useActivitySummary(props);
-  const { issue } = props;
-  const rows = [
-    ['고유 커밋', activity?.commits, activity?.partialCommits],
-    ...(issue === undefined
-      ? []
-      : ([['이슈 댓글', activity?.issueComments, false]] as const)),
-    ['PR 댓글', activity?.pullComments, false],
-    ['리뷰', activity?.reviews, false],
+  const counters = [
+    [
+      activityDisplay.commits.Icon,
+      '고유 커밋',
+      activity?.commits,
+      activity?.partialCommits,
+    ],
+    [activityDisplay.comments.Icon, '이슈 댓글', activity?.issueComments],
+    [MessagesSquare, 'PR 댓글', activity?.pullComments],
+    [activityDisplay.reviews.Icon, '리뷰', activity?.reviews],
   ] as const;
   return (
-    <section className="activity-totals">
-      <h4>GitHub 활동량</h4>
-      <dl>
-        {rows.map(([label, count, partial]) => (
-          <div key={label}>
-            <dt>{label}</dt>
-            <dd>
-              {typeof count === 'number'
-                ? `${count.toLocaleString('ko-KR')}${partial ? ' 이상' : ''}`
-                : '미확인'}
-            </dd>
-          </div>
-        ))}
-      </dl>
-      {status && <small role="status">{status}</small>}
-    </section>
+    <div className="activity-counters" role="group" aria-label="이슈 활동">
+      {counters.map(([Icon, label, count, partial]) => {
+        const name =
+          count === undefined
+            ? label + ' 미확인'
+            : `${label} ${count}개${partial ? ' 이상' : ''}`;
+        return (
+          <span
+            className="activity-counter"
+            key={label}
+            role="img"
+            aria-label={name}
+            title={name}
+          >
+            <Icon size={16} aria-hidden="true" />
+            {count === undefined
+              ? '—'
+              : count.toLocaleString('ko-KR') + (partial ? '+' : '')}
+          </span>
+        );
+      })}
+      {status && (
+        <span className="sr-only" role="status">
+          {status}
+        </span>
+      )}
+    </div>
   );
 }
