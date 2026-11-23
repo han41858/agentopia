@@ -31,7 +31,10 @@ async function request(
     signal: AbortSignal.timeout(30_000),
   });
   if (missing && response.status === 404) return undefined;
-  if (!response.ok) throw new Error(`GitHub ${method} HTTP ${response.status}`);
+  if (!response.ok) {
+    const diagnostic = `GitHub ${method} HTTP ${response.status}`;
+    throw Object.assign(new Error(diagnostic), { diagnostic });
+  }
   return response.status === 204 ? undefined : response.json();
 }
 
@@ -395,7 +398,7 @@ Report material findings with their location, impact, evidence and fix. Do not e
     await save(
       'failed',
       error.diagnostic
-        ? `${error.diagnostic}. 이슈 번호로 다시 실행하세요.`
+        ? `${phase} 단계: ${error.diagnostic}. 이슈 번호로 다시 실행하세요.`
         : `${phase} 단계에서 실패했습니다. Actions 로그를 확인한 뒤 이슈 번호로 다시 실행하세요.`,
     );
     throw error;
