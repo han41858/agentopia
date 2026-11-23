@@ -1,6 +1,14 @@
 import { setTimeout as wait } from 'node:timers/promises';
 import { agents, config } from './config.mjs';
 
+// Only messages composed here from fixed labels may be published to the issue.
+class ModelError extends Error {
+  constructor(message) {
+    super(message);
+    this.diagnostic = message;
+  }
+}
+
 const object = (properties) => ({
   type: 'object',
   properties,
@@ -87,7 +95,7 @@ function validate(value, schema, label) {
   ) {
     return;
   }
-  throw new Error(`AI 결과의 JSON 형식이 올바르지 않습니다 (${label}).`);
+  throw new ModelError(`AI 결과의 JSON 형식이 올바르지 않습니다 (${label}).`);
 }
 
 // Provider text can contain request data. Store only fixed diagnostic labels.
@@ -162,7 +170,7 @@ function claudeAssistantContent(blocks) {
       case 'redacted_thinking':
         return [block];
       default:
-        throw new Error(
+        throw new ModelError(
           'Claude 도구 호출에 지원하지 않는 응답 블록이 있습니다.',
         );
     }
@@ -178,7 +186,7 @@ export function validateReview(value) {
     (value.status === 'pass' && value.findings.length) ||
     (value.status === 'changes_requested' && !value.findings.length)
   ) {
-    throw new Error(
+    throw new ModelError(
       '리뷰 상태와 지적 사항이 일치하지 않거나 결과가 너무 깁니다.',
     );
   }
@@ -187,7 +195,7 @@ export function validateReview(value) {
       line < 1 ||
       Object.values(fields).some((field) => !field.trim() || field.length > 350)
     )
-      throw new Error(
+      throw new ModelError(
         '리뷰 지적에 유효한 파일·줄·결함·영향·근거·수정 방향이 필요합니다.',
       );
   }
@@ -201,7 +209,7 @@ export function validateDevelopment(value, maxEdits = config.limits.edits) {
     value.summary.length > 1200 ||
     value.edits.length > maxEdits
   )
-    throw new Error(
+    throw new ModelError(
       '개발 결과의 요약 또는 변경 수가 허용 범위를 벗어났습니다.',
     );
   if (
@@ -210,7 +218,7 @@ export function validateDevelopment(value, maxEdits = config.limits.edits) {
       /[\r\n<>@\u202a-\u202e]/.test(value.title) ||
       !/^\p{Extended_Pictographic}.*? [^\n:]+: .*[가-힣]/u.test(value.title))
   )
-    throw new Error(
+    throw new ModelError(
       '개발 결과의 제목은 GitMoji와 한국어를 포함한 저장소 형식이어야 합니다.',
     );
   return value;
@@ -323,7 +331,7 @@ export function createModels({
 }) {
   function verify() {
     if (!keys.codex || !keys.claude)
-      throw new Error(
+      throw new ModelError(
         'OPENAI_API_KEY와 ANTHROPIC_API_KEY Actions Secrets를 모두 설정한 뒤 수동 재개하세요.',
       );
   }
@@ -383,7 +391,7 @@ export function createModels({
               (response
                 ? '응답 본문 수신 또는 해석 실패'
                 : 'HTTP 응답 수신 실패'));
-        throw new Error(
+        throw new ModelError(
           `${name} API 응답을 확인할 수 없습니다. (${stage}, ${reason})`,
         );
       } finally {
@@ -428,7 +436,7 @@ export function createModels({
           count > limits.toolCallsPerTurn ||
           toolCalls > limits.toolCallsTotal
         )
-          throw new Error(
+          throw new ModelError(
             'AI 저장소 탐색 도구 호출 한도를 초과했습니다. 작업 범위를 줄여 주세요.',
           );
       }
@@ -523,7 +531,7 @@ API requests remaining, including this one: ${turnLimit - turn + 1}. Read tools 
           data.stop_reason === 'max_tokens'
         )
           throw Object.assign(
-            new Error(
+            new ModelError(
               `${agents[agent].name} 응답이 출력 토큰 한도에 도달했습니다.`,
             ),
             { outputLimitReached: true },
@@ -531,7 +539,7 @@ API requests remaining, including this one: ${turnLimit - turn + 1}. Read tools 
         if (isCodex) {
           const output = data.output ?? [];
           if (data.status !== 'completed')
-            throw new Error('Codex 응답이 완료되지 않았습니다.');
+            throw new ModelError('Codex 응답이 완료되지 않았습니다.');
           const calls = output.filter(({ type }) => type === 'function_call');
           if (!calls.length) {
             const text = output
@@ -555,7 +563,7 @@ API requests remaining, including this one: ${turnLimit - turn + 1}. Read tools 
           if (data.stop_reason === 'tool_use') {
             const calls = output.filter(({ type }) => type === 'tool_use');
             if (!calls.length)
-              throw new Error(
+              throw new ModelError(
                 'Claude 도구 호출 응답에 실행할 도구가 없습니다.',
               );
             reserveTools(calls.length);
@@ -578,11 +586,11 @@ API requests remaining, including this one: ${turnLimit - turn + 1}. Read tools 
               ),
             );
           } else {
-            throw new Error('Claude 응답이 완료되지 않았습니다.');
+            throw new ModelError('Claude 응답이 완료되지 않았습니다.');
           }
         }
       }
-      throw new Error(
+      throw new ModelError(
         'AI의 저장소 탐색 최대 횟수에 도달했습니다. Issue 범위를 좁힌 뒤 수동 재개하세요.',
       );
     },
@@ -593,7 +601,7 @@ function parseJSON(text) {
   try {
     return JSON.parse(text);
   } catch {
-    throw new Error('AI가 유효한 JSON을 반환하지 않았습니다.');
+    throw new ModelError('AI가 유효한 JSON을 반환하지 않았습니다.');
   }
 }
 
