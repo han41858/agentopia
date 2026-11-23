@@ -29,56 +29,112 @@ class ScopeTest(unittest.TestCase):
             self.assertTrue(scope.needs_ui_test("pull_request", ""))
             self.assertTrue(scope.needs_ui_test("push", "a" * 40))
 
-    def test_reads_changes_from_git(self):
-        with tempfile.TemporaryDirectory() as folder:
-            def run(*args):
-                subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@example.com", *args],
-                               cwd=folder, check=True, capture_output=True)
+    def repository(self):
+        """Create a Git repository and return helpers that run inside it."""
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        root = Path(folder.name)
 
-            def commit(path, message):
-                target = Path(folder, path)
+        def run(*args):
+            subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@example.com", *args],
+                           cwd=root, check=True, capture_output=True)
+
+        def commit(message, write=None, move=None):
+            if write:
+                target = root / write
                 target.parent.mkdir(parents=True, exist_ok=True)
-                target.write_text(message)
-                run("add", "-A")
-                run("commit", "-m", message)
-                return subprocess.run(["git", "rev-parse", "HEAD"], cwd=folder, check=True,
-                                      capture_output=True, text=True).stdout.strip()
+                target.write_text(f"{message}\n" * 20)
+            if move:
+                (root / move[1]).parent.mkdir(parents=True, exist_ok=True)
+                run("mv", *move)
+            run("add", "-A")
+            run("commit", "-m", message)
+            return subprocess.run(["git", "rev-parse", "HEAD"], cwd=root, check=True,
+                                  capture_output=True, text=True).stdout.strip()
 
-            run("init", "-b", "dev")
-            base = commit("README.md", "base")
-            run("checkout", "-b", "docs")
-            commit("docs/guide.md", "docs")
-            run("checkout", "dev")
-            run("checkout", "-b", "screen")
-            commit("src/main.tsx", "screen")
-            run("checkout", "dev")
-            moved = commit("src/other.tsx", "dev moved")
+        def in_repository(*args):
+            result = subprocess.run(["git", *args], cwd=root, capture_output=True, text=True)
+            if result.returncode:
+                raise RuntimeError(result.stderr)
+            return result.stdout
 
-            def in_folder(*args):
-                result = subprocess.run(["git", *args], cwd=folder, capture_output=True, text=True)
-                if result.returncode:
-                    raise RuntimeError(result.stderr)
-                return result.stdout.split()
+        patcher = patch.object(scope, "git", side_effect=in_repository)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        run("init", "-b", "dev")
+        return run, commit
 
-            with patch.object(scope, "git", side_effect=in_folder):
-                # 문서만 바꾼 PR: dev가 화면 파일을 바꿨어도 PR 자체의 변경만 봅니다.
-                run("checkout", "--detach", "dev")
-                run("merge", "--no-ff", "docs", "-m", "merge docs")
-                self.assertEqual(scope.changed_paths("pull_request", ""), ["docs/guide.md"])
-                self.assertFalse(scope.needs_ui_test("pull_request", ""))
+    def merged(self, run, branch):
+        """Check out the merge commit that a pull_request run would test."""
+        run("checkout", "--detach", "dev")
+        run("merge", "--no-ff", branch, "-m", f"merge {branch}")
 
-                run("checkout", "--detach", "dev")
-                run("merge", "--no-ff", "screen", "-m", "merge screen")
-                self.assertTrue(scope.needs_ui_test("pull_request", ""))
+    def test_reads_changes_from_git(self):
+        run, commit = self.repository()
+        base = commit("base", write="README.md")
+        run("checkout", "-b", "docs")
+        commit("docs", write="docs/guide.md")
+        run("checkout", "-b", "screen", "dev")
+        commit("screen", write="src/main.tsx")
+        run("checkout", "dev")
+        moved = commit("dev moved", write="src/other.tsx")
 
-                # 합친 커밋이 아니면 판단하지 않고 실행합니다.
-                run("checkout", "--detach", "docs")
-                self.assertIsNone(scope.changed_paths("pull_request", ""))
+        # 문서만 바꾼 PR: dev가 화면 파일을 바꿨어도 PR 자체의 변경만 봅니다.
+        self.merged(run, "docs")
+        self.assertEqual(scope.changed_paths("pull_request", ""), ["docs/guide.md"])
+        self.assertFalse(scope.needs_ui_test("pull_request", ""))
 
-                run("checkout", "dev")
-                self.assertEqual(scope.changed_paths("push", base), ["src/other.tsx"])
-                self.assertTrue(scope.needs_ui_test("push", base))
-                self.assertFalse(scope.needs_ui_test("push", moved))
+        self.merged(run, "screen")
+        self.assertTrue(scope.needs_ui_test("pull_request", ""))
+
+        # 합친 커밋이 아니면 판단하지 않고 실행합니다.
+        run("checkout", "--detach", "docs")
+        self.assertIsNone(scope.changed_paths("pull_request", ""))
+
+        run("checkout", "dev")
+        self.assertEqual(scope.changed_paths("push", base), ["src/other.tsx"])
+        self.assertTrue(scope.needs_ui_test("push", base))
+        self.assertFalse(scope.needs_ui_test("push", moved))
+
+    def test_moving_a_screen_file_away_needs_ui_test(self):
+        run, commit = self.repository()
+        base = commit("base", write="assets/icon.svg")
+        run("checkout", "-b", "move")
+        head = commit("move", move=("assets/icon.svg", "docs/icon.svg"))
+
+        self.merged(run, "move")
+        self.assertEqual(sorted(scope.changed_paths("pull_request", "")),
+                         ["assets/icon.svg", "docs/icon.svg"])
+        self.assertTrue(scope.needs_ui_test("pull_request", ""))
+
+        run("checkout", "--detach", head)
+        self.assertTrue(scope.needs_ui_test("push", base))
+
+    def test_quoted_paths_need_ui_test(self):
+        run, commit = self.repository()
+        base = commit("base", write="README.md")
+        run("checkout", "-b", "names")
+        commit("names", write="assets/왕궁.svg")
+        head = commit("spaces", write="src/new panel.tsx")
+
+        self.merged(run, "names")
+        self.assertEqual(sorted(scope.changed_paths("pull_request", "")),
+                         ["assets/왕궁.svg", "src/new panel.tsx"])
+        self.assertTrue(scope.needs_ui_test("pull_request", ""))
+
+        run("checkout", "--detach", head)
+        self.assertEqual(scope.changed_paths("push", f"{head}~1"), ["src/new panel.tsx"])
+        self.assertTrue(scope.needs_ui_test("push", base))
+
+    def test_quoted_paths_outside_the_screen_skip_ui_test(self):
+        run, commit = self.repository()
+        commit("base", write="README.md")
+        run("checkout", "-b", "notes")
+        commit("notes", write="docs/회의 기록.md")
+
+        self.merged(run, "notes")
+        self.assertEqual(scope.changed_paths("pull_request", ""), ["docs/회의 기록.md"])
+        self.assertFalse(scope.needs_ui_test("pull_request", ""))
 
 
 if __name__ == "__main__":

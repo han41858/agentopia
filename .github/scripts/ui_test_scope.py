@@ -26,7 +26,14 @@ def git(*args):
     result = subprocess.run(["git", *args], capture_output=True, text=True)
     if result.returncode:
         raise RuntimeError(result.stderr.strip() or f"git {args[0]} failed")
-    return result.stdout.split()
+    return result.stdout
+
+
+def diff_paths(base):
+    # 이름 변경은 옛 경로와 새 경로를 모두 포함하고(--no-renames), 공백·한글 등
+    # 따옴표로 표시되는 경로도 그대로 읽도록 NUL로 구분합니다(-z).
+    output = git("diff", "--no-renames", "--name-only", "-z", base, "HEAD")
+    return [path for path in output.split("\0") if path]
 
 
 def changed_paths(event, before):
@@ -34,11 +41,11 @@ def changed_paths(event, before):
     try:
         if event == "pull_request":
             # PR 실행은 base와 합친 커밋을 체크아웃하므로 첫 부모와의 차이가 PR의 변경입니다.
-            if len(git("rev-list", "--parents", "-n", "1", "HEAD")) != 3:
+            if len(git("rev-list", "--parents", "-n", "1", "HEAD").split()) != 3:
                 return None
-            return git("diff", "--name-only", "HEAD^1", "HEAD")
+            return diff_paths("HEAD^1")
         if event == "push" and before and before != NO_COMMIT:
-            return git("diff", "--name-only", before, "HEAD")
+            return diff_paths(before)
     except RuntimeError:
         pass
     return None
