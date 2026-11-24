@@ -145,6 +145,18 @@ def current_target(issue, number, state, *, undrafted_pr=None):
     return current
 
 
+def current_ci(head, branch, number):
+    runs = repo(f"actions/workflows/ci.yml/runs?event=pull_request&head_sha={head}&branch={branch}")["workflow_runs"]
+    return next((r for r in runs if r["head_sha"] == head
+                 and any(p["number"] == number for p in r["pull_requests"])), None)
+
+
+def merged_target(pull, head):
+    return (pull.get("merged_at") and pull["head"]["sha"] == head
+            and pull["base"]["ref"] == "dev"
+            and re.fullmatch(r"[0-9a-f]{40}", pull.get("merge_commit_sha") or ""))
+
+
 def complete(issue, run_id):
     if not eligible(issue):
         return
@@ -169,8 +181,7 @@ def complete(issue, run_id):
         if pull["state"] != "open":
             return
         for _ in range(90):
-            runs = repo(f"actions/workflows/ci.yml/runs?event=pull_request&head_sha={head}&branch={branch}")["workflow_runs"]
-            ci = next((r for r in runs if r["head_sha"] == head and any(p["number"] == number for p in r["pull_requests"])), None)
+            ci = current_ci(head, branch, number)
             if ci and ci["status"] == "completed":
                 if not current_target(issue, number, state):
                     return
@@ -198,23 +209,35 @@ def complete(issue, run_id):
         try:
             if not current_target(issue, number, state, undrafted_pr=current if undrafted else None):
                 return
+            latest = current_ci(head, branch, number)
+            if not latest or latest["status"] != "completed" or latest["conclusion"] != "success":
+                raise RuntimeError("Current HEAD CI is no longer successful.")
             result = repo(f"pulls/{number}/merge", publisher=True, method="PUT",
                           sha=head, merge_method="squash", commit_title=f"{current['title']} (#{number})")
             if not result.get("merged"):
                 raise RuntimeError("GitHub did not confirm the merge.")
         except (ValueError, RuntimeError):
             confirmed = repo(f"pulls/{number}")
-            if not confirmed["merged_at"] or confirmed["head"]["sha"] != head or confirmed["base"]["ref"] != "dev":
+            if not merged_target(confirmed, head):
                 if undrafted:
                     restore_if_unchanged(confirmed, current)
                 raise
-    if eligible(issue, developer):
+    confirmed = repo(f"pulls/{number}")
+    if not merged_target(confirmed, head):
+        raise RuntimeError("Cannot confirm the reviewed HEAD merged into dev.")
+    data = repo(f"issues/{issue}")
+    if data["state"] == "open":
+        if (not eligible(issue, developer) or (state.get("recovery")
+                and fingerprint(data["title"], data.get("body")) != state["recovery"]["issue"])):
+            raise RuntimeError("PR merged, but issue changed or closure is no longer authorized.")
         try:
             repo(f"issues/{issue}", method="PATCH", state="closed", state_reason="completed")
         except (ValueError, RuntimeError):
-            confirmed = repo(f"issues/{issue}")
-            if (confirmed["state"], confirmed["state_reason"]) != ("closed", "completed"):
-                raise
+            # The write may already have succeeded. Inspect GitHub before retrying.
+            pass
+        data = repo(f"issues/{issue}")
+    if (data["state"], data.get("state_reason")) != ("closed", "completed"):
+        raise RuntimeError("PR merged, but completed issue closure is unconfirmed.")
     print(f"PR #{number} merged, issue #{issue} completed.")
 
 

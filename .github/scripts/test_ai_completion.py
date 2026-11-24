@@ -9,7 +9,7 @@ spec.loader.exec_module(completion)
 
 
 class CompletionTest(unittest.TestCase):
-    def run_case(self, ci="success", merged=False, changed=False, status="completed", stale_head=False, merge_error=False, stop_after_undraft=False):
+    def run_case(self, ci="success", merged=False, changed=False, status="completed", stale_head=False, merge_error=False, stop_after_undraft=False, wrong_close=False, rerunning=False):
         calls = []
         mutations = []
         head = "a" * 40
@@ -19,7 +19,20 @@ class CompletionTest(unittest.TestCase):
                 "base": {"ref": "dev", "sha": "updated" if changed else "base"},
                 "draft": True, "title": "Fix", "body": "<!-- agentopia-ai-issue:1 -->", "node_id": "id"}
 
+        issue_state = {"state": "open"}
+        ci_reads = 0
+
         def repo(path, **kwargs):
+            nonlocal ci_reads
+            if path == "issues/1":
+                if kwargs:
+                    calls.append(path)
+                    issue_state.update(state="closed", state_reason="not_planned" if wrong_close else "completed")
+                return issue_state
+            if path == "pulls/2/merge" and not merge_error:
+                pull.update(merged_at=True, merge_commit_sha="c" * 40, state="closed")
+            if merged:
+                pull["merge_commit_sha"] = "c" * 40
             if path == "git/ref/heads/dev":
                 return {"object": {"sha": "updated" if changed else "base"}}
             if path == "pulls/2/merge" and merge_error:
@@ -27,7 +40,8 @@ class CompletionTest(unittest.TestCase):
             if path.startswith("pulls?"):
                 return [pull]
             if path.startswith("actions/"):
-                return {"workflow_runs": [{"head_sha": "old" if stale_head else head, "pull_requests": [{"number": 2}], "status": status,
+                ci_reads += 1
+                return {"workflow_runs": [{"head_sha": "old" if stale_head else head, "pull_requests": [{"number": 2}], "status": "in_progress" if rerunning and ci_reads > 1 else status,
                                            "conclusion": ci, "html_url": "CI"}]}
             if path == "pulls/2":
                 return pull
@@ -54,7 +68,7 @@ class CompletionTest(unittest.TestCase):
                 self.assertEqual(len(mutations), 2)
                 merge_error = False
                 completion.complete(1, 7)
-            elif changed or stale_head or ci != "success" or status != "completed":
+            elif wrong_close or rerunning or changed or stale_head or ci != "success" or status != "completed":
                 with self.assertRaises(RuntimeError):
                     completion.complete(1, 7)
             else:
@@ -110,6 +124,12 @@ class CompletionTest(unittest.TestCase):
 
     def test_resume_after_merge(self):
         self.assertEqual(self.run_case(merged=True), ["issues/1"])
+
+    def test_changed_ci_during_undraft(self):
+        self.assertEqual(self.run_case(rerunning=True), [])
+
+    def test_wrong_closed_reason_is_not_completion(self):
+        self.assertEqual(self.run_case(wrong_close=True), ["pulls/2/merge", "issues/1"])
 
     def test_failed_ci_or_changed_base(self):
         self.assertEqual(self.run_case(ci="failure"), [])

@@ -36,6 +36,8 @@ export function replayLine(base, head, target) {
   const edits = [{ path, before, after: edited[index] }];
   resolveEdits(edits, from);
   const [change] = resolveEdits(edits, to);
+  if (/^(?:<{7}|={7}|>{7}|\|{7})(?: |$)/m.test(change.text))
+    throw new Error('충돌 표식이 남아 있습니다.');
   const dir = mkdtempSync(join(tmpdir(), 'agentopia-index-'));
   try {
     const env = { ...process.env, GIT_INDEX_FILE: join(dir, 'index') };

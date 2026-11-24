@@ -419,7 +419,7 @@ for (const [agent, summary, count, diagnostic, retryValid] of [
 }
 
 for (const repeat of [false, true]) {
-  test(`Claude resumes a checkpoint once (repeated: ${repeat})`, async () => {
+  test(`Claude preserves a human stop when clarifying a checkpoint (repeated: ${repeat})`, async () => {
     let calls = 0;
     const models = createModels({
       keys: { claude: 'mock' },
@@ -428,7 +428,9 @@ for (const repeat of [false, true]) {
       request: async (_, options) => {
         calls++;
         if (calls === 2)
-          assert.equal(JSON.parse(options.body).tool_choice, undefined);
+          assert.deepEqual(JSON.parse(options.body).tool_choice, {
+            type: 'none',
+          });
         const result =
           calls === 1 || repeat
             ? {
@@ -450,9 +452,8 @@ for (const repeat of [false, true]) {
       context: 'Test',
       inspect: () => '',
     });
-    assert.equal(calls, repeat ? 3 : 2);
-    assert.equal(result.status, repeat ? 'needs_human' : 'pass');
-    if (repeat) assert.match(result.summary, /중간 점검/);
+    assert.equal(calls, 2);
+    assert.equal(result.status, 'needs_human');
   });
 }
 
@@ -619,4 +620,46 @@ test('returns async parser diagnostics to the developer once before publishing c
   });
   assert.equal(calls, 2);
   assert.deepEqual(result.changes, [{ path, text: 'const a = 1;\n' }]);
+});
+
+test('partial development edits never reach preparation', async () => {
+  let calls = 0;
+  const editsPrepared = [];
+  const models = createModels({
+    keys: { claude: 'mock' },
+    modelNames: { claude: 'mock' },
+    log: () => {},
+    request: async () => {
+      calls++;
+      const result = {
+        status: calls === 1 ? 'in_progress' : 'completed',
+        title: '📝 문서: 안내 수정',
+        summary: '검토',
+        edits: [
+          {
+            path: 'README.md',
+            before: 'A',
+            after: calls === 1 ? 'partial' : 'final',
+          },
+        ],
+      };
+      return Response.json({
+        stop_reason: 'end_turn',
+        content: [{ type: 'text', text: JSON.stringify(result) }],
+      });
+    },
+  });
+  await models.run({
+    agent: 'claude',
+    mode: 'development',
+    instructions: 'Develop',
+    context: 'Test',
+    inspect: () => '',
+    prepareChanges: (edits) => editsPrepared.push(...edits),
+  });
+  assert.equal(calls, 2);
+  assert.deepEqual(
+    editsPrepared.map((edit) => edit.after),
+    ['final'],
+  );
 });
