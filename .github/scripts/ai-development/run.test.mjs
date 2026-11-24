@@ -40,6 +40,8 @@ for (const scenario of [
   'restart-limit',
   'update-limit',
   'manual-head',
+  'upstream-head',
+  'upstream-extra',
   'interrupted-review',
   'interrupted-commit',
   'merge-conflict',
@@ -637,6 +639,33 @@ for (const scenario of [
     }
     if (['interrupted-review-record', 'interrupted-commit'].includes(scenario))
       process.env.GITHUB_RUN_ID = '2';
+    if (scenario.startsWith('upstream-')) {
+      const reviewed = saved().head;
+      advance();
+      git(remote, 'switch', branch);
+      git(remote, 'merge', '--no-edit', 'dev');
+      if (scenario === 'upstream-extra') {
+        writeFileSync(join(remote, 'extra'), 'manual');
+        git(remote, 'add', 'extra');
+        git(remote, 'commit', '-m', 'manual addition');
+      }
+      git(remote, 'switch', 'dev');
+      await import(runner + '?changed');
+      assert.equal(saved().status, 'needs_human');
+      process.env.GITHUB_RUN_ID = '2';
+      await import(runner + '?manual');
+      if (scenario === 'upstream-extra') {
+        assert.equal(saved().status, 'needs_human');
+        assert.equal(saved().recovery.head, reviewed);
+        assert.equal(reviews, 1);
+      } else {
+        assert.equal(saved().status, 'ready');
+        assert.notEqual(saved().head, reviewed);
+        assert.equal(saved().reviews[0].head, head);
+        assert.equal(reviews, 2);
+      }
+      return;
+    }
     if (scenario === 'manual-head') {
       git(remote, 'switch', branch);
       git(remote, 'commit', '--allow-empty', '-m', 'human change');
