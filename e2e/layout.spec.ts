@@ -291,8 +291,14 @@ for (const width of [1280, 390, 320]) {
           }
           const row = await boxes(buttons);
           const [expandedFace] = await boxes(bookmarkFace);
-          expect(expandedFace).toEqual(row[0]);
-          expect(collapsedFace.width * 2).toBe(expandedFace.width);
+          const refresh = row[1];
+          expect(collapsedFace.width).toBe(refresh.width * 0.75);
+          expect(expandedFace.width).toBe(collapsedFace.width);
+          expect(expandedFace.height).toBe(collapsedFace.height);
+          expect(expandedFace.y).toBe(row[0].y);
+          expect(expandedFace.x + expandedFace.width).toBe(
+            row[0].x + row[0].width,
+          );
           expect(row[0].x).toBeLessThan(collapsedHit.x);
           expect(row[4].x + row[4].width).toBe(width);
           for (const [index, button] of row.entries()) {
@@ -307,8 +313,8 @@ for (const width of [1280, 390, 320]) {
             '.header-bookmark, .world-controls > button:not(.mode-switch)',
           );
           for (const [index, button] of (await boxes(singles)).entries()) {
-            expect(button.width).toBe(expandedFace.width);
-            expect(button.height).toBe(collapsedFace.height);
+            expect(button.width).toBe(collapsedHit.width);
+            expect(button.height).toBe(collapsedHit.height);
             const single = singles.nth(index);
             const face = index === 0 ? bookmarkFace : single;
             await expect(single).toHaveCSS('padding', '0px');
@@ -316,8 +322,9 @@ for (const width of [1280, 390, 320]) {
             const [icon] = await boxes(single.locator('svg'));
             expect(icon.width).toBe(collapsedIcon.width);
             expect(icon.height).toBe(collapsedIcon.height);
+            const faceBox = index === 0 ? expandedFace : button;
             expect(icon.x + icon.width / 2).toBeCloseTo(
-              button.x + button.width / 2,
+              faceBox.x + faceBox.width / 2,
               1,
             );
             expect(icon.y + icon.height / 2).toBeCloseTo(centerY, 1);
@@ -333,7 +340,11 @@ for (const width of [1280, 390, 320]) {
             ),
           ).toBe(0);
 
-          await close.tap();
+          // 펼친 상태에서도 표시 영역 왼쪽의 투명한 부분을 눌러 닫습니다.
+          await page.touchscreen.tap(
+            Math.round((row[0].x + expandedFace.x) / 2),
+            Math.round(centerY),
+          );
           await expect(controls).toBeHidden();
           expect(await boxes(open)).toEqual([collapsedHit]);
           expect(await boxes(bookmarkFace)).toEqual([collapsedFace]);
