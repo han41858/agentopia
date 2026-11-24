@@ -7,7 +7,6 @@ import os
 import re
 import subprocess
 import time
-from pathlib import Path
 
 REPO = "han41858/agentopia"
 
@@ -65,14 +64,33 @@ def fingerprint(*parts):
     return hashlib.sha256("\0".join(str(part or "") for part in parts).encode()).hexdigest()
 
 
-def request_recovery(issue, state):
+def ci_feedback(ci):
+    jobs = repo(f"actions/runs/{ci['id']}/attempts/{ci['run_attempt']}/jobs?per_page=100")["jobs"]
+    failures = [job for job in jobs if job["conclusion"] == "failure"]
+    if len(failures) == 1 and failures[0].get("name") == "Test and build" and [
+        step["name"] for step in failures[0]["steps"] if step["conclusion"] == "failure"
+    ] == ["Run npm run format:check"]:
+        return "npm run format:check"
+    diagnostics = []
+    for job in jobs:
+        if job["conclusion"] != "failure":
+            continue
+        annotations = repo(f"check-runs/{job['id']}/annotations?per_page=100")
+        for item in annotations:
+            if item["annotation_level"] == "failure" and item["path"].startswith(("e2e/", "src/", "server/", "api/")):
+                diagnostics.append(f"{item['path'][:250]}:{item['start_line']} {item['message'][:1200]}")
+    return "\n".join(diagnostics).replace("\x00", "")[:4000]
+
+
+def request_recovery(issue, state, feedback=None):
     if not state.get("recovery"):
         raise RuntimeError("Legacy review has no publication checkpoint. Human confirmation required.")
     # Development serializes per issue and accepts only the latest trusted ready run.
+    extra = ["-f", f"ci_feedback={feedback}"] if feedback else []
     subprocess.run(["gh", "workflow", "run", "ai-development.yml", "--repo", REPO,
-                    "--ref", "dev", "-f", f"issue={issue}", "-f", f"recovery_run={state['runId']}"],
+                    "--ref", "dev", "-f", f"issue={issue}", "-f", f"recovery_run={state['runId']}", *extra],
                    check=True)
-    print(f"Issue #{issue}: dev advanced; requested a fresh review and CI on the updated branch.")
+    print(f"Issue #{issue}: requested development recovery and fresh validation.")
 
 
 def dev_head():
@@ -145,6 +163,11 @@ def complete(issue, run_id):
             if ci and ci["status"] == "completed":
                 if not current_target(issue, number, state):
                     return
+                if ci["conclusion"] == "failure" and state.get("recovery"):
+                    feedback = ci_feedback(ci)
+                    if feedback:
+                        request_recovery(issue, state, feedback)
+                        return
                 if ci["conclusion"] != "success":
                     raise RuntimeError(f"CI did not pass: {ci['html_url']}")
                 break
@@ -186,14 +209,8 @@ def complete(issue, run_id):
 
 
 def main():
-    event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text())
-    run = event.get("workflow_run")
-    if run:
-        match = re.fullmatch(r"AI development for Issue #(\d+)", run["display_title"])
-        if match and run["head_repository"]["full_name"] == REPO:
-            complete(int(match[1]), run["id"])
-    else:
-        complete(int(os.environ["AI_ISSUE"]), None)
+    run = os.environ.get("AI_REVIEW_RUN")
+    complete(int(os.environ["AI_ISSUE"]), int(run) if run else None)
 
 
 if __name__ == "__main__":

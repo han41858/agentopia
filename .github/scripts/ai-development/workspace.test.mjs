@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { resolveEdits } from './workspace.mjs';
+import {
+  formatChanges,
+  resolveEdits,
+  snapshot as gitSnapshot,
+} from './workspace.mjs';
 
 const source = 'export const value = 1;\n';
 const snapshot = {
@@ -77,5 +81,90 @@ test('blocks JSON configuration and limits API changes to existing file contents
   assert.equal(
     resolveEdits([{ path: api, before: '1', after: '2' }], work)[0].text,
     'export const value = 2;\n',
+  );
+});
+
+test('updates existing UI specs without granting access to fixtures or configuration', () => {
+  const path = 'e2e/dialogs.spec.ts';
+  const work = { ...snapshot, files: new Map([[path, '100644']]) };
+  const edit = { path, before: 'value = 1', after: 'value = 2' };
+  assert.equal(resolveEdits([edit], work)[0].path, path);
+  for (const denied of [
+    { ...edit, path: 'e2e/fixtures.ts' },
+    { ...edit, path: 'playwright.config.ts' },
+    { ...edit, path: 'e2e/new.spec.ts', before: null },
+    { ...edit, before: source, after: null },
+  ]) {
+    assert.throws(() => resolveEdits([denied], work));
+  }
+});
+
+test('UI checks require an actual spec page independently in development and review', () => {
+  const work = gitSnapshot('HEAD', 'HEAD');
+  const review = gitSnapshot('HEAD', 'HEAD');
+  const paths = ['src/detail-dialogs.tsx'];
+  assert.equal(work.needsUiSpec(['docs/development.md']), false);
+  work.inspect('list_files', { query: 'dialogs', offset: 0 });
+  work.inspect('read_file', { path: 'e2e/dialogs.spec.ts', line: 100000 });
+  assert.equal(work.needsUiSpec(paths), true);
+  work.inspect('read_file', { path: 'e2e/dialogs.spec.ts', line: 80 });
+  assert.equal(work.needsUiSpec(paths), false);
+  assert.equal(review.needsUiSpec(paths), true);
+});
+
+test('formats proposals before publication and drops format-only no-ops', async () => {
+  const path = 'src/value.ts';
+  assert.deepEqual(
+    await formatChanges([{ path, text: 'export const value=1' }], snapshot),
+    [],
+  );
+  assert.deepEqual(
+    await formatChanges(
+      [
+        { path, text: 'export const value=2' },
+        { path: 'e2e/example.spec.ts', text: "test(  '예시',()=>{} )" },
+      ],
+      snapshot,
+    ),
+    [
+      { path, text: 'export const value = 2;\n' },
+      { path: 'e2e/example.spec.ts', text: "test('예시', () => {});\n" },
+    ],
+  );
+  assert.deepEqual(await formatChanges([{ path, text: null }], snapshot), [
+    { path, text: null },
+  ]);
+});
+
+test('syntax failures report file and parser position without disclosing source', async () => {
+  for (const [path, text] of [
+    ['src/value.ts', 'const privateValue = ;'],
+    ['src/map.css', '.map{color:red'],
+  ]) {
+    await assert.rejects(formatChanges([{ path, text }], snapshot), (error) => {
+      assert.ok(error.diagnostic.startsWith(path + ':1:'));
+      assert.ok(!error.diagnostic.includes(text));
+      return true;
+    });
+  }
+});
+
+test('literal lookup locates UI text without counting as a full UI spec read', () => {
+  const work = gitSnapshot('HEAD', 'HEAD');
+  assert.match(
+    work.inspect('find_in_file', {
+      path: 'src/detail-dialogs.tsx',
+      text: '시설 이력',
+    }),
+    /\d+: .*시설 이력/,
+  );
+  work.inspect('find_in_file', { path: 'e2e/dialogs.spec.ts', text: 'expect' });
+  assert.equal(work.needsUiSpec(['src/detail-dialogs.tsx']), true);
+  assert.match(
+    work.inspect('find_in_file', {
+      path: '.github/workflows/ci.yml',
+      text: 'jobs',
+    }),
+    /outside/,
   );
 });

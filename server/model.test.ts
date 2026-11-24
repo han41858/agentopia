@@ -10,7 +10,7 @@ import {
   repositoryRegion,
   runIssue,
 } from './model.ts';
-import type { Comment, Issue, Pull, Run } from './model.ts';
+import type { Comment, Issue, Pull, Report, Run } from './model.ts';
 import { githubResponse } from './github.ts';
 import { facilityKind, isCurrentFacility } from '../src/facility-kind.ts';
 
@@ -78,6 +78,112 @@ const comment = (
   issue_url: `https://api.github.com/repos/han41858/${region}/issues/${number}`,
   html_url: `https://github.com/han41858/${region}/issues/${number}#issuecomment-11`,
   updated_at: stamp,
+});
+
+test('issue Actions use run start times and distinguish status from conclusion', () => {
+  const startedAt = '2026-11-19T10:05:00Z';
+  const runs = [
+    run(1, { status: 'queued', run_started_at: null }),
+    run(1, { status: 'in_progress', run_started_at: startedAt }),
+    ...['success', 'failure', 'cancelled', 'skipped'].map((conclusion) =>
+      run(1, { status: 'completed', conclusion, run_started_at: startedAt }),
+    ),
+    run(1, { status: 'completed' }),
+  ].map((item, index) => ({
+    ...item,
+    id: 200 - index,
+    html_url: `https://github.com/${commitTrail.slug}/actions/runs/${200 - index}`,
+  }));
+  const [quest] = makeQuests(
+    commitTrail,
+    [issue(1)],
+    [],
+    runs,
+    [],
+    new Map(),
+    [],
+  );
+
+  assert.deepEqual(
+    quest.runs.map((item) => item.status),
+    [
+      'queued',
+      'in_progress',
+      'success',
+      'failure',
+      'cancelled',
+      'skipped',
+      'completed',
+    ],
+  );
+  assert.deepEqual(
+    quest.runs.map((item) => item.startedAt),
+    [
+      undefined,
+      startedAt,
+      startedAt,
+      startedAt,
+      startedAt,
+      startedAt,
+      undefined,
+    ],
+  );
+});
+
+test('GitHub workflow run metadata survives the issue report API', async (context) => {
+  const slug = 'example/actions-report';
+  const startedAt = '2026-11-19T10:05:00Z';
+  const workflowRun = run(1, {
+    status: 'completed',
+    conclusion: 'failure',
+    run_started_at: startedAt,
+    html_url: `https://github.com/${slug}/actions/runs/101`,
+  });
+  const fetch = context.mock.method(
+    globalThis,
+    'fetch',
+    async (url: RequestInfo | URL) => {
+      switch (new URL(url instanceof Request ? url.url : url).pathname) {
+        case `/repos/${slug}/issues`:
+          return Response.json([
+            { ...issue(1), html_url: `https://github.com/${slug}/issues/1` },
+          ]);
+        case `/repos/${slug}/pulls`:
+        case `/repos/${slug}/issues/comments`:
+          return Response.json([]);
+        case `/repos/${slug}/actions/runs`:
+          return Response.json({ workflow_runs: [workflowRun] });
+        default:
+          throw new Error(`Unexpected GitHub request: ${url}`);
+      }
+    },
+  );
+  const result = await githubResponse(
+    new URL(`https://example.test/api/github?repo=${slug}&history=cached`),
+    'GET',
+    'Bearer mock_actions_report_token',
+  );
+
+  assert.equal(result.status, 200);
+  assert.ok(
+    fetch.mock.calls.some(
+      ({ arguments: [url] }) =>
+        new URL(url instanceof Request ? url.url : url).pathname ===
+        `/repos/${slug}/actions/runs`,
+    ),
+  );
+  const report = JSON.parse(result.body) as Report;
+  assert.deepEqual(report.warnings, []);
+  const [quest] = report.quests;
+  assert.equal(quest.number, 1);
+  assert.deepEqual(
+    quest.runs.map(({ url, status, startedAt }) => ({
+      url,
+      status,
+      startedAt,
+    })),
+    [{ url: workflowRun.html_url, status: 'failure', startedAt }],
+  );
 });
 
 test('independent parties retain hierarchy and reflect actual developer and reviewer roles', () => {

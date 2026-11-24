@@ -1,5 +1,5 @@
 import { setTimeout as wait } from 'node:timers/promises';
-import { EditConflict } from './workspace.mjs';
+import { CorrectableEditError } from './workspace.mjs';
 import { agents, config } from './config.mjs';
 
 // Only messages composed here from fixed labels may be published to the issue.
@@ -54,6 +54,11 @@ const tools = {
     description:
       'Find tracked paths by case-insensitive substring. Use offset 0 for the first page.',
     input: object({ query: string, offset: integer }),
+  },
+  find_in_file: {
+    description:
+      'Locate a literal UI label or symbol within a tracked text file. Returns matching line numbers for targeted read_file calls.',
+    input: object({ path: string, text: string }),
   },
   read_file: {
     description:
@@ -463,6 +468,7 @@ export function createModels({
       inspect,
       issueTitle,
       prepareChanges,
+      needsUiSpec,
     }) {
       const schema = mode === 'development' ? developmentSchema : reviewSchema;
       const verifyResult =
@@ -482,6 +488,7 @@ export function createModels({
         '\n' +
         (mode === 'review' ? reviewFormat : developmentFormat);
       let correction;
+      let promptedForSpec = false;
       let resumedCheckpoint = false;
       let reviewCanPass = true;
       const missingBlocker =
@@ -492,29 +499,34 @@ export function createModels({
         summary: missingBlocker,
       };
       let toolCalls = 0;
-      function reserveTools(count) {
-        toolCalls += count;
-        if (
-          count > limits.toolCallsPerTurn ||
-          toolCalls > limits.toolCallsTotal
-        )
-          throw new ModelError(
-            'AI 저장소 탐색 도구 호출 한도를 초과했습니다. 작업 범위를 줄여 주세요.',
-          );
-      }
-
       for (let turn = 1; turn <= turnLimit; turn++) {
         const started = performance.now();
         const finalTurn =
           turn === turnLimit || (Boolean(correction) && correction !== 'edits');
         // Reserve the last review request for repairing an invalid verdict.
+        const remainingReads = Math.min(
+          limits.toolCallsPerTurn,
+          limits.toolCallsTotal - toolCalls,
+        );
         const requireResult =
-          finalTurn || (mode === 'review' && turn === turnLimit - 1);
+          remainingReads === 0 ||
+          finalTurn ||
+          (mode === 'review' && turn === turnLimit - 1);
         const turnInstructions = requireResult
           ? `${taskInstructions}
 Return the final structured result now. If evidence is insufficient, return needs_human with the specific blocker.`
           : `${taskInstructions}
-API requests remaining, including this one: ${turnLimit - turn + 1}. Read tools allowed this turn: ${Math.min(limits.toolCallsPerTurn, limits.toolCallsTotal - toolCalls)}. Return the final structured result once you have enough evidence.`;
+API requests remaining, including this one: ${turnLimit - turn + 1}. Read tools allowed this turn: ${remainingReads}. Return the final structured result once you have enough evidence.`;
+        function readTool(index, name, args) {
+          if (requireResult)
+            throw new ModelError(
+              '최종 결과 요청 중 탐색 호출이 반환되었습니다.',
+            );
+          if (index >= remainingReads)
+            return 'Not executed: read budget for this turn reached. Use the returned evidence or prioritize this read next turn if budget remains.';
+          toolCalls++;
+          return invokeTool(inspect, name, isCodex ? parseJSON(args) : args);
+        }
         const data = await call(
           agent,
           isCodex
@@ -622,13 +634,12 @@ API requests remaining, including this one: ${turnLimit - turn + 1}. Read tools 
           if (calls.length) {
             if (correction && correction !== 'edits')
               throw new ModelError('결과 교정 중 도구 호출이 반환되었습니다.');
-            reserveTools(calls.length);
             input.push(
               ...output,
-              ...calls.map(({ name, arguments: args, call_id }) => ({
+              ...calls.map(({ name, arguments: args, call_id }, index) => ({
                 type: 'function_call_output',
                 call_id,
-                output: invokeTool(inspect, name, parseJSON(args)),
+                output: readTool(index, name, args),
               })),
             );
             continue;
@@ -647,11 +658,10 @@ API requests remaining, including this one: ${turnLimit - turn + 1}. Read tools 
               throw new ModelError(
                 'Claude 도구 호출 응답에 실행할 도구가 없습니다.',
               );
-            reserveTools(calls.length);
-            const results = calls.map(({ name, input: args, id }) => ({
+            const results = calls.map(({ name, input: args, id }, index) => ({
               type: 'tool_result',
               tool_use_id: id,
-              content: invokeTool(inspect, name, args) || 'No matching lines.',
+              content: readTool(index, name, args) || 'No matching lines.',
             }));
             input.push(
               { role: 'assistant', content: claudeAssistantContent(output) },
@@ -709,11 +719,47 @@ API requests remaining, including this one: ${turnLimit - turn + 1}. Read tools 
             );
           const verified = verifyResult(result);
           if (
+            ['completed', 'pass'].includes(verified.status) &&
+            needsUiSpec?.(verified.edits?.map(({ path }) => path))
+          ) {
+            const message =
+              '관련 UI 테스트 본문을 확인하지 않아 개발 완료 또는 리뷰 승인을 기록할 수 없습니다.';
+            if (promptedForSpec || requireResult || correction) {
+              return {
+                status: 'needs_human',
+                summary: message,
+                ...(mode === 'review'
+                  ? { findings: [] }
+                  : { title: '', edits: [] }),
+              };
+            }
+            promptedForSpec = true;
+            input.push(
+              ...(isCodex
+                ? output
+                : [
+                    {
+                      role: 'assistant',
+                      content: claudeAssistantContent(output),
+                    },
+                  ]),
+              {
+                role: 'user',
+                content:
+                  'Read the relevant e2e/*.spec.ts using read_file. Compare its locators and assertions with the changed behavior, including role, accessible name and interaction. Then return the complete plan or review verdict. Request changes for stale or missing coverage.',
+              },
+            );
+            continue;
+          }
+          if (
             mode === 'development' &&
             verified.status === 'completed' &&
             prepareChanges
           )
-            return { ...verified, changes: prepareChanges(verified.edits) };
+            return {
+              ...verified,
+              changes: await prepareChanges(verified.edits),
+            };
           return verified;
         } catch (error) {
           if (
@@ -728,7 +774,10 @@ API requests remaining, including this one: ${turnLimit - turn + 1}. Read tools 
               result?.status !== 'completed') ||
             finalTurn ||
             correction === 'edits' ||
-            !(error instanceof ModelError || error instanceof EditConflict)
+            !(
+              error instanceof ModelError ||
+              error instanceof CorrectableEditError
+            )
           )
             throw error;
           if (
@@ -738,7 +787,7 @@ API requests remaining, including this one: ${turnLimit - turn + 1}. Read tools 
               (Array.isArray(result?.findings) && result.findings.length))
           )
             reviewCanPass = false;
-          correction ??= error instanceof EditConflict ? 'edits' : mode;
+          correction ??= error instanceof CorrectableEditError ? 'edits' : mode;
           const responseItems = isCodex
             ? output
             : [{ role: 'assistant', content: claudeAssistantContent(output) }];

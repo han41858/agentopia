@@ -1,3 +1,5 @@
+import { format } from 'prettier';
+import formatterOptions from '../../../prettier.config.mjs';
 import { execFileSync } from 'node:child_process';
 
 const maxBuffer = 8 * 1024 * 1024;
@@ -21,7 +23,9 @@ function outputPage(text, start, span) {
 function isEditable(path) {
   return (
     path.length <= 250 &&
-    /^(?:README\.md$|(?:src|server|api|docs)\/)/.test(path) &&
+    /^(?:README\.md$|(?:src|server|api|docs)\/|e2e\/[\w.-]+\.spec\.ts$)/.test(
+      path,
+    ) &&
     /\.(?:md|tsx?|css)$/.test(path) &&
     path
       .split('/')
@@ -43,7 +47,9 @@ class WorkspaceError extends Error {
   }
 }
 
-export class EditConflict extends Error {
+export class CorrectableEditError extends Error {}
+
+export class EditConflict extends CorrectableEditError {
   constructor(path, index, reason) {
     super(`${path} (${index + 1}번째 편집): ${reason}`);
     this.diagnostic = `${index + 1}번째 편집: ${reason}`;
@@ -61,6 +67,10 @@ export function resolveEdits(edits, { files, read }) {
         '허용 범위 밖의 파일을 편집하려 했습니다. 수동 검토가 필요합니다.',
       );
     const mode = files.get(path);
+    if (path.startsWith('e2e/') && (!mode || before === null || after === null))
+      throw new WorkspaceError(
+        '기존 UI 테스트 파일의 내용만 수정할 수 있습니다.',
+      );
     if (path.startsWith('api/') && (!mode || before === null || after === null))
       throw new WorkspaceError('기존 API 파일의 내용만 수정할 수 있습니다.');
 
@@ -147,6 +157,31 @@ export function resolveEdits(edits, { files, read }) {
   return changes.map(([path, text]) => ({ path, text }));
 }
 
+export async function formatChanges(changes, work) {
+  const result = [];
+  for (const { path, text } of changes) {
+    let formatted = null;
+    if (text !== null) {
+      try {
+        formatted = await format(text, { ...formatterOptions, filepath: path });
+      } catch (error) {
+        if (error.name !== 'SyntaxError') throw error;
+        const { line, column } = error.loc?.start ?? {};
+        const location = [path, line, column]
+          .filter((value) => value != null)
+          .join(':');
+        const message = `${location} — Prettier가 파일의 문법을 해석하지 못했습니다.`;
+        throw Object.assign(new CorrectableEditError(message), {
+          diagnostic: message,
+        });
+      }
+    }
+    if (formatted !== (work.files.has(path) ? work.read(path) : null))
+      result.push({ path, text: formatted });
+  }
+  return result;
+}
+
 export function snapshot(base, head) {
   const git = (...args) =>
     execFileSync('git', args, { encoding: 'utf8', maxBuffer, timeout: 30_000 });
@@ -169,15 +204,50 @@ export function snapshot(base, head) {
   };
   const diff = () =>
     git('diff', '--no-ext-diff', '--no-textconv', base, head, '--');
+  let readUiSpec = false;
   return {
     files,
     read,
+    existingBranchEdits() {
+      return git('diff', '--name-only', '--no-renames', '-z', base, head)
+        .split('\0')
+        .filter((path) => isEditable(path) && files.get(path) === '100644')
+        .map((path) => ({ path, text: read(path) }));
+    },
+    needsUiSpec(paths) {
+      if (readUiSpec) return false;
+      const changed =
+        paths ??
+        git('diff', '--name-only', '--no-renames', '-z', base, head).split(
+          '\0',
+        );
+      return changed.some((path) =>
+        /^(src|server|api|assets|e2e)\//.test(path),
+      );
+    },
     inspect(name, input) {
       if (name === 'read_diff') return outputPage(diff(), input.line, 120);
-      if (name === 'read_file') {
+      if (name === 'read_file' || name === 'find_in_file') {
         if (!isEditable(input.path) && input.path !== 'AGENTS.md')
           return 'Path outside the allowed source and documentation.';
-        return outputPage(read(input.path), input.line, 120);
+        const source = read(input.path);
+        if (name === 'find_in_file') {
+          if (!input.text.trim()) return 'Provide a nonempty literal.';
+          const hits = [];
+          for (const [index, line] of source.split('\n').entries()) {
+            if (line.includes(input.text))
+              hits.push(`${index + 1}: ${line.trim().slice(0, 220)}`);
+            if (hits.length === 16) break;
+          }
+          return hits.join('\n') || 'No matching lines.';
+        }
+        const page = outputPage(source, input.line, 120);
+        if (
+          /^e2e\/[\w.-]+\.spec\.ts$/.test(input.path) &&
+          /^\d+: [^\n]*\S/m.test(page)
+        )
+          readUiSpec = true;
+        return page;
       }
       const paths = [...files.keys()].filter(
         (path) =>

@@ -44,3 +44,12 @@ PR 제목 맨 앞의 GitMoji가 시설을 결정합니다.
 | ![관측소](../assets/facilities/observatory.svg)              | 관측소         | 📈 🔊 분석·로그                                              | [observatory.svg](../assets/facilities/observatory.svg)                     |
 
 그림과 화면의 대응 관계는 [SVG 등록 목록](../src/world-art.tsx), PR 제목 분류 규칙은 [시설 분류 코드](../src/facility-kind.ts)에서 확인할 수 있습니다.
+
+## 사이트 아이콘
+
+브라우저 탭과 홈 화면에 쓰는 아이콘입니다. 왕궁을 바탕으로 깃발, 지붕 음영, 창, 성문 불빛을 더한 별도 그림이며 월드맵에는 쓰지 않습니다. 배경은 투명입니다. 16px에서도 선이 뭉치지 않도록 외곽선 굵기를 고정하지 않고 크기에 따라 함께 줄어들게 했습니다. `index.html`은 32px PNG와 SVG를 함께 선언합니다. SVG 아이콘을 지원하는 브라우저는 SVG를, 그렇지 않은 브라우저는 PNG를 씁니다. 홈 화면 아이콘은 같은 그림에 여백을 둔 180px PNG이며 배경을 넣지 않았습니다. 두 PNG는 SVG에서 변환한 것이므로 SVG를 고치면 다시 만듭니다.
+
+| 미리보기                                                | 이름           | 표시 기준                 | 원본                                                                                         |
+| ------------------------------------------------------- | -------------- | ------------------------- | -------------------------------------------------------------------------------------------- |
+| ![사이트 아이콘](../assets/brand/favicon.svg)           | 사이트 아이콘  | 브라우저 탭과 북마크      | [favicon.svg](../assets/brand/favicon.svg), [favicon-32.png](../assets/brand/favicon-32.png) |
+| ![홈 화면 아이콘](../assets/brand/apple-touch-icon.png) | 홈 화면 아이콘 | 홈 화면에 추가한 바로가기 | [apple-touch-icon.png](../assets/brand/apple-touch-icon.png)                                 |

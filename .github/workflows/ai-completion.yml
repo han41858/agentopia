@@ -1,16 +1,16 @@
 name: AI completion
 
 on:
-  workflow_run:
-    workflows: [AI development]
-    types: [completed]
-    branches: [dev]
   workflow_dispatch:
     inputs:
       issue:
         description: '완료 단계를 재개할 이슈 번호'
         required: true
         type: number
+      review_run:
+        description: '검토를 완료한 개발 실행 번호'
+        required: false
+        type: string
 
 permissions: {}
 
@@ -18,11 +18,10 @@ jobs:
   complete:
     if: >-
       github.repository == 'han41858/agentopia' &&
-      github.ref == 'refs/heads/dev' &&
-      (github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success')
+      github.ref == 'refs/heads/dev'
     concurrency:
       group: >-
-        ai-completion-${{ github.event.workflow_run.display_title || format('AI development for Issue #{0}', inputs.issue) }}
+        ai-completion-issue-${{ inputs.issue }}
       cancel-in-progress: false
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -30,6 +29,7 @@ jobs:
     permissions:
       contents: read
       actions: write # Dispatch development when the reviewed base advances.
+      checks: read # Read source annotations from the failed CI attempt.
       issues: write
       pull-requests: read
     steps:
@@ -41,4 +41,5 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           AI_AUTOMATION_TOKEN: ${{ secrets.AI_AUTOMATION_TOKEN }}
+          AI_REVIEW_RUN: ${{ inputs.review_run }}
           AI_ISSUE: ${{ inputs.issue }}

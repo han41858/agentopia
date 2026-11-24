@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { formatChanges } from './workspace.mjs';
 import { config } from './config.mjs';
 import { createModels } from './models.mjs';
 
@@ -15,8 +16,54 @@ for (const agent of ['codex', 'claude']) {
         modelNames: { codex: 'mock', claude: 'mock' },
         limits: { ...config.limits, toolCallsPerTurn: 2, toolCallsTotal: 3 },
         log: () => {},
-        request: async () => {
+        request: async (_, options) => {
           requests++;
+          const body = JSON.parse(options.body);
+          if (requests > 1) {
+            const results =
+              agent === 'codex'
+                ? body.input
+                    .filter((x) => x.type === 'function_call_output')
+                    .slice(-count)
+                    .map((x) => x.output)
+                : body.messages.at(-1).content.map((x) => x.content);
+            assert.equal(results.length, count);
+            assert.equal(
+              results.filter((x) => x.startsWith('Not executed')).length,
+              budget === 'per turn'
+                ? requests === 2
+                  ? 1
+                  : 2
+                : requests === 2
+                  ? 0
+                  : 1,
+            );
+          }
+          if (requests === 3) {
+            assert.equal(body.tool_choice?.type ?? body.tool_choice, 'none');
+            const text = JSON.stringify({
+              status: 'completed',
+              title: '📝 문서: 설명 수정',
+              summary: '문서 갱신',
+              edits: [{ path: 'README.md', before: 'A', after: 'B' }],
+            });
+            return Response.json(
+              agent === 'codex'
+                ? {
+                    status: 'completed',
+                    output: [
+                      {
+                        type: 'message',
+                        content: [{ type: 'output_text', text }],
+                      },
+                    ],
+                  }
+                : {
+                    stop_reason: 'end_turn',
+                    content: [{ type: 'text', text }],
+                  },
+            );
+          }
           const calls = Array.from({ length: count }, (_, index) =>
             agent === 'codex'
               ? {
@@ -39,21 +86,19 @@ for (const agent of ['codex', 'claude']) {
           );
         },
       });
-      await assert.rejects(
-        models.run({
-          agent,
-          mode: 'development',
-          instructions: 'Inspect source.',
-          context: 'Test',
-          inspect: () => {
-            reads++;
-            return 'server/model.ts';
-          },
-        }),
-        /도구 호출 한도/,
-      );
-      assert.equal(requests, budget === 'per turn' ? 1 : 2);
-      assert.equal(reads, budget === 'per turn' ? 0 : 2);
+      const result = await models.run({
+        agent,
+        mode: 'development',
+        instructions: 'Inspect source.',
+        context: 'Test',
+        inspect: () => {
+          reads++;
+          return 'server/model.ts';
+        },
+      });
+      assert.equal(result.status, 'completed');
+      assert.equal(requests, 3);
+      assert.equal(reads, 3);
     });
   }
 }
@@ -470,3 +515,107 @@ for (const correctedVerdict of ['pass', 'changes_requested']) {
     assert.equal(calls, 3);
   });
 }
+
+for (const [agent, mode] of [
+  ['codex', 'development'],
+  ['claude', 'review'],
+]) {
+  test(`${agent} cannot finish UI changes after ignoring the spec read reminder`, async () => {
+    let calls = 0;
+    const models = createModels({
+      keys: { [agent]: 'mock' },
+      modelNames: { [agent]: 'mock' },
+      log: () => {},
+      request: async (_, options) => {
+        calls++;
+        const body = JSON.parse(options.body);
+        if (calls === 2)
+          assert.match(
+            (body.input ?? body.messages).at(-1).content,
+            /read_file/,
+          );
+        const text = JSON.stringify(
+          mode === 'review'
+            ? { status: 'pass', summary: '검토 완료', findings: [] }
+            : {
+                status: 'completed',
+                summary: '화면 수정',
+                title: '🐛 화면: 표시 수정',
+                edits: [{ path: 'src/view.ts', before: 'a', after: 'b' }],
+              },
+        );
+        return Response.json(
+          agent === 'codex'
+            ? {
+                status: 'completed',
+                output: [
+                  { type: 'message', content: [{ type: 'output_text', text }] },
+                ],
+              }
+            : { stop_reason: 'end_turn', content: [{ type: 'text', text }] },
+        );
+      },
+    });
+    const result = await models.run({
+      agent,
+      mode,
+      instructions: 'Check',
+      context: 'Test',
+      needsUiSpec: () => true,
+    });
+    assert.equal(result.status, 'needs_human');
+    assert.equal(calls, 2);
+  });
+}
+
+test('returns async parser diagnostics to the developer once before publishing changes', async () => {
+  let calls = 0;
+  const path = 'src/view.ts';
+  const models = createModels({
+    keys: { codex: 'mock' },
+    modelNames: { codex: 'mock' },
+    log: () => {},
+    request: async (_, options) => {
+      calls++;
+      if (calls === 2)
+        assert.match(
+          JSON.parse(options.body).input.at(-1).content,
+          /src\/view\.ts:1:11/,
+        );
+      const result = {
+        status: 'completed',
+        title: '🐛 화면: 문법 수정',
+        summary: '화면을 수정했습니다.',
+        edits: [
+          {
+            path,
+            before: null,
+            after: calls === 1 ? 'const a = ;' : 'const a=1',
+          },
+        ],
+      };
+      return Response.json({
+        status: 'completed',
+        output: [
+          {
+            type: 'message',
+            content: [{ type: 'output_text', text: JSON.stringify(result) }],
+          },
+        ],
+      });
+    },
+  });
+  const result = await models.run({
+    agent: 'codex',
+    mode: 'development',
+    instructions: 'Develop',
+    context: 'Test',
+    prepareChanges: (edits) =>
+      formatChanges(
+        edits.map(({ path, after }) => ({ path, text: after })),
+        { files: new Map() },
+      ),
+  });
+  assert.equal(calls, 2);
+  assert.deepEqual(result.changes, [{ path, text: 'const a = 1;\n' }]);
+});
