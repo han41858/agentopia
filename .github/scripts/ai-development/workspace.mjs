@@ -183,7 +183,12 @@ export async function formatChanges(changes, work) {
 }
 
 function isInspectable(path) {
-  return isEditable(path) || path === 'AGENTS.md' || path === 'e2e/github.ts';
+  return (
+    isEditable(path) ||
+    path === 'AGENTS.md' ||
+    path === 'e2e/github.ts' ||
+    path === 'e2e/fixtures.ts'
+  );
 }
 
 export function snapshot(base, head) {

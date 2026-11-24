@@ -418,8 +418,12 @@ for (const [agent, summary, count, diagnostic, retryValid] of [
   });
 }
 
-for (const repeat of [false, true]) {
-  test(`Claude preserves a human stop when clarifying a checkpoint (repeated: ${repeat})`, async () => {
+for (const [summary, repeat] of [
+  ['(중간 확인 단계)', false],
+  ['progress', true],
+  ['in_progress', false],
+]) {
+  test(`Claude preserves a human stop when clarifying ${summary} (repeated: ${repeat})`, async () => {
     let calls = 0;
     const models = createModels({
       keys: { claude: 'mock' },
@@ -435,7 +439,7 @@ for (const repeat of [false, true]) {
           calls === 1 || repeat
             ? {
                 status: 'needs_human',
-                summary: '(중간 확인 단계)',
+                summary,
                 findings: [],
               }
             : { status: 'pass', summary: '검토 완료', findings: [] };

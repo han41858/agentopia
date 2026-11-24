@@ -169,7 +169,8 @@ test('literal lookup locates UI text without counting as a full UI spec read', (
   );
   execFileSync('git', ['init', '--quiet']);
   writeFileSync('e2e/github.ts', '// shared readiness helper');
-  execFileSync('git', ['add', path, 'e2e/github.ts']);
+  writeFileSync('e2e/fixtures.ts', 'export const title = "Expected title";');
+  execFileSync('git', ['add', path, 'e2e/github.ts', 'e2e/fixtures.ts']);
   const tree = execFileSync('git', ['write-tree'], { encoding: 'utf8' }).trim();
   const work = gitSnapshot(tree, tree);
   assert.equal(
@@ -187,6 +188,10 @@ test('literal lookup locates UI text without counting as a full UI spec read', (
         work,
       ),
     /허용 범위/,
+  );
+  assert.match(
+    work.inspect('read_file', { path: 'e2e/fixtures.ts', line: 1 }),
+    /Expected title/,
   );
   assert.equal(work.needsUiSpec([path]), true);
   assert.match(

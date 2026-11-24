@@ -187,7 +187,7 @@ function claudeAssistantContent(blocks) {
 function isCheckpoint(summary) {
   return (
     typeof summary === 'string' &&
-    /^[\s(]*(?:중간\s*)?(?:확인|점검)\s*(?:단계|중(?:입니다)?)[)\s.!…]*$/u.test(
+    /^[\s(]*(?:(?:work\s+in\s+|in[\s_]+)?progress|(?:중간\s*)?(?:확인|점검)\s*(?:단계|중(?:입니다)?))[)\s.!…]*$/iu.test(
       summary,
     )
   );
@@ -486,7 +486,7 @@ export function createModels({
       const turnLimit =
         mode === 'review' ? (limits.reviewTurns ?? limits.turns) : limits.turns;
       const reviewFormat =
-        'Keep the Korean summary under 400 characters. Use at most 6 findings, with each string under 250 characters and a positive line number. pass requires zero findings; changes_requested requires at least one. For needs_human, identify the concrete blocker.';
+        'Keep the Korean summary under 400 characters. Use at most 6 findings, with each string under 250 characters and a positive line number. pass requires zero findings; changes_requested requires at least one. Use read tools while reviewing. Never use a progress update as the final verdict. For needs_human, identify the concrete blocker and the decision or missing information required.';
       const developmentFormat = `Return a nonempty Korean summary of at most ${developmentSummaryLimit} UTF-16 code units and at most ${limits.edits} exact edits. Use a single-line GitMoji Korean title of at most 100 UTF-16 code units. For unfinished development use in_progress; no partial edits will be published. Use the read tools for intermediate checks. Reserve needs_human for a blocker that requires a decision or information from the user. If the full change cannot fit safely, return needs_human with a concrete reason and no edits.`;
       const taskInstructions =
         instructions +
