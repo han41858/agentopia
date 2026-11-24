@@ -42,20 +42,24 @@ function IssueActions({
       >
         {runs.map(({ url, title, status, startedAt }) => (
           <li key={url} className="issue-action-row">
-            <div className="issue-action-meta">
-              {startedAt && Number.isFinite(Date.parse(startedAt)) ? (
-                <time dateTime={startedAt}>
-                  {releaseTime.format(new Date(startedAt))} KST
-                </time>
-              ) : (
-                <span>—</span>
-              )}
-              <span className="issue-action-status">{status || '—'}</span>
-              {url === evidenceUrl && <span>근거</span>}
-            </div>
-            <a href={url} target="_blank" rel="noreferrer">
+            {startedAt && Number.isFinite(Date.parse(startedAt)) ? (
+              <time dateTime={startedAt}>
+                {releaseTime.format(new Date(startedAt))} KST
+              </time>
+            ) : (
+              <span>—</span>
+            )}
+            <span
+              className="issue-action-status"
+              data-run-status={status}
+              title={status || undefined}
+            >
+              {status || '—'}
+            </span>
+            {url === evidenceUrl && <span>근거</span>}
+            <a href={url} title={title} target="_blank" rel="noreferrer">
               <span>{title}</span>
-              <ExternalLink size={14} aria-hidden="true" />
+              <ExternalLink size={11} aria-hidden="true" />
             </a>
           </li>
         ))}
@@ -122,7 +126,21 @@ export function QuestDetail({
           {quest.detail && <p>{quest.detail}</p>}
         </div>
       )}
-      {evidence && !evidenceRun && <OutLink item={evidence} />}
+      {evidence && !evidenceRun && (
+        <OutLink
+          item={evidence}
+          statusBadge={
+            evidence.title === 'GitHub Actions 상태 기록' && evidence.status ? (
+              <span
+                className="issue-action-status"
+                data-automation-status={evidence.status}
+              >
+                {evidence.status}
+              </span>
+            ) : undefined
+          }
+        />
+      )}
       <IssueActions runs={runs} evidenceUrl={evidenceRun?.url} />
       {quest.review && (
         <p>

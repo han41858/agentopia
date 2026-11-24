@@ -10,12 +10,18 @@ export const releaseTime = new Intl.DateTimeFormat('ko-KR', {
   timeZone: 'Asia/Seoul',
 });
 
-export function OutLink({ item }: { item: Source }) {
+export function OutLink({
+  item,
+  statusBadge,
+}: {
+  item: Source;
+  statusBadge?: ReactNode;
+}) {
   return (
     <a className="source" href={item.url} target="_blank" rel="noreferrer">
       <span>
         {item.title}
-        {item.status && <small>{item.status}</small>}
+        {statusBadge ?? (item.status && <small>{item.status}</small>)}
       </span>
       <ExternalLink size={14} />
     </a>
