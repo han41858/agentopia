@@ -478,7 +478,12 @@ async function main() {
       try {
         let pull = await verifyArtifacts();
         const baseSha = await ref(base);
-        if (ciBlocker && baseSha === state.base) throw new Stop(ciBlocker);
+        if (
+          ciBlocker &&
+          baseSha === previous.data.base &&
+          recovery.head === previous.data.head
+        )
+          throw new Stop(ciBlocker);
         let head = recovery.head ?? baseSha;
         fetchCommit(baseSha);
         if (head !== baseSha) fetchCommit(head);
@@ -782,7 +787,7 @@ Report material findings with their location, impact, evidence and fix. Do not e
         }
         if (review.status !== 'pass')
           throw new Stop(
-            `PR #${pull.number}의 리뷰 결과를 확인한 뒤 필요하면 다시 실행하세요.`,
+            `PR #${pull.number} 리뷰에서 확인이 필요합니다. ${safeText(review.summary, 900)}`,
           );
         await ready(
           `PR #${pull.number}의 AI 리뷰가 통과했습니다. CI가 통과하면 자동으로 머지하고 이슈를 닫습니다.`,

@@ -24,6 +24,7 @@ for (const scenario of [
   'claude-label',
   'completion-dispatch',
   'blocked-ci',
+  'blocked-ci-drift',
   'ci-repair',
   'ci-format-repair',
   'post-ci-review',
@@ -190,9 +191,12 @@ for (const scenario of [
           : [{ path: 'README.md', before: 'Test', after: 'Updated' }];
         if (
           commits &&
-          ['review-limit', 'review-revision', 'review-no-change'].includes(
-            scenario,
-          )
+          [
+            'review-limit',
+            'review-revision',
+            'review-no-change',
+            'blocked-ci-drift',
+          ].includes(scenario)
         ) {
           assert.match(JSON.parse(body.input[0].content).priorReview, /결함/);
           assert.equal(saved().recovery.reviewRevisions, commits);
@@ -269,6 +273,7 @@ for (const scenario of [
             (reviewCalls <= 2 ||
               reviewCalls === 4 ||
               (reviewCalls === 5 && scenario === 'post-ci-limit'))) ||
+          (scenario === 'blocked-ci-drift' && reviewCalls === 2) ||
           scenario === 'review-limit' ||
           (reviewCalls === 1 &&
             ['review-revision', 'review-no-change'].includes(scenario))
@@ -582,7 +587,11 @@ for (const scenario of [
       assert.equal(creations, 1);
       return;
     }
-    if (['completion-dispatch', 'blocked-ci'].includes(scenario)) {
+    if (
+      ['completion-dispatch', 'blocked-ci', 'blocked-ci-drift'].includes(
+        scenario,
+      )
+    ) {
       const original = saved();
       process.env.GITHUB_RUN_ID = '2';
       writeFileSync(
@@ -593,10 +602,9 @@ for (const scenario of [
           inputs: {
             issue: '15',
             recovery_run: String(original.runId),
-            ci_blocker:
-              scenario === 'blocked-ci'
-                ? '실패한 자동화 검사 (CI 링크)'
-                : undefined,
+            ci_blocker: scenario.startsWith('blocked-ci')
+              ? '실패한 자동화 검사 (CI 링크)'
+              : undefined,
           },
         }),
       );
@@ -609,8 +617,10 @@ for (const scenario of [
         assert.deepEqual({ reviewCalls, developmentCalls, commits }, calls);
         return;
       }
-      await import(runner + '?no-drift');
-      assert.deepEqual(saved(), original);
+      if (scenario !== 'blocked-ci-drift') {
+        await import(runner + '?no-drift');
+        assert.deepEqual(saved(), original);
+      }
       advance();
       await import(runner + '?from-completion');
       assert.equal(saved().recovery.updates, 1);
@@ -619,9 +629,10 @@ for (const scenario of [
       assert.equal(saved().reviews[0].head, saved().head);
       assert.equal(saved().status, 'ready');
       await import(runner + '?same-dispatch-again');
-      assert.equal(reviews, 2);
-      assert.equal(developmentCalls, 1);
-      assert.equal(commits, 1);
+      const revised = scenario === 'blocked-ci-drift';
+      assert.equal(reviews, revised ? 3 : 2);
+      assert.equal(developmentCalls, revised ? 2 : 1);
+      assert.equal(commits, revised ? 2 : 1);
       return;
     }
     if (['interrupted-review-record', 'interrupted-commit'].includes(scenario))

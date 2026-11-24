@@ -450,8 +450,9 @@ for (const repeat of [false, true]) {
       context: 'Test',
       inspect: () => '',
     });
-    assert.equal(calls, 2);
+    assert.equal(calls, repeat ? 3 : 2);
     assert.equal(result.status, repeat ? 'needs_human' : 'pass');
+    if (repeat) assert.match(result.summary, /중간 점검/);
   });
 }
 
