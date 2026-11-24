@@ -157,7 +157,9 @@ export async function seedSettings(
 
 /** 왕국 갱신이 끝나 지도가 멈춘 상태까지 기다립니다. */
 export async function settled(page: Page) {
-  await page.locator('.refresh-button[aria-busy="false"]').waitFor();
+  await page
+    .locator('.refresh-button[aria-busy="false"]')
+    .waitFor({ state: 'attached' });
 }
 
 export async function openWorld(
