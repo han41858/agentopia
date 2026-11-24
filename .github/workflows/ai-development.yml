@@ -45,6 +45,7 @@ jobs:
     environment: ai-development
     permissions:
       contents: read
+      actions: read # Verify the Environment deployment branch policy.
       issues: write
       pull-requests: write # Post the review comment on the draft PR.
     outputs:
@@ -54,6 +55,10 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
+      - name: Verify the AI environment branch policy
+        run: bash .github/scripts/check-ai-environment.sh
+        env:
+          GH_TOKEN: ${{ github.token }}
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: 24
