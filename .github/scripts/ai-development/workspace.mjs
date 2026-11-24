@@ -21,7 +21,9 @@ function outputPage(text, start, span) {
 function isEditable(path) {
   return (
     path.length <= 250 &&
-    /^(?:README\.md$|(?:src|server|api|docs)\/)/.test(path) &&
+    /^(?:README\.md$|(?:src|server|api|docs)\/|e2e\/[\w.-]+\.spec\.ts$)/.test(
+      path,
+    ) &&
     /\.(?:md|tsx?|css)$/.test(path) &&
     path
       .split('/')
@@ -61,6 +63,10 @@ export function resolveEdits(edits, { files, read }) {
         '허용 범위 밖의 파일을 편집하려 했습니다. 수동 검토가 필요합니다.',
       );
     const mode = files.get(path);
+    if (path.startsWith('e2e/') && (!mode || before === null || after === null))
+      throw new WorkspaceError(
+        '기존 UI 테스트 파일의 내용만 수정할 수 있습니다.',
+      );
     if (path.startsWith('api/') && (!mode || before === null || after === null))
       throw new WorkspaceError('기존 API 파일의 내용만 수정할 수 있습니다.');
 

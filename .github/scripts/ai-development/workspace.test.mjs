@@ -79,3 +79,18 @@ test('blocks JSON configuration and limits API changes to existing file contents
     'export const value = 2;\n',
   );
 });
+
+test('updates existing UI specs without granting access to fixtures or configuration', () => {
+  const path = 'e2e/dialogs.spec.ts';
+  const work = { ...snapshot, files: new Map([[path, '100644']]) };
+  const edit = { path, before: 'value = 1', after: 'value = 2' };
+  assert.equal(resolveEdits([edit], work)[0].path, path);
+  for (const denied of [
+    { ...edit, path: 'e2e/fixtures.ts' },
+    { ...edit, path: 'playwright.config.ts' },
+    { ...edit, path: 'e2e/new.spec.ts', before: null },
+    { ...edit, before: source, after: null },
+  ]) {
+    assert.throws(() => resolveEdits([denied], work));
+  }
+});

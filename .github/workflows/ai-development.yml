@@ -15,6 +15,11 @@ on:
         required: false
         type: string
 
+      ci_feedback:
+        description: '완료 단계에서 확인한 현재 HEAD의 CI 오류'
+        required: false
+        type: string
+
 permissions: {}
 
 jobs:
