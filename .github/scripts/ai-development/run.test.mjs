@@ -23,6 +23,7 @@ for (const scenario of [
   'blocked-edit',
   'claude-label',
   'completion-dispatch',
+  'blocked-ci',
   'ci-repair',
   'ci-format-repair',
   'post-ci-review',
@@ -581,7 +582,7 @@ for (const scenario of [
       assert.equal(creations, 1);
       return;
     }
-    if (scenario === 'completion-dispatch') {
+    if (['completion-dispatch', 'blocked-ci'].includes(scenario)) {
       const original = saved();
       process.env.GITHUB_RUN_ID = '2';
       writeFileSync(
@@ -589,9 +590,25 @@ for (const scenario of [
         JSON.stringify({
           repository: { full_name: repository },
           sender: { login: 'github-actions[bot]' },
-          inputs: { issue: '15', recovery_run: String(original.runId) },
+          inputs: {
+            issue: '15',
+            recovery_run: String(original.runId),
+            ci_blocker:
+              scenario === 'blocked-ci'
+                ? '실패한 자동화 검사 (CI 링크)'
+                : undefined,
+          },
         }),
       );
+      if (scenario === 'blocked-ci') {
+        const calls = { reviewCalls, developmentCalls, commits };
+        await import(runner + '?blocked');
+        assert.equal(saved().status, 'needs_human');
+        assert.equal(saved().reason, '실패한 자동화 검사 (CI 링크)');
+        await import(runner + '?duplicate');
+        assert.deepEqual({ reviewCalls, developmentCalls, commits }, calls);
+        return;
+      }
       await import(runner + '?no-drift');
       assert.deepEqual(saved(), original);
       advance();

@@ -466,11 +466,19 @@ async function main() {
     });
     models.verify();
     const ciFeedback = recoveryRun && event.inputs?.ci_feedback?.slice(0, 4000);
-    if (recoveryRun && !ciFeedback && (await ref(base)) === state.base) return;
+    const ciBlocker = recoveryRun && event.inputs?.ci_blocker?.slice(0, 800);
+    if (
+      recoveryRun &&
+      !ciBlocker &&
+      !ciFeedback &&
+      (await ref(base)) === state.base
+    )
+      return;
     for (;;) {
       try {
         let pull = await verifyArtifacts();
         const baseSha = await ref(base);
+        if (ciBlocker && baseSha === state.base) throw new Stop(ciBlocker);
         let head = recovery.head ?? baseSha;
         fetchCommit(baseSha);
         if (head !== baseSha) fetchCommit(head);
