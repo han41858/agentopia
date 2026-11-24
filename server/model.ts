@@ -73,7 +73,7 @@ export type Adventurer = {
   fallen?: boolean;
 };
 export type Source = { title: string; url: string; status?: string };
-export type IssueRun = Source & { startedAt?: string };
+export type WorkflowRunRecord = Source & { startedAt?: string };
 export type ActivityKind = 'commits' | 'comments' | 'reviews';
 export type ActivityCounts = Partial<Record<ActivityKind, number>>;
 export type ActivityEntry = Source & {
@@ -113,7 +113,7 @@ export type Quest = {
     activities?: ActivityCounts;
   })[];
   commit?: Source;
-  runs: IssueRun[];
+  runs: WorkflowRunRecord[];
 };
 export type PullQuest = Source & {
   number: number;
@@ -131,7 +131,7 @@ export type PullQuest = Source & {
   author?: Agent;
   reviewer?: Agent;
   review?: string;
-  runs: Source[];
+  runs: WorkflowRunRecord[];
 };
 
 export type PullLinks = {
@@ -342,11 +342,13 @@ export function runStage(run: Pick<Run, 'status' | 'conclusion'>): Stage {
   return run.conclusion === 'success' ? 'complete' : 'idle';
 }
 
-function runSource(run: Run): Source {
+function runSource(run: Run): WorkflowRunRecord {
   return {
     title: run.name,
     url: run.html_url,
-    status: run.conclusion ?? run.status,
+    status:
+      run.status === 'completed' ? (run.conclusion ?? run.status) : run.status,
+    startedAt: run.run_started_at ?? undefined,
   };
 }
 
@@ -901,14 +903,7 @@ export function makeQuests(
       })),
       runs: [...automation, ...(ci ? [ci] : []), ...earlierCI]
         .slice(0, 8)
-        .map((run) => ({
-          ...runSource(run),
-          status:
-            run.status === 'completed'
-              ? (run.conclusion ?? run.status)
-              : run.status,
-          startedAt: run.run_started_at ?? undefined,
-        })),
+        .map(runSource),
     };
     return withPublishedRelease(quest, releases);
   });

@@ -3,8 +3,12 @@ import { heritageTier } from './heritage-scale.ts';
 import { WorldArt } from './world-art.tsx';
 import { useState } from 'react';
 import { ChevronRight, ExternalLink, Trash2, X } from 'lucide-react';
-import type { IssueRun, PullQuest, Quest, Region } from '../server/model.ts';
-import { agentNames } from './characters.tsx';
+import type {
+  WorkflowRunRecord,
+  PullQuest,
+  Quest,
+  Region,
+} from '../server/model.ts';
 import { facilities, FacilityGlyph } from './facility-art.tsx';
 import { facilityKind, isCurrentFacility } from './facility-kind.ts';
 import { heritageBuildings } from './heritage-arc.tsx';
@@ -21,27 +25,27 @@ import {
   IssuePullEntries,
 } from './activity-browser.tsx';
 import type { IssueActivityKind } from './activity-browser.tsx';
-import './issue-actions.css';
+import './workflow-runs.css';
 
-function IssueActions({
+function WorkflowRuns({
   runs,
   evidenceUrl,
 }: {
-  runs: IssueRun[];
+  runs: WorkflowRunRecord[];
   evidenceUrl?: string;
 }) {
   if (!runs.length) return null;
 
   return (
-    <section className="issue-actions" aria-label="GitHub Actions">
+    <section className="workflow-runs" aria-label="GitHub Actions">
       <h4>GitHub Actions</h4>
       <ul
-        className="issue-actions-list"
+        className="workflow-runs-list"
         aria-label="GitHub Actions 실행 목록"
         tabIndex={0}
       >
         {runs.map(({ url, title, status, startedAt }) => (
-          <li key={url} className="issue-action-row">
+          <li key={url} className="workflow-run-row">
             {startedAt && Number.isFinite(Date.parse(startedAt)) ? (
               <time dateTime={startedAt}>
                 {releaseTime.format(new Date(startedAt))} KST
@@ -50,7 +54,7 @@ function IssueActions({
               <span>—</span>
             )}
             <span
-              className="issue-action-status"
+              className="workflow-run-status"
               data-run-status={status}
               title={status || undefined}
             >
@@ -132,7 +136,7 @@ export function QuestDetail({
           statusBadge={
             evidence.title === 'GitHub Actions 상태 기록' && evidence.status ? (
               <span
-                className="issue-action-status"
+                className="workflow-run-status"
                 data-automation-status={evidence.status}
               >
                 {evidence.status}
@@ -141,7 +145,7 @@ export function QuestDetail({
           }
         />
       )}
-      <IssueActions runs={runs} evidenceUrl={evidenceRun?.url} />
+      <WorkflowRuns runs={runs} evidenceUrl={evidenceRun?.url} />
       {quest.review && (
         <p>
           현재 커밋의 AI 리뷰 결과 <strong>{quest.review}</strong>
@@ -198,8 +202,6 @@ export function PullDetail({
 }) {
   const kind = facilityKind(pull.title);
   const iconLabel = facilities[kind].name + (pull.draft ? ' · 초안 PR' : '');
-  const author = pull.author && agentNames[pull.author];
-  const reviewer = pull.reviewer && agentNames[pull.reviewer];
   const { activity, status } = useActivitySummary({
     region: region.slug,
     token,
@@ -263,15 +265,7 @@ export function PullDetail({
           ))}
         </ul>
       )}
-      {author && <p>작성 · {author}</p>}
-      {reviewer && (
-        <p>
-          리뷰 기록 · {reviewer} {pull.review}
-        </p>
-      )}
-      {pull.runs.map((run) => (
-        <OutLink key={run.url} item={run} />
-      ))}
+      <WorkflowRuns runs={pull.runs} />
     </Dialog>
   );
 }
@@ -284,9 +278,7 @@ export function PullStatus({ pull }: { pull: PullQuest }) {
       </span>
     );
   if (pull.stage === 'idle') return null;
-  return alerts.has(pull.stage) ||
-    pull.stage === 'ci' ||
-    pull.stage === 'complete' ? (
+  return alerts.has(pull.stage) || pull.stage === 'complete' ? (
     <Badge stage={pull.stage} label={pullStatus(pull)} />
   ) : (
     <span className={`badge ${pull.stage}`}>{pullStatus(pull)}</span>

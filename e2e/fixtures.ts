@@ -57,7 +57,8 @@ const alphaForges: PullQuest[] = [
       {
         title: 'CI',
         url: `https://github.com/${alpha}/actions/runs/1`,
-        status: '실패',
+        status: 'failure',
+        startedAt: '2026-01-15T01:00:00Z',
       },
     ],
   },
