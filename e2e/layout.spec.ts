@@ -1,9 +1,38 @@
 import type { Locator, Page } from '@playwright/test';
-import { alpha, noPlaza } from './fixtures.ts';
+import { alpha, alphaReport, noPlaza } from './fixtures.ts';
 import { mockGitHub, openWorld, seedSettings } from './github.ts';
 import { expect, test } from './test.ts';
 
 type Box = { x: number; y: number; width: number; height: number };
+
+async function mockRefreshUsage(page: Page) {
+  // 공통 모의 응답은 유지하고 alpha 갱신 응답에만 사용량을 넣습니다.
+  await page.route('**/api/github?**', async (route) => {
+    const { searchParams } = new URL(route.request().url());
+    const otherQueries = [
+      'owner',
+      'heritage',
+      'summary',
+      'activity',
+      'repository',
+    ];
+    if (
+      searchParams.get('repo') !== alpha ||
+      otherQueries.some((key) => searchParams.has(key))
+    ) {
+      await route.fallback();
+      return;
+    }
+    await route.fulfill({
+      headers: {
+        'X-Agentopia-GitHub-Usage': JSON.stringify({
+          core: { limit: 60, used: 15, remaining: 45 },
+        }),
+      },
+      json: alphaReport,
+    });
+  });
+}
 
 function boxes(locator: Locator) {
   return locator.evaluateAll((nodes) =>
@@ -82,11 +111,17 @@ test.describe('높은 데스크톱의 왕국 하나', () => {
   });
 
   test('첫 성벽이 헤더 바로 아래에 놓인다', async ({ page }) => {
-    await openWorld(page, [alpha]);
+    await mockGitHub(page);
+    await mockRefreshUsage(page);
+    await seedSettings(page, [alpha]);
+    await page.goto('/');
     const wall = page.locator('.kingdom-wall');
     const title = page.getByRole('heading', { name: 'Agentopia' });
+    const usageValue = page.locator('.github-usage-value');
     await expect(wall).toHaveCount(1);
     await expect(wall).toBeVisible();
+    await expect(usageValue).toBeVisible();
+    await expect(usageValue).toContainText('25.0%');
     const [heading] = await boxes(title);
     expect(heading.y).toBeLessThanOrEqual(24);
 
@@ -121,6 +156,7 @@ for (const width of [1280, 390, 320]) {
     test.beforeEach(async ({ page }) => {
       if (touch) {
         await mockGitHub(page);
+        await mockRefreshUsage(page);
         await seedSettings(page, [alpha, noPlaza]);
         await page.goto('/');
         // 도구를 펼치지 않고 초기 갱신이 끝날 때까지 기다립니다.
@@ -263,6 +299,7 @@ for (const width of [1280, 390, 320]) {
         const controls = page.locator('.world-controls');
         const map = page.locator('.map-viewport');
         const wall = page.locator('.kingdom-wall').first();
+        const usageValue = page.locator('.github-usage-value');
         const bookmarkFace = page.locator('.header-bookmark-face');
 
         for (const mode of ['world', 'simple']) {
@@ -272,6 +309,7 @@ for (const width of [1280, 390, 320]) {
           );
           await expect(open).toHaveAttribute('aria-expanded', 'false');
           await expect(controls).toBeHidden();
+          await expect(usageValue).toBeHidden();
           await expect(title).toBeInViewport({ ratio: 1 });
           const [heading] = await boxes(title);
           const [crest] = await boxes(page.locator('.crest'));
@@ -365,17 +403,15 @@ for (const width of [1280, 390, 320]) {
             expect(icon.y + icon.height / 2).toBeCloseTo(centerY, 1);
           }
           await expectUsageBelowRefresh(page);
-          const [usage] = await boxes(page.locator('.refresh-usage'));
-          const usageValues = await boxes(
-            page.locator('.github-usage-value:visible'),
-          );
-          // 모의 응답에 수치가 없더라도 16px 높이의 갱신 수치 줄 자리를 확인합니다.
+          await expect(usageValue).toBeVisible();
+          await expect(usageValue).toContainText('25.0%');
+          const [usage] = await boxes(usageValue);
+          const [expandedWall] = await boxes(wall);
           const toolsBottom = Math.max(
-            usage.y + 16,
-            ...[...row, ...usageValues].map((box) => box.y + box.height),
+            ...[...row, usage].map((box) => box.y + box.height),
           );
-          expect(firstWall.y).toBeGreaterThanOrEqual(toolsBottom);
-          expect(await boxes(wall)).toEqual([firstWall]);
+          expect(expandedWall.y).toBeGreaterThanOrEqual(toolsBottom);
+          expect(expandedWall).toEqual(firstWall);
           expect(await boxes(title)).toEqual([heading]);
           expect(await boxes(map)).toEqual([viewport]);
           expect(
@@ -402,6 +438,7 @@ for (const width of [1280, 390, 320]) {
           await expect(controls).toBeVisible();
           await page.touchscreen.tap(1, Math.round(centerY));
           await expect(controls).toBeHidden();
+          await expect(usageValue).toBeHidden();
           expect(await boxes(open)).toEqual([collapsedHit]);
           expect(await boxes(bookmarkFace)).toEqual([collapsedFace]);
           expect(await boxes(title)).toEqual([heading]);
