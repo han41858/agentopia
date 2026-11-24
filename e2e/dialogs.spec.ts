@@ -500,7 +500,7 @@ test.describe('상세 창', () => {
     ]);
   });
 
-  test('개발 광장: 작업 중인 시설과 시설 이력을 나눠 보여 준다', async ({
+  test('개발 광장: 작업 중인 시설과 작업 이력을 나눠 보여 준다', async ({
     page,
   }) => {
     await openWorld(page);
@@ -514,22 +514,22 @@ test.describe('상세 창', () => {
       'PR #13',
     ]);
 
-    // 이력은 끝난 시각이 최근인 순서입니다.
+    const history = dialog.getByRole('region', { name: '작업 이력' });
     await expect(
-      dialog
-        .getByRole('region', { name: '시설 이력' })
-        .getByRole('button')
-        .first(),
+      history.getByRole('heading', { name: '작업 이력', exact: true }),
     ).toBeVisible();
-    await expect(
-      dialog.locator('.facility-history .quest-row small'),
-    ).toHaveText(['PR #9', 'PR #8']);
+    // 이력은 끝난 시각이 최근인 순서입니다.
+    await expect(history.getByRole('button').first()).toBeVisible();
+    await expect(history.locator('.quest-row small')).toHaveText([
+      'PR #9',
+      'PR #8',
+    ]);
 
     await dialog.getByRole('button', { name: /PR #13/ }).click();
     await expect(page.getByRole('dialog', { name: 'PR #13' })).toBeVisible();
   });
 
-  test('좁은 광장에서 긴 시설 이력 끝까지 스크롤할 수 있다', async ({
+  test('좁은 광장에서 긴 작업 이력 끝까지 스크롤할 수 있다', async ({
     page,
   }) => {
     await page.setViewportSize({ width: 320, height: 640 });
@@ -552,7 +552,7 @@ test.describe('상세 창', () => {
     const dialog = page.getByRole('dialog', { name: '개발 광장' });
     await expect(dialog.getByText('조회된 PR이 없습니다.')).toBeVisible();
     const list = dialog
-      .getByRole('region', { name: '시설 이력' })
+      .getByRole('region', { name: '작업 이력' })
       .getByRole('list');
     await list.getByRole('button').last().scrollIntoViewIfNeeded();
     await expect
@@ -592,6 +592,9 @@ test.describe('상세 창', () => {
     const dialog = page.getByRole('dialog', { name: alpha });
     const rows = dialog.locator('.release-row');
 
+    await expect(
+      dialog.getByRole('heading', { name: '배포 기록 (KST)', exact: true }),
+    ).toBeVisible();
     await expect(rows).toHaveCount(10);
     // 릴리스와 같은 이름의 태그는 한 줄로 합치고, 시각은 KST로 적습니다.
     await expect(rows.nth(0)).toContainText('v1.3.0');

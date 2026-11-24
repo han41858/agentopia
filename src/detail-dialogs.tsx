@@ -361,8 +361,8 @@ export function PlazaDetail({
         <p>조회된 PR이 없습니다.</p>
       )}
       {facilityHistory.length > 0 && (
-        <section className="facility-history" aria-label="시설 이력">
-          <h4>시설 이력</h4>
+        <section className="facility-history" aria-label="작업 이력">
+          <h4>작업 이력</h4>
           <FacilityRows entries={facilityHistory} openPull={openPull} />
           <OutLink
             item={{
@@ -471,7 +471,7 @@ export function RegionDetail({
       {history.length > 0 && (
         <>
           <h4>
-            왕국 배포 기록 <small>(KST)</small>
+            배포 기록 <small>(KST)</small>
           </h4>
           <div className="release-history">
             {history.slice(0, visibleCount).map((release) => {
