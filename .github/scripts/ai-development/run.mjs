@@ -355,7 +355,7 @@ async function main() {
     head: null,
     pull: null,
   });
-  async function verifyArtifacts() {
+  async function verifyArtifacts(manualReview = false) {
     await guard(recovery.issue);
     const head = await ref(branch, true);
     let pull = await openPull();
@@ -369,13 +369,51 @@ async function main() {
       pull = await openPull();
     }
     if (
-      (head ?? null) !== recovery.head ||
       pullIdentity(pull) !== recovery.pull ||
       (pull && pull.head.sha !== head)
     )
       throw new Stop(
-        '작업 브랜치 또는 PR이 수동 변경되었습니다. 확인이 필요합니다.',
+        '작업 PR의 내용 또는 HEAD가 변경되었습니다. 확인이 필요합니다.',
       );
+    if ((head ?? null) !== recovery.head) {
+      const reviewed = state.reviews?.some(
+        (review) =>
+          review.head === recovery.head && review.result.status === 'pass',
+      );
+      if (
+        !manualReview ||
+        !pull ||
+        !reviewed ||
+        recovery.pending ||
+        state.reviewInProgress ||
+        !isSha(head)
+      )
+        throw new Stop(
+          '작업 브랜치 또는 PR이 수동 변경되었습니다. 확인이 필요합니다.',
+        );
+      const target = await ref(base);
+      fetchCommit(head);
+      fetchCommit(target);
+      let matches = false;
+      try {
+        matches =
+          state.base !== target &&
+          git('merge-base', state.base, target) === state.base &&
+          git('merge-base', recovery.head, head) === recovery.head &&
+          git('merge-base', target, head) === target &&
+          git('merge-tree', '--write-tree', recovery.head, target) ===
+            git('rev-parse', head + '^{tree}');
+      } catch (error) {
+        if (error.status !== 1) throw error;
+      }
+      if (!matches)
+        throw new Stop(
+          '최신 dev와 기존 검토 커밋을 병합한 내용과 일치하지 않습니다. 수동 변경을 확인하세요.',
+        );
+      recovery.head = state.head = head;
+      state.base = target;
+      delete state.reviews;
+    }
     return pull;
   }
   async function checkBase(expected) {
@@ -431,7 +469,7 @@ async function main() {
       (['needs_human', 'failed'].includes(previous.data.status) ||
         recovery.pending);
     if (manualResume) {
-      await verifyArtifacts();
+      await verifyArtifacts(true);
       // An unacknowledged review comment can exist even when HEAD is unchanged.
       if (recovery.pending !== 'review-publication') {
         delete recovery.pending;
