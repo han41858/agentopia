@@ -17,6 +17,7 @@ for (const scenario of [
   'blocked-edit',
   'claude-label',
   'completion-dispatch',
+  'ci-repair',
   'interrupted-development',
   'first-guard',
   'initial-stop',
@@ -188,6 +189,15 @@ for (const scenario of [
               before: commits === 1 ? 'Updated' : 'Revision1',
               after: 'Revision' + commits,
             });
+        }
+        if (commits && scenario === 'ci-repair') {
+          assert.match(JSON.parse(body.input[0].content).failedCI, /locator/);
+          assert.equal(saved().recovery.ciRepairs, 1);
+          edits.push({
+            path: 'README.md',
+            before: 'Updated',
+            after: 'Revision1',
+          });
         }
         if (scenario === 'blocked-edit')
           edits[0].path = '.github/workflows/ci.yml';
@@ -476,6 +486,37 @@ for (const scenario of [
           scenario === 'merge-conflict' ? 1 : 2,
         );
       if (scenario !== 'merge-conflict') await manualResume();
+      return;
+    }
+    if (scenario === 'ci-repair') {
+      const original = saved();
+      const dispatch = (run) =>
+        writeFileSync(
+          event,
+          JSON.stringify({
+            repository: { full_name: repository },
+            sender: { login: 'github-actions[bot]' },
+            inputs: {
+              issue: '15',
+              recovery_run: String(run),
+              ci_feedback: 'e2e/dialogs.spec.ts:94 locator failed',
+            },
+          }),
+        );
+      process.env.GITHUB_RUN_ID = '2';
+      dispatch(original.runId);
+      await import(runner + '?repair');
+      assert.equal(saved().status, 'ready');
+      assert.notEqual(saved().head, original.head);
+      assert.equal(saved().reviews[0].head, saved().head);
+      await import(runner + '?duplicate-repair');
+      dispatch(saved().runId);
+      process.env.GITHUB_RUN_ID = '3';
+      await import(runner + '?second-failure');
+      assert.equal(saved().status, 'needs_human');
+      assert.equal(reviewCalls, 2);
+      assert.equal(developmentCalls, 2);
+      assert.equal(creations, 1);
       return;
     }
     if (scenario === 'completion-dispatch') {

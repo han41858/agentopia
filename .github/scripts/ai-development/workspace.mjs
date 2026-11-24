@@ -21,7 +21,9 @@ function outputPage(text, start, span) {
 function isEditable(path) {
   return (
     path.length <= 250 &&
-    /^(?:README\.md$|(?:src|server|api|docs)\/)/.test(path) &&
+    /^(?:README\.md$|(?:src|server|api|docs)\/|e2e\/[\w.-]+\.spec\.ts$)/.test(
+      path,
+    ) &&
     /\.(?:md|tsx?|css)$/.test(path) &&
     path
       .split('/')
@@ -61,6 +63,10 @@ export function resolveEdits(edits, { files, read }) {
         '허용 범위 밖의 파일을 편집하려 했습니다. 수동 검토가 필요합니다.',
       );
     const mode = files.get(path);
+    if (path.startsWith('e2e/') && (!mode || before === null || after === null))
+      throw new WorkspaceError(
+        '기존 UI 테스트 파일의 내용만 수정할 수 있습니다.',
+      );
     if (path.startsWith('api/') && (!mode || before === null || after === null))
       throw new WorkspaceError('기존 API 파일의 내용만 수정할 수 있습니다.');
 
@@ -169,15 +175,33 @@ export function snapshot(base, head) {
   };
   const diff = () =>
     git('diff', '--no-ext-diff', '--no-textconv', base, head, '--');
+  let readUiSpec = false;
   return {
     files,
     read,
+    needsUiSpec(paths) {
+      if (readUiSpec) return false;
+      const changed =
+        paths ??
+        git('diff', '--name-only', '--no-renames', '-z', base, head).split(
+          '\0',
+        );
+      return changed.some((path) =>
+        /^(src|server|api|assets|e2e)\//.test(path),
+      );
+    },
     inspect(name, input) {
       if (name === 'read_diff') return outputPage(diff(), input.line, 120);
       if (name === 'read_file') {
         if (!isEditable(input.path) && input.path !== 'AGENTS.md')
           return 'Path outside the allowed source and documentation.';
-        return outputPage(read(input.path), input.line, 120);
+        const page = outputPage(read(input.path), input.line, 120);
+        if (
+          /^e2e\/[\w.-]+\.spec\.ts$/.test(input.path) &&
+          /^\d+: [^\n]*\S/m.test(page)
+        )
+          readUiSpec = true;
+        return page;
       }
       const paths = [...files.keys()].filter(
         (path) =>

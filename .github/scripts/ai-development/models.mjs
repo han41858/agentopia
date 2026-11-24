@@ -463,6 +463,7 @@ export function createModels({
       inspect,
       issueTitle,
       prepareChanges,
+      needsUiSpec,
     }) {
       const schema = mode === 'development' ? developmentSchema : reviewSchema;
       const verifyResult =
@@ -482,6 +483,7 @@ export function createModels({
         '\n' +
         (mode === 'review' ? reviewFormat : developmentFormat);
       let correction;
+      let promptedForSpec = false;
       let resumedCheckpoint = false;
       let reviewCanPass = true;
       const missingBlocker =
@@ -708,6 +710,39 @@ API requests remaining, including this one: ${turnLimit - turn + 1}. Read tools 
               '교정 과정에서 기존 수정 요청이나 지적을 승인으로 변경할 수 없습니다.',
             );
           const verified = verifyResult(result);
+          if (
+            ['completed', 'pass'].includes(verified.status) &&
+            needsUiSpec?.(verified.edits?.map(({ path }) => path))
+          ) {
+            const message =
+              '관련 UI 테스트 본문을 확인하지 않아 개발 완료 또는 리뷰 승인을 기록할 수 없습니다.';
+            if (promptedForSpec || requireResult || correction) {
+              return {
+                status: 'needs_human',
+                summary: message,
+                ...(mode === 'review'
+                  ? { findings: [] }
+                  : { title: '', edits: [] }),
+              };
+            }
+            promptedForSpec = true;
+            input.push(
+              ...(isCodex
+                ? output
+                : [
+                    {
+                      role: 'assistant',
+                      content: claudeAssistantContent(output),
+                    },
+                  ]),
+              {
+                role: 'user',
+                content:
+                  'Read the relevant e2e/*.spec.ts using read_file. Compare its locators and assertions with the changed behavior, including role, accessible name and interaction. Then return the complete plan or review verdict. Request changes for stale or missing coverage.',
+              },
+            );
+            continue;
+          }
           if (
             mode === 'development' &&
             verified.status === 'completed' &&
