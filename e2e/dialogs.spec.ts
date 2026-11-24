@@ -40,7 +40,7 @@ test.describe('상세 창', () => {
     await expect(
       dialog.getByRole('heading', { name: '✨ 지도: 새 시설 추가' }),
     ).toBeVisible();
-    await expect(dialog.getByText('제작 중')).toBeVisible();
+    await expect(dialog.getByText('제작 중')).toHaveCount(0);
     await expect(dialog.getByText('AI 리뷰 결과 pass')).toBeVisible();
     await expect(dialog.getByText(/작성 ·|리뷰 기록 ·/)).toHaveCount(0);
     await expect(
@@ -126,7 +126,7 @@ test.describe('상세 창', () => {
     await page.goto('/');
     await page.getByRole('button', { name: /PR #12/ }).click();
     const dialog = page.getByRole('dialog', { name: 'PR #12' });
-    await expect(dialog.getByText('품질 시험', { exact: true })).toBeVisible();
+    await expect(dialog.getByText('품질 시험', { exact: true })).toHaveCount(0);
     await expect(dialog.locator('.badge img')).toHaveCount(0);
     const list = dialog.getByRole('list', { name: 'GitHub Actions 실행 목록' });
     const rows = list.getByRole('listitem');
