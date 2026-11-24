@@ -9,6 +9,7 @@ import type {
   ActivityCounts,
   ActivityKind,
   ActivityPage,
+  Quest,
 } from '../server/model.ts';
 import { summarizeActivity } from '../server/activity.ts';
 import type {
@@ -17,7 +18,7 @@ import type {
   PullActivity,
 } from '../server/activity.ts';
 import { request } from './request.ts';
-import { OutLink } from './dialog.tsx';
+import { OutLink, ResultLink } from './dialog.tsx';
 
 export const activityKinds = ['commits', 'comments', 'reviews'] as const;
 
@@ -102,11 +103,15 @@ export function ActivityEntries({
   number,
   kind,
   token,
+  linkedEvidenceUrl,
+  compact = false,
 }: {
   region: string;
   number: number;
   kind: ActivityKind;
   token: string;
+  linkedEvidenceUrl?: string;
+  compact?: boolean;
 }) {
   const [page, setPage] = useState(1);
   const [result, setResult] = useState<ActivityPage>();
@@ -145,22 +150,34 @@ export function ActivityEntries({
   return (
     <div className="activity-entries">
       {!result.entries.length && <p>GitHub 기록이 없습니다.</p>}
-      {result.entries.map((item) => (
-        <div className="activity-entry" key={item.url}>
-          <OutLink item={item} />
-          {(item.author || item.at) && (
-            <small>
-              {[
-                item.author,
-                item.at && new Date(item.at).toLocaleString('ko-KR'),
-              ]
-                .filter(Boolean)
-                .join(' · ')}
-            </small>
-          )}
-          {item.body && <p>{item.body}</p>}
-        </div>
-      ))}
+      {result.entries.map((item) =>
+        compact ? (
+          item.url === linkedEvidenceUrl ? (
+            <p key={item.url}>위에 표시된 근거 기록</p>
+          ) : (
+            <ResultLink key={item.url} item={item} />
+          )
+        ) : (
+          <div className="activity-entry" key={item.url}>
+            {item.url === linkedEvidenceUrl ? (
+              <strong>위에 표시된 근거 기록</strong>
+            ) : (
+              <OutLink item={item} />
+            )}
+            {(item.author || item.at) && (
+              <small>
+                {[
+                  item.author,
+                  item.at && new Date(item.at).toLocaleString('ko-KR'),
+                ]
+                  .filter(Boolean)
+                  .join(' · ')}
+              </small>
+            )}
+            {item.body && <p>{item.body}</p>}
+          </div>
+        ),
+      )}
       {result.next && (
         <button
           type="button"
@@ -172,6 +189,78 @@ export function ActivityEntries({
         </button>
       )}
     </div>
+  );
+}
+
+export type IssueActivityKind = ActivityKind | 'issueComments';
+
+export function IssuePullEntries({
+  region,
+  token,
+  pulls,
+  kind,
+  linkedEvidenceUrl,
+}: {
+  region: string;
+  token: string;
+  pulls: Quest['pulls'];
+  kind: ActivityKind;
+  linkedEvidenceUrl?: string;
+}) {
+  return pulls
+    .filter((pull) => pull.activities?.[kind] !== 0)
+    .map((pull) => (
+      <PullEntrySource
+        key={pull.number}
+        region={region}
+        token={token}
+        number={pull.number}
+        kind={kind}
+        chooseSource={pulls.length > 1}
+        linkedEvidenceUrl={linkedEvidenceUrl}
+      />
+    ));
+}
+
+function PullEntrySource({
+  region,
+  token,
+  number,
+  kind,
+  chooseSource,
+  linkedEvidenceUrl,
+}: {
+  region: string;
+  token: string;
+  number: number;
+  kind: ActivityKind;
+  chooseSource: boolean;
+  linkedEvidenceUrl?: string;
+}) {
+  const [visited, setVisited] = useState(false);
+  const entries = (
+    <ActivityEntries
+      region={region}
+      token={token}
+      number={number}
+      kind={kind}
+      compact={kind === 'commits'}
+      linkedEvidenceUrl={linkedEvidenceUrl}
+    />
+  );
+  if (!chooseSource) return entries;
+  return (
+    <details
+      className="issue-history"
+      onToggle={(event) => {
+        if (event.currentTarget.open) setVisited(true);
+      }}
+    >
+      <summary>
+        PR #{number} · {activityDisplay[kind].label}
+      </summary>
+      {visited && entries}
+    </details>
   );
 }
 
@@ -244,29 +333,31 @@ export function useActivitySummary({
 export function IssueActivityCounters(
   props: ActivitySummaryProps & {
     fallbackComments?: number;
-    commentsOpen: boolean;
-    toggleComments: () => void;
+    selected?: IssueActivityKind;
+    toggle: (kind: IssueActivityKind) => void;
   },
 ) {
   const { activity, status } = useActivitySummary(props);
   const counters = [
     [
+      'commits',
       activityDisplay.commits.Icon,
       '고유 커밋',
       activity?.commits,
       activity?.partialCommits,
     ],
     [
+      'issueComments',
       activityDisplay.comments.Icon,
       '이슈 댓글',
       activity?.issueComments ?? props.fallbackComments,
     ],
-    [MessagesSquare, 'PR 댓글', activity?.pullComments],
-    [activityDisplay.reviews.Icon, '리뷰', activity?.reviews],
+    ['comments', MessagesSquare, 'PR 댓글', activity?.pullComments],
+    ['reviews', activityDisplay.reviews.Icon, '리뷰', activity?.reviews],
   ] as const;
   return (
     <div className="activity-counters" role="group" aria-label="이슈 활동">
-      {counters.map(([Icon, label, count, partial]) => {
+      {counters.map(([kind, Icon, label, count, partial]) => {
         const name =
           count === undefined
             ? label + ' 미확인'
@@ -281,22 +372,28 @@ export function IssueActivityCounters(
         );
         const title =
           count === undefined && status ? name + ' · ' + status : name;
-        return label === '이슈 댓글' ? (
+        const expanded = props.selected === kind;
+        const canExpand =
+          expanded ||
+          (kind === 'issueComments'
+            ? count !== 0
+            : Boolean(props.pulls) && (count !== 0 || partial));
+        return canExpand ? (
           <button
             type="button"
             className="text-button activity-counter"
-            key={label}
+            key={kind}
             aria-label={name}
             title={title}
-            aria-expanded={props.commentsOpen}
-            onClick={props.toggleComments}
+            aria-expanded={expanded}
+            onClick={() => props.toggle(kind)}
           >
             {content}
           </button>
         ) : (
           <span
             className="activity-counter"
-            key={label}
+            key={kind}
             role="img"
             aria-label={name}
             title={title}

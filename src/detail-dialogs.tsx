@@ -2,13 +2,7 @@ import { heritageSize } from './object-sizes.ts';
 import { heritageTier } from './heritage-scale.ts';
 import { WorldArt } from './world-art.tsx';
 import { useState } from 'react';
-import {
-  ChevronRight,
-  ExternalLink,
-  Trash2,
-  GitPullRequest,
-  X,
-} from 'lucide-react';
+import { ChevronRight, ExternalLink, Trash2, X } from 'lucide-react';
 import type { PullQuest, Quest, Region } from '../server/model.ts';
 import {
   AdventurerGlyph,
@@ -33,11 +27,12 @@ import {
 import { releaseTime, OutLink, ResultLink, Dialog } from './dialog.tsx';
 import {
   useActivityBrowser,
-  ActivityBrowser,
   ActivityEntries,
   useActivitySummary,
   IssueActivityCounters,
+  IssuePullEntries,
 } from './activity-browser.tsx';
+import type { IssueActivityKind } from './activity-browser.tsx';
 
 export function QuestDetail({
   quest,
@@ -50,11 +45,14 @@ export function QuestDetail({
   token: string;
   close: () => void;
 }) {
-  const [comments, setComments] = useState<'unopened' | 'open' | 'closed'>(
-    'unopened',
-  );
-  const [activityPull, setActivityPull] = useState<number>();
-  const [visitedPulls, setVisitedPulls] = useState<number[]>([]);
+  const [selected, setSelected] = useState<IssueActivityKind>();
+  const [visited, setVisited] = useState<IssueActivityKind[]>([]);
+  const evidence = quest.evidence;
+  const runsByUrl = new Map(quest.runs.map((run) => [run.url, run]));
+  const evidenceStatus =
+    evidence && (evidence.status ?? runsByUrl.get(evidence.url)?.status);
+  if (evidence) runsByUrl.delete(evidence.url);
+  const runs = [...runsByUrl.values()];
   return (
     <Dialog
       className="issue-dialog"
@@ -70,15 +68,35 @@ export function QuestDetail({
           pulls={quest.pulls.map(({ number }) => number).join(',')}
           initial={quest.activity}
           fallbackComments={quest.issueComments}
-          commentsOpen={comments === 'open'}
-          toggleComments={() =>
-            setComments(comments === 'open' ? 'closed' : 'open')
-          }
+          selected={selected}
+          toggle={(kind) => {
+            setVisited((previous) =>
+              previous.includes(kind) ? previous : [...previous, kind],
+            );
+            setSelected((current) => (current === kind ? undefined : kind));
+          }}
         />
       }
       close={close}
     >
       <h3>{quest.title}</h3>
+      <IssueBadge quest={quest} />
+      {quest.stateReason === 'not_planned' && (
+        <p>GitHub 종료 사유 · 작업하지 않기로 함</p>
+      )}
+      {quest.stateReason === 'duplicate' && <p>GitHub 종료 사유 · 중복</p>}
+      {(quest.reason || quest.detail) && (
+        <div className={`reason ${alerts.has(quest.stage) ? 'danger' : ''}`}>
+          {quest.reason && <p>{quest.reason}</p>}
+          {quest.detail && <p>{quest.detail}</p>}
+        </div>
+      )}
+      {evidence && <OutLink item={{ ...evidence, status: evidenceStatus }} />}
+      {quest.review && (
+        <p>
+          현재 커밋의 AI 리뷰 결과 <strong>{quest.review}</strong>
+        </p>
+      )}
       <div className="battle-scene">
         {(['codex', 'claude'] as const).map((agent) => {
           const member = quest.adventurers?.find(
@@ -114,78 +132,46 @@ export function QuestDetail({
           <MonsterStatusIcons quest={quest} />
         </div>
       </div>
-      <IssueBadge quest={quest} />
-      {quest.stateReason === 'not_planned' && (
-        <p>GitHub 종료 사유 · 작업하지 않기로 함</p>
-      )}
-      {quest.stateReason === 'duplicate' && <p>GitHub 종료 사유 · 중복</p>}
-      {(quest.reason || quest.detail) && (
-        <div className={`reason ${alerts.has(quest.stage) ? 'danger' : ''}`}>
-          <p>{quest.reason}</p>
-          {quest.detail && <p>{quest.detail}</p>}
-        </div>
-      )}
-      {quest.evidence && <OutLink item={quest.evidence} />}
-      {quest.review && (
-        <p>
-          현재 커밋의 AI 리뷰 결과 <strong>{quest.review}</strong>
-        </p>
-      )}
-      {comments !== 'unopened' && (
-        <div hidden={comments !== 'open'}>
-          <ActivityEntries
-            region={region.slug}
-            number={quest.number}
-            token={token}
-            kind="comments"
-          />
-        </div>
-      )}
-      {(quest.pulls.length > 0 || quest.commit) && <h4>공략 결과</h4>}
-      {quest.commit && <ResultLink item={quest.commit} />}
-      {quest.pulls.map((item) => (
-        <div key={item.number}>
-          <div className="result-row">
-            <ResultLink
-              item={{ ...item, title: `PR #${item.number} · ${item.title}` }}
+      {visited.map((kind) => (
+        <div key={kind} hidden={selected !== kind}>
+          {kind === 'issueComments' ? (
+            <ActivityEntries
+              region={region.slug}
+              number={quest.number}
+              token={token}
+              kind="comments"
+              linkedEvidenceUrl={evidence?.url}
             />
-            <button
-              className="text-button result-review"
-              title={
-                activityPull === item.number ? 'PR 활동 접기' : 'PR 활동 보기'
-              }
-              aria-label={
-                activityPull === item.number ? 'PR 활동 접기' : 'PR 활동 보기'
-              }
-              aria-expanded={activityPull === item.number}
-              onClick={() => {
-                if (!visitedPulls.includes(item.number))
-                  setVisitedPulls([...visitedPulls, item.number]);
-                setActivityPull(
-                  activityPull === item.number ? undefined : item.number,
-                );
-              }}
-            >
-              <GitPullRequest size={16} aria-hidden="true" />
-            </button>
-          </div>
-          {visitedPulls.includes(item.number) && (
-            <div hidden={activityPull !== item.number}>
-              <ActivityBrowser
-                key={item.number}
-                region={region.slug}
-                number={item.number}
-                counts={item.activities}
-                token={token}
-              />
-            </div>
+          ) : (
+            <IssuePullEntries
+              region={region.slug}
+              token={token}
+              pulls={quest.pulls}
+              kind={kind}
+              linkedEvidenceUrl={evidence?.url}
+            />
           )}
         </div>
       ))}
-      {quest.runs.length > 0 && <h4>GitHub Actions</h4>}
-      {quest.runs.map((item) => (
-        <OutLink key={item.url} item={item} />
-      ))}
+      {quest.commit && quest.commit.url !== evidence?.url && (
+        <ResultLink item={quest.commit} />
+      )}
+      {quest.pulls
+        .filter((item) => item.url !== evidence?.url)
+        .map((item) => (
+          <ResultLink
+            key={item.number}
+            item={{ ...item, title: `PR #${item.number} · ${item.title}` }}
+          />
+        ))}
+      {runs.length > 0 && (
+        <details className="issue-history">
+          <summary>GitHub Actions</summary>
+          {runs.map((item) => (
+            <OutLink key={item.url} item={item} />
+          ))}
+        </details>
+      )}
     </Dialog>
   );
 }

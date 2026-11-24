@@ -1590,3 +1590,15 @@ svg {
     height: var(--map-hit-size);
   }
 }
+
+.issue-history > summary {
+  padding: 6px 0;
+  color: var(--gold);
+  cursor: pointer;
+}
+.issue-history[open] > summary {
+  margin-bottom: 6px;
+}
+.issue-dialog .activity-entry {
+  overflow-wrap: anywhere;
+}

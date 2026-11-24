@@ -164,6 +164,40 @@ for (const width of [1280, 390, 320]) {
     });
 
     if (touch) {
+      test('두 모드에서 이슈 링크와 활동 펼침 및 닫기를 터치할 수 있다', async ({
+        page,
+      }) => {
+        for (const mode of ['world', 'simple']) {
+          if (mode === 'simple') await page.locator('.mode-switch').tap();
+          await expect(page.locator('[data-display-mode]')).toHaveAttribute(
+            'data-display-mode',
+            mode,
+          );
+          await page.getByRole('button', { name: /^이슈 #1 / }).tap();
+          const dialog = page.getByRole('dialog', { name: '이슈 #1' });
+          const title = dialog.getByRole('link', {
+            name: '이슈 #1',
+            exact: true,
+          });
+          await expect(title).toBeInViewport();
+          await expect(title).toHaveAttribute('href', /issues\/1$/);
+          await expect(title).toHaveAttribute('target', '_blank');
+
+          const commits = dialog.getByRole('button', { name: '고유 커밋 3개' });
+          const commit = dialog.getByRole('link', { name: 'a1b2c3d' });
+          const close = dialog.getByRole('button', { name: '닫기' });
+          await commits.tap();
+          await expect(commits).toHaveAttribute('aria-expanded', 'true');
+          await expect(commit).toBeVisible();
+          await expect(close).toBeInViewport();
+          await commits.tap();
+          await expect(commits).toHaveAttribute('aria-expanded', 'false');
+          await expect(commit).toBeHidden();
+          await close.tap();
+          await expect(dialog).toBeHidden();
+        }
+      });
+
       test('두 모드에서 헤더 버튼이 로고 오른쪽 첫 줄에 정렬된다', async ({
         page,
       }) => {
