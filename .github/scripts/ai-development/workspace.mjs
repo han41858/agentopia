@@ -47,7 +47,9 @@ class WorkspaceError extends Error {
   }
 }
 
-export class EditConflict extends Error {
+export class CorrectableEditError extends Error {}
+
+export class EditConflict extends CorrectableEditError {
   constructor(path, index, reason) {
     super(`${path} (${index + 1}번째 편집): ${reason}`);
     this.diagnostic = `${index + 1}번째 편집: ${reason}`;
@@ -158,10 +160,22 @@ export function resolveEdits(edits, { files, read }) {
 export async function formatChanges(changes, work) {
   const result = [];
   for (const { path, text } of changes) {
-    const formatted =
-      text === null
-        ? null
-        : await format(text, { ...formatterOptions, filepath: path });
+    let formatted = null;
+    if (text !== null) {
+      try {
+        formatted = await format(text, { ...formatterOptions, filepath: path });
+      } catch (error) {
+        if (error.name !== 'SyntaxError') throw error;
+        const { line, column } = error.loc?.start ?? {};
+        const location = [path, line, column]
+          .filter((value) => value != null)
+          .join(':');
+        const message = `${location} — Prettier가 파일의 문법을 해석하지 못했습니다.`;
+        throw Object.assign(new CorrectableEditError(message), {
+          diagnostic: message,
+        });
+      }
+    }
     if (formatted !== (work.files.has(path) ? work.read(path) : null))
       result.push({ path, text: formatted });
   }

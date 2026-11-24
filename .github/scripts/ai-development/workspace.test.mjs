@@ -135,3 +135,16 @@ test('formats proposals before publication and drops format-only no-ops', async 
     { path, text: null },
   ]);
 });
+
+test('syntax failures report file and parser position without disclosing source', async () => {
+  for (const [path, text] of [
+    ['src/value.ts', 'const privateValue = ;'],
+    ['src/map.css', '.map{color:red'],
+  ]) {
+    await assert.rejects(formatChanges([{ path, text }], snapshot), (error) => {
+      assert.ok(error.diagnostic.startsWith(path + ':1:'));
+      assert.ok(!error.diagnostic.includes(text));
+      return true;
+    });
+  }
+});

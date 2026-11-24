@@ -627,7 +627,8 @@ Use exact unique before/after replacements, null before for create or null after
 Use a GitMoji and Korean area and summary for the title. Do not claim that checks ran.`,
                 inspect: work.inspect,
                 needsUiSpec: work.needsUiSpec,
-                prepareChanges: (edits) => resolveEdits(edits, work),
+                prepareChanges: (edits) =>
+                  formatChanges(resolveEdits(edits, work), work),
               });
           delete recovery.pending;
           await checkBase(baseSha);
@@ -636,8 +637,10 @@ Use a GitMoji and Korean area and summary for the title. Do not claim that check
               safeText(plan.summary, 500) ||
                 `${names[developer]} 개발자가 사용자 판단을 요청했습니다.`,
             );
+          const changes = formattingOnly
+            ? await formatChanges(plan.changes, work)
+            : plan.changes;
           phase = '개발 변경 적용';
-          const changes = await formatChanges(plan.changes, work);
           if (!changes.length && repairingCI)
             throw new Stop('CI 실패에 적용할 변경이 없습니다.');
           if (!changes.length && (requested || priorReview))
