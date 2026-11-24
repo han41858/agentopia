@@ -46,6 +46,8 @@ import { useRegionRefresh } from './use-region-refresh.ts';
 import type { RefreshJobs, RefreshUsage } from './use-region-refresh.ts';
 import './styles.css';
 
+const narrowHeaderQuery = '(max-width: 640px)';
+
 function App() {
   const isSimple = useDisplayMode() === 'simple';
   const [settings, setSettings] = useState(readSettings);
@@ -90,12 +92,31 @@ function App() {
   const [showConnect, setShowConnect] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
   const [toolsOpen, setToolsOpen] = useState(false);
+  const [narrowHeader, setNarrowHeader] = useState(
+    () => window.matchMedia(narrowHeaderQuery).matches,
+  );
   const headerTools = useRef<HTMLDivElement>(null);
   const bookmark = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
-    if (!toolsOpen) return;
-    const narrow = window.matchMedia('(max-width: 640px)');
+    const media = window.matchMedia(narrowHeaderQuery);
+
+    function syncHeader(matches: boolean) {
+      setNarrowHeader(matches);
+      if (!matches) setToolsOpen(false);
+    }
+
+    function onChange(event: MediaQueryListEvent) {
+      syncHeader(event.matches);
+    }
+
+    media.addEventListener('change', onChange);
+    syncHeader(media.matches);
+    return () => media.removeEventListener('change', onChange);
+  }, []);
+
+  useEffect(() => {
+    if (!narrowHeader || !toolsOpen) return;
 
     function dismissOutside(event: PointerEvent) {
       if (
@@ -110,7 +131,6 @@ function App() {
       if (
         event.key !== 'Escape' ||
         event.defaultPrevented ||
-        !narrow.matches ||
         document.querySelector('dialog[open]')
       )
         return;
@@ -119,19 +139,13 @@ function App() {
       bookmark.current?.focus();
     }
 
-    function resetOnWideScreen(event: MediaQueryListEvent) {
-      if (!event.matches) setToolsOpen(false);
-    }
-
     document.addEventListener('pointerdown', dismissOutside);
     document.addEventListener('keydown', dismissOnEscape);
-    narrow.addEventListener('change', resetOnWideScreen);
     return () => {
       document.removeEventListener('pointerdown', dismissOutside);
       document.removeEventListener('keydown', dismissOnEscape);
-      narrow.removeEventListener('change', resetOnWideScreen);
     };
-  }, [toolsOpen]);
+  }, [narrowHeader, toolsOpen]);
 
   function openSettings(kind: 'repository' | 'token') {
     if (toolsOpen) {
@@ -300,6 +314,30 @@ function App() {
     />
   );
 
+  const refreshButton = (
+    <button
+      key="refresh"
+      className="refresh-button"
+      aria-label="새로 고침"
+      aria-busy={loading}
+      data-warning={!loading && partial}
+      title={
+        !loading && partial
+          ? '일부 GitHub 기록을 확인하지 못했습니다.'
+          : `다음 자동 갱신까지 약 ${Math.ceil(progress.duration / 1000)}초`
+      }
+      disabled={!worldRegions.length}
+      onClick={() => refresh.current?.()}
+    >
+      {refreshFill}
+      <RefreshCw
+        size={16}
+        className={loading ? 'rotate' : ''}
+        aria-hidden="true"
+      />
+    </button>
+  );
+
   return (
     <>
       <main className="world" aria-labelledby="world-title">
@@ -331,26 +369,7 @@ function App() {
               )}
             </button>
             <div id="world-controls" className="world-controls">
-              <button
-                className="refresh-button"
-                aria-label="새로 고침"
-                aria-busy={loading}
-                data-warning={!loading && partial}
-                title={
-                  !loading && partial
-                    ? '일부 GitHub 기록을 확인하지 못했습니다.'
-                    : `다음 자동 갱신까지 약 ${Math.ceil(progress.duration / 1000)}초`
-                }
-                disabled={!worldRegions.length}
-                onClick={() => refresh.current?.()}
-              >
-                {refreshFill}
-                <RefreshCw
-                  size={16}
-                  className={loading ? 'rotate' : ''}
-                  aria-hidden="true"
-                />
-              </button>
+              {narrowHeader && refreshButton}
               <ModeSwitch />
               <button
                 className="connect add-repository-button"
@@ -370,15 +389,20 @@ function App() {
               >
                 <Ticket size={19} aria-hidden="true" />
               </button>
-              <GitHubUsage
-                token={token}
-                refresh={
-                  refreshUsage?.token === token ? refreshUsage.usage : undefined
-                }
-                refreshStale={
-                  refreshUsage?.token === token && refreshUsage.stale
-                }
-              />
+              {!narrowHeader && refreshButton}
+              <div className="refresh-usage">
+                <GitHubUsage
+                  token={token}
+                  refresh={
+                    refreshUsage?.token === token
+                      ? refreshUsage.usage
+                      : undefined
+                  }
+                  refreshStale={
+                    refreshUsage?.token === token && refreshUsage.stale
+                  }
+                />
+              </div>
             </div>
           </div>
         </header>

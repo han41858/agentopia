@@ -14,6 +14,13 @@ function boxes(locator: Locator) {
   );
 }
 
+async function expectUsageBelowRefresh(page: Page) {
+  const [refresh] = await boxes(page.locator('.refresh-button'));
+  const [usage] = await boxes(page.locator('.refresh-usage'));
+  expect(usage.y).toBeCloseTo(refresh.y + refresh.height, 1);
+  expect(usage.x + usage.width).toBeCloseTo(refresh.x + refresh.width, 1);
+}
+
 function overlaps(a: Box, b: Box) {
   // 테두리가 맞닿는 정도(1px)는 겹침으로 보지 않습니다.
   return (
@@ -258,6 +265,7 @@ for (const width of [1280, 390, 320]) {
             expect(button.y).toBeGreaterThanOrEqual(viewport.y - 1);
             expect(button.x + button.width).toBeLessThanOrEqual(width);
           }
+          await expectUsageBelowRefresh(page);
           expect(await boxes(title)).toEqual([heading]);
           expect(await boxes(map)).toEqual([viewport]);
           expect(
@@ -365,9 +373,27 @@ for (const width of [1280, 390, 320]) {
         await expect(
           page.getByRole('heading', { name: 'Agentopia' }),
         ).toBeInViewport({ ratio: 1 });
-        await expect(
-          page.locator('.world-controls > button:visible'),
-        ).toHaveCount(4);
+        const buttons = page.locator('.world-controls > button:visible');
+        await expect(buttons).toHaveCount(4);
+        const row = await boxes(buttons);
+        for (const [index, name] of [
+          '간단 모드',
+          '저장소 추가',
+          'GitHub 연결',
+          '새로 고침',
+        ].entries()) {
+          const button = buttons.nth(index);
+          await expect(button).toHaveAccessibleName(name);
+          if (index > 0) {
+            const previous = row[index - 1];
+            expect(row[index].x).toBeGreaterThanOrEqual(
+              previous.x + previous.width,
+            );
+          }
+          await page.keyboard.press('Tab');
+          await expect(button).toBeFocused();
+        }
+        await expectUsageBelowRefresh(page);
         await page.getByRole('button', { name: '간단 모드' }).click();
         await expect(page.locator('[data-display-mode]')).toHaveAttribute(
           'data-display-mode',

@@ -79,8 +79,7 @@ svg {
   margin-top: 4px;
 }
 .world-header,
-.header-tools,
-.world-controls {
+.header-tools {
   display: flex;
   align-items: center;
 }
@@ -95,6 +94,29 @@ svg {
 }
 .world-controls {
   position: relative;
+  display: grid;
+  grid-template-areas: 'mode add token refresh';
+  align-items: center;
+}
+.world-controls > .mode-switch {
+  grid-area: mode;
+}
+.world-controls > .add-repository-button {
+  grid-area: add;
+}
+.world-controls > .ticket-button {
+  grid-area: token;
+}
+.world-controls > .refresh-button,
+.refresh-usage {
+  grid-area: refresh;
+}
+.refresh-usage {
+  /* Attach usage to the refresh cell without changing the row height or tab order. */
+  position: absolute;
+  top: 100%;
+  right: 0;
+  left: 0;
 }
 .world-heading {
   --crest-size: 42px;
@@ -1580,6 +1602,13 @@ svg {
   .header-tools,
   .world-controls {
     gap: 4px;
+  }
+  .world-controls {
+    grid-template-areas: 'refresh mode add token';
+  }
+  .refresh-usage .github-usage-tooltip {
+    /* Let the tooltip extend under the three tools to the right of refresh. */
+    right: calc(-3 * (var(--header-button-size) + 4px));
   }
   .header-bookmark {
     top: 0;
