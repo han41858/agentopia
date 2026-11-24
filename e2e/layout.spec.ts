@@ -75,6 +75,36 @@ function outsideWall(page: Page, selector: string) {
 // 터치 화면에서 누르는 요소의 최소 크기(src/styles.css의 --map-hit-size).
 const touchTarget = 44;
 
+test.describe('높은 데스크톱의 왕국 하나', () => {
+  test.use({
+    viewport: { width: 1280, height: 1400 },
+    reducedMotion: 'reduce',
+  });
+
+  test('첫 성벽이 헤더 바로 아래에 놓인다', async ({ page }) => {
+    await openWorld(page, [alpha]);
+    const wall = page.locator('.kingdom-wall');
+    const title = page.getByRole('heading', { name: 'Agentopia' });
+    await expect(wall).toHaveCount(1);
+    await expect(wall).toBeVisible();
+    const [heading] = await boxes(title);
+    expect(heading.y).toBeLessThanOrEqual(24);
+
+    const [firstWall] = await boxes(wall);
+    const headerItems = await boxes(
+      page.locator(
+        '.crest, .world-controls > button:visible, .github-usage-value:visible',
+      ),
+    );
+    const headerBottom = Math.max(
+      ...headerItems.map((box) => box.y + box.height),
+    );
+    const gap = firstWall.y - headerBottom;
+    expect(gap).toBeGreaterThanOrEqual(12);
+    expect(gap).toBeLessThanOrEqual(20);
+  });
+});
+
 for (const width of [1280, 390, 320]) {
   // 좁은 화면은 터치 기기로 실행해 `pointer: coarse` 전용 스타일까지 확인합니다.
   const touch = width < 640;
@@ -232,6 +262,7 @@ for (const width of [1280, 390, 320]) {
         const close = page.getByRole('button', { name: '상단 도구 접기' });
         const controls = page.locator('.world-controls');
         const map = page.locator('.map-viewport');
+        const wall = page.locator('.kingdom-wall').first();
         const bookmarkFace = page.locator('.header-bookmark-face');
 
         for (const mode of ['world', 'simple']) {
@@ -248,6 +279,10 @@ for (const width of [1280, 390, 320]) {
           const [collapsedFace] = await boxes(bookmarkFace);
           const [collapsedIcon] = await boxes(open.locator('svg'));
           const [viewport] = await boxes(map);
+          const [firstWall] = await boxes(wall);
+          expect(firstWall.y).toBeGreaterThanOrEqual(
+            collapsedHit.y + collapsedHit.height,
+          );
           const centerY = collapsedHit.y + collapsedHit.height / 2;
           expect(heading.y + heading.height / 2).toBeCloseTo(
             crest.y + crest.height / 2,
@@ -330,6 +365,17 @@ for (const width of [1280, 390, 320]) {
             expect(icon.y + icon.height / 2).toBeCloseTo(centerY, 1);
           }
           await expectUsageBelowRefresh(page);
+          const [usage] = await boxes(page.locator('.refresh-usage'));
+          const usageValues = await boxes(
+            page.locator('.github-usage-value:visible'),
+          );
+          // 모의 응답에 수치가 없더라도 16px 높이의 갱신 수치 줄 자리를 확인합니다.
+          const toolsBottom = Math.max(
+            usage.y + 16,
+            ...[...row, ...usageValues].map((box) => box.y + box.height),
+          );
+          expect(firstWall.y).toBeGreaterThanOrEqual(toolsBottom);
+          expect(await boxes(wall)).toEqual([firstWall]);
           expect(await boxes(title)).toEqual([heading]);
           expect(await boxes(map)).toEqual([viewport]);
           expect(
@@ -360,6 +406,7 @@ for (const width of [1280, 390, 320]) {
           expect(await boxes(bookmarkFace)).toEqual([collapsedFace]);
           expect(await boxes(title)).toEqual([heading]);
           expect(await boxes(map)).toEqual([viewport]);
+          expect(await boxes(wall)).toEqual([firstWall]);
           if (mode === 'world') {
             await open.tap();
             await page.locator('.mode-switch').tap();
