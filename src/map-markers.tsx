@@ -18,7 +18,6 @@ import {
   agentNames,
   MonsterGlyph,
   partyLabel,
-  partyLeaderLabel,
 } from './characters.tsx';
 import type { ActivityProfile } from '../server/activity.ts';
 import { ActivityAura, ReviewOpinionBadge } from './activity-effects.tsx';
@@ -59,6 +58,27 @@ export function monsterRest(quest: Quest) {
   return '대기';
 }
 
+const markerStageLabels: Record<Stage, string> = {
+  idle: '대기',
+  queued: '작업 대기 중',
+  developing: '개발 중',
+  revising: '수정 중',
+  reviewing: '리뷰 중',
+  ci: 'GitHub Actions · CI 실행 중',
+  deploying: '배포 중',
+  merging: 'PR 병합 중',
+  complete: '작업 완료',
+  returned: '작업 종료',
+  failed: '실행 실패',
+  attention: '개입 필요',
+};
+
+function markerMemberLabel(member: NonNullable<Quest['adventurers']>[number]) {
+  return member.fallen
+    ? `${agentNames[member.agent]} · 실행 실패`
+    : partyLabel(member, '대기');
+}
+
 export function MonsterMarker({
   quest,
   boss,
@@ -79,18 +99,13 @@ export function MonsterMarker({
   const defeated = quest.state === 'closed';
   const members = quest.adventurers ?? [];
   const resting = monsterRest(quest);
-  const status = [
-    defeated
-      ? '몬스터 처치 완료'
-      : quest.reopened
-        ? '몬스터 부활'
-        : '몬스터 출현',
-    quest.stage !== 'idle' && quest.stage !== 'complete'
-      ? stages[quest.stage]
-      : undefined,
-    quest.victory ? '제작 결과 반영' : undefined,
-    quest.stage === 'failed' ? '구조 요청' : undefined,
-    ...members.map((member) => partyLabel(member, resting)),
+  const tooltip = `이슈 #${quest.number} · ${quest.title}`;
+  const label = [
+    tooltip,
+    defeated ? '이슈 닫힘' : quest.reopened ? '이슈 다시 열림' : '이슈 열림',
+    quest.stage !== 'idle' ? markerStageLabels[quest.stage] : undefined,
+    quest.victory ? '연결된 PR 병합됨' : undefined,
+    ...members.map(markerMemberLabel),
   ]
     .filter(Boolean)
     .join(' · ');
@@ -102,8 +117,8 @@ export function MonsterMarker({
         (activeStages.has(quest.stage) && quest.stage !== 'queued') || undefined
       }
       className={`expedition monster-marker${boss ? ' boss-marker' : ''}${alerts.has(quest.stage) ? ' blocked' : ''}${defeated ? ' closed-issue' : ''}`}
-      aria-label={`이슈 #${quest.number} · ${quest.title} · ${status}${activityEffectsLabel(quest.activity)}`}
-      title={`${quest.title} · ${status}`}
+      aria-label={`${label}${activityEffectsLabel(quest.activity)}`}
+      title={tooltip}
       onClick={open}
       data-highlight={inspected ? 'selected' : related ? 'related' : undefined}
       onPointerEnter={() => inspect(true)}
@@ -125,6 +140,7 @@ export function MonsterMarker({
         members={members}
         resting={resting}
         leader={quest.stage === 'ci' ? 'active' : undefined}
+        showTitles={false}
       />
     </button>
   );
@@ -201,7 +217,7 @@ export function FacilityMarker({
   inspect: (active: boolean) => void;
 }) {
   const kind = facilityKind(pull.title);
-  const { name, Tool } = facilities[kind];
+  const { Tool } = facilities[kind];
   const working = pull.stage === 'developing' || pull.stage === 'revising';
   const reviewing = pull.stage === 'reviewing';
   const members = pull.adventurers ?? [];
@@ -209,13 +225,21 @@ export function FacilityMarker({
     (member) => member.active && !member.fallen,
   );
   const leader = partyLeaderState(pull);
+  const tooltip = `PR #${pull.number} · ${pull.title}`;
   const label = [
-    `${name} PR #${pull.number}`,
-    pull.title,
+    tooltip,
     pullActivity(pull),
-    pullStatus(pull),
-    leader && partyLeaderLabel(leader),
-    ...members.map((member) => partyLabel(member, '대기')),
+    pull.cancelled ? 'PR 닫힘' : pull.draft ? '초안' : 'PR 열림',
+    !pull.cancelled && pull.stage !== 'idle'
+      ? pull.stage === 'complete'
+        ? 'PR 병합됨'
+        : markerStageLabels[pull.stage]
+      : undefined,
+    leader === 'active' && pull.stage !== 'ci'
+      ? markerStageLabels.ci
+      : undefined,
+    leader === 'resting' ? 'GitHub Actions · CI 실행 기록' : undefined,
+    ...members.map(markerMemberLabel),
     ...(pull.issues ?? []).map((number) => `이슈 #${number}`),
   ]
     .filter(Boolean)
@@ -230,7 +254,7 @@ export function FacilityMarker({
         (activeStages.has(pull.stage) && pull.stage !== 'queued') || undefined
       }
       data-facility={kind}
-      title={label}
+      title={tooltip}
       aria-label={`${label}${activityEffectsLabel(pull.activity)}`}
       onClick={open}
       onPointerEnter={() => inspect(true)}
@@ -264,7 +288,13 @@ export function FacilityMarker({
         </span>
       </ActivityAura>
       <small className="expedition-number">{`PR #${pull.number}`}</small>
-      <AdventurerParty members={members} leader={leader} resting="대기" forge />
+      <AdventurerParty
+        members={members}
+        leader={leader}
+        resting="대기"
+        forge
+        showTitles={false}
+      />
     </button>
   );
 }

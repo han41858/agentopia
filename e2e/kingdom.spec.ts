@@ -1,3 +1,4 @@
+import { alpha, alphaReport } from './fixtures.ts';
 import { openWorld } from './github.ts';
 import { expect, labels, test } from './test.ts';
 
@@ -50,6 +51,45 @@ test.describe('왕국 기본 표시', () => {
         .locator('.monster-marker'),
     ).toHaveText(['#2', '#3']);
   });
+
+  for (const mode of ['world', 'simple'] as const) {
+    test(`${mode} 모드에서 PR·이슈 아이콘은 원래 제목을 툴팁으로 표시한다`, async ({
+      page,
+    }) => {
+      await openWorld(page, [alpha], mode);
+      await expect(page.locator('[data-display-mode]')).toHaveAttribute(
+        'data-display-mode',
+        mode,
+      );
+      const kingdom = page.getByRole('region', { name: 'alpha' });
+      const markers = [
+        ['이슈 #4', alphaReport.quests.find(({ number }) => number === 4)!],
+        ['이슈 #1', alphaReport.quests.find(({ number }) => number === 1)!],
+        ['PR #12', alphaReport.forges!.find(({ number }) => number === 12)!],
+      ] as const;
+
+      for (const [id, { title }] of markers) {
+        const marker = kingdom.getByRole('button', {
+          name: new RegExp(`^${id} · `),
+        });
+        await expect(marker).toHaveAttribute('title', `${id} · ${title}`);
+        await expect(marker.locator('[title], svg title')).toHaveCount(0);
+        await marker.click();
+
+        const dialog = page.getByRole('dialog', { name: id, exact: true });
+        await expect(
+          dialog.getByRole('heading', { level: 3, name: title, exact: true }),
+        ).toBeVisible();
+        await dialog.getByRole('button', { name: '닫기' }).click();
+        await expect(dialog).toBeHidden();
+      }
+
+      const working = kingdom.getByRole('button', { name: /^PR #11 · / });
+      await expect(working).toHaveAccessibleName(/Codex · 개발 중/);
+      await expect(working.locator('.adventurer').first()).toBeAttached();
+      await expect(working.locator('[title], svg title')).toHaveCount(0);
+    });
+  }
 
   test('기본 파티 구성 범례를 보여 준다', async ({ page }) => {
     await openWorld(page);
