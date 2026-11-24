@@ -168,12 +168,25 @@ test('literal lookup locates UI text without counting as a full UI spec read', (
     '// Example UI assertion\nexpect(title).toHaveText("예시 제목");\n',
   );
   execFileSync('git', ['init', '--quiet']);
-  execFileSync('git', ['add', path]);
+  writeFileSync('e2e/github.ts', '// shared readiness helper');
+  execFileSync('git', ['add', path, 'e2e/github.ts']);
   const tree = execFileSync('git', ['write-tree'], { encoding: 'utf8' }).trim();
   const work = gitSnapshot(tree, tree);
   assert.equal(
     work.inspect('find_in_file', { path, text: '예시 제목' }),
     '2: expect(title).toHaveText("예시 제목");',
+  );
+  assert.match(
+    work.inspect('read_file', { path: 'e2e/github.ts', line: 1 }),
+    /shared readiness helper/,
+  );
+  assert.throws(
+    () =>
+      resolveEdits(
+        [{ path: 'e2e/github.ts', before: 'shared', after: 'changed' }],
+        work,
+      ),
+    /허용 범위/,
   );
   assert.equal(work.needsUiSpec([path]), true);
   assert.match(
