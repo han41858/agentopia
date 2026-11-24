@@ -142,8 +142,8 @@ test('GitHub workflow run metadata survives the issue report API', async (contex
   const fetch = context.mock.method(
     globalThis,
     'fetch',
-    async (url: string) => {
-      switch (new URL(url).pathname) {
+    async (url: RequestInfo | URL) => {
+      switch (new URL(url instanceof Request ? url.url : url).pathname) {
         case `/repos/${slug}/issues`:
           return Response.json([
             { ...issue(1), html_url: `https://github.com/${slug}/issues/1` },
@@ -168,7 +168,8 @@ test('GitHub workflow run metadata survives the issue report API', async (contex
   assert.ok(
     fetch.mock.calls.some(
       ({ arguments: [url] }) =>
-        new URL(url).pathname === `/repos/${slug}/actions/runs`,
+        new URL(url instanceof Request ? url.url : url).pathname ===
+        `/repos/${slug}/actions/runs`,
     ),
   );
   const report = JSON.parse(result.body) as Report;
