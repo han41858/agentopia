@@ -324,9 +324,13 @@ for (const width of [1280, 390, 320]) {
           const plazaArt = paintedBounds(plaza);
           const label = name.getBoundingClientRect();
           const hit = button.getBoundingClientRect();
+          // 지도 zoom이 적용된 화면 좌표의 간격을 CSS px로 환산합니다.
+          const mapScale = Number(
+            getComputedStyle(node).getPropertyValue('--map-scale'),
+          );
           return {
-            above: label.top - palaceArt.bottom,
-            below: bridgeArt.top - label.bottom,
+            above: (label.top - palaceArt.bottom) / mapScale,
+            below: (bridgeArt.top - label.bottom) / mapScale,
             plazaGap: plazaArt.top - bridgeArt.bottom,
             lines: name.getClientRects().length,
             sizes: [palaceArt.size, bridgeArt.size, [hit.width, hit.height]],
