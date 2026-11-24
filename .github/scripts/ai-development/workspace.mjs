@@ -1,3 +1,5 @@
+import { format } from 'prettier';
+import formatterOptions from '../../../prettier.config.mjs';
 import { execFileSync } from 'node:child_process';
 
 const maxBuffer = 8 * 1024 * 1024;
@@ -45,7 +47,9 @@ class WorkspaceError extends Error {
   }
 }
 
-export class EditConflict extends Error {
+export class CorrectableEditError extends Error {}
+
+export class EditConflict extends CorrectableEditError {
   constructor(path, index, reason) {
     super(`${path} (${index + 1}번째 편집): ${reason}`);
     this.diagnostic = `${index + 1}번째 편집: ${reason}`;
@@ -153,6 +157,31 @@ export function resolveEdits(edits, { files, read }) {
   return changes.map(([path, text]) => ({ path, text }));
 }
 
+export async function formatChanges(changes, work) {
+  const result = [];
+  for (const { path, text } of changes) {
+    let formatted = null;
+    if (text !== null) {
+      try {
+        formatted = await format(text, { ...formatterOptions, filepath: path });
+      } catch (error) {
+        if (error.name !== 'SyntaxError') throw error;
+        const { line, column } = error.loc?.start ?? {};
+        const location = [path, line, column]
+          .filter((value) => value != null)
+          .join(':');
+        const message = `${location} — Prettier가 파일의 문법을 해석하지 못했습니다.`;
+        throw Object.assign(new CorrectableEditError(message), {
+          diagnostic: message,
+        });
+      }
+    }
+    if (formatted !== (work.files.has(path) ? work.read(path) : null))
+      result.push({ path, text: formatted });
+  }
+  return result;
+}
+
 export function snapshot(base, head) {
   const git = (...args) =>
     execFileSync('git', args, { encoding: 'utf8', maxBuffer, timeout: 30_000 });
@@ -179,6 +208,12 @@ export function snapshot(base, head) {
   return {
     files,
     read,
+    existingBranchEdits() {
+      return git('diff', '--name-only', '--no-renames', '-z', base, head)
+        .split('\0')
+        .filter((path) => isEditable(path) && files.get(path) === '100644')
+        .map((path) => ({ path, text: read(path) }));
+    },
     needsUiSpec(paths) {
       if (readUiSpec) return false;
       const changed =

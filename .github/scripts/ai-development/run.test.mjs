@@ -1,6 +1,12 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  mkdtempSync,
+  mkdirSync,
+  rmSync,
+  writeFileSync,
+  readFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -18,6 +24,7 @@ for (const scenario of [
   'claude-label',
   'completion-dispatch',
   'ci-repair',
+  'ci-format-repair',
   'interrupted-development',
   'first-guard',
   'initial-stop',
@@ -96,7 +103,10 @@ for (const scenario of [
         sender: { login: 'tester' },
       }),
     );
+    const stepOutput = join(root, 'step-output');
+    writeFileSync(stepOutput, '');
     Object.assign(process.env, {
+      GITHUB_OUTPUT: stepOutput,
       GITHUB_EVENT_PATH: event,
       GITHUB_REPOSITORY: repository,
       GITHUB_REF: 'refs/heads/dev',
@@ -272,17 +282,22 @@ for (const scenario of [
           );
         assert.equal(input.expectedHeadOid, head);
         assert.equal(input.branch.branchName, branch);
+        const published = Buffer.from(
+          input.fileChanges.additions[0].contents,
+          'base64',
+        ).toString();
+        const legacyFormat = scenario === 'ci-format-repair';
         assert.equal(
-          Buffer.from(
-            input.fileChanges.additions[0].contents,
-            'base64',
-          ).toString(),
-          commits ? '# Revision' + commits + '\n' : '# Updated\n',
+          published,
+          commits && !legacyFormat
+            ? '# Revision' + commits + '\n'
+            : '# Updated\n',
         );
         git(remote, 'switch', branch);
+        // Simulate a previously published, reviewed HEAD from before pre-publication formatting.
         writeFileSync(
           join(remote, 'README.md'),
-          commits ? '# Revision' + commits + '\n' : '# Updated\n',
+          legacyFormat && !commits ? '# Updated' : published,
         );
         git(remote, 'add', 'README.md');
         git(
@@ -429,6 +444,10 @@ for (const scenario of [
     if (scenario.startsWith('review-')) {
       const ready = scenario === 'review-revision';
       assert.equal(saved().status, ready ? 'ready' : 'needs_human');
+      assert.equal(
+        readFileSync(stepOutput, 'utf8'),
+        ready ? 'ready=true\n' : '',
+      );
       assert.equal(saved().reviews[0].head, head);
       assert.equal(creations, 1);
       assert.equal(commits, ready ? 2 : scenario === 'review-limit' ? 3 : 1);
@@ -488,7 +507,8 @@ for (const scenario of [
       if (scenario !== 'merge-conflict') await manualResume();
       return;
     }
-    if (scenario === 'ci-repair') {
+    if (['ci-repair', 'ci-format-repair'].includes(scenario)) {
+      const formatOnly = scenario === 'ci-format-repair';
       const original = saved();
       const dispatch = (run) =>
         writeFileSync(
@@ -499,7 +519,9 @@ for (const scenario of [
             inputs: {
               issue: '15',
               recovery_run: String(run),
-              ci_feedback: 'e2e/dialogs.spec.ts:94 locator failed',
+              ci_feedback: formatOnly
+                ? 'npm run format:check'
+                : 'e2e/dialogs.spec.ts:94 locator failed',
             },
           }),
         );
@@ -515,7 +537,11 @@ for (const scenario of [
       await import(runner + '?second-failure');
       assert.equal(saved().status, 'needs_human');
       assert.equal(reviewCalls, 2);
-      assert.equal(developmentCalls, 2);
+      assert.equal(developmentCalls, formatOnly ? 1 : 2);
+      if (formatOnly) {
+        assert.equal(saved().recovery.formatRepair, true);
+        assert.equal(saved().recovery.ciRepairs, undefined);
+      }
       assert.equal(creations, 1);
       return;
     }

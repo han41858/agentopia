@@ -1,5 +1,5 @@
 import { setTimeout as wait } from 'node:timers/promises';
-import { EditConflict } from './workspace.mjs';
+import { CorrectableEditError } from './workspace.mjs';
 import { agents, config } from './config.mjs';
 
 // Only messages composed here from fixed labels may be published to the issue.
@@ -748,7 +748,10 @@ API requests remaining, including this one: ${turnLimit - turn + 1}. Read tools 
             verified.status === 'completed' &&
             prepareChanges
           )
-            return { ...verified, changes: prepareChanges(verified.edits) };
+            return {
+              ...verified,
+              changes: await prepareChanges(verified.edits),
+            };
           return verified;
         } catch (error) {
           if (
@@ -763,7 +766,10 @@ API requests remaining, including this one: ${turnLimit - turn + 1}. Read tools 
               result?.status !== 'completed') ||
             finalTurn ||
             correction === 'edits' ||
-            !(error instanceof ModelError || error instanceof EditConflict)
+            !(
+              error instanceof ModelError ||
+              error instanceof CorrectableEditError
+            )
           )
             throw error;
           if (
@@ -773,7 +779,7 @@ API requests remaining, including this one: ${turnLimit - turn + 1}. Read tools 
               (Array.isArray(result?.findings) && result.findings.length))
           )
             reviewCanPass = false;
-          correction ??= error instanceof EditConflict ? 'edits' : mode;
+          correction ??= error instanceof CorrectableEditError ? 'edits' : mode;
           const responseItems = isCodex
             ? output
             : [{ role: 'assistant', content: claudeAssistantContent(output) }];

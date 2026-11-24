@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { formatChanges } from './workspace.mjs';
 import { config } from './config.mjs';
 import { createModels } from './models.mjs';
 
@@ -522,3 +523,55 @@ for (const [agent, mode] of [
     assert.equal(calls, 2);
   });
 }
+
+test('returns async parser diagnostics to the developer once before publishing changes', async () => {
+  let calls = 0;
+  const path = 'src/view.ts';
+  const models = createModels({
+    keys: { codex: 'mock' },
+    modelNames: { codex: 'mock' },
+    log: () => {},
+    request: async (_, options) => {
+      calls++;
+      if (calls === 2)
+        assert.match(
+          JSON.parse(options.body).input.at(-1).content,
+          /src\/view\.ts:1:11/,
+        );
+      const result = {
+        status: 'completed',
+        title: '🐛 화면: 문법 수정',
+        summary: '화면을 수정했습니다.',
+        edits: [
+          {
+            path,
+            before: null,
+            after: calls === 1 ? 'const a = ;' : 'const a=1',
+          },
+        ],
+      };
+      return Response.json({
+        status: 'completed',
+        output: [
+          {
+            type: 'message',
+            content: [{ type: 'output_text', text: JSON.stringify(result) }],
+          },
+        ],
+      });
+    },
+  });
+  const result = await models.run({
+    agent: 'codex',
+    mode: 'development',
+    instructions: 'Develop',
+    context: 'Test',
+    prepareChanges: (edits) =>
+      formatChanges(
+        edits.map(({ path, after }) => ({ path, text: after })),
+        { files: new Map() },
+      ),
+  });
+  assert.equal(calls, 2);
+  assert.deepEqual(result.changes, [{ path, text: 'const a = 1;\n' }]);
+});

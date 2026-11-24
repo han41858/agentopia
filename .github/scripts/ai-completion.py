@@ -7,7 +7,6 @@ import os
 import re
 import subprocess
 import time
-from pathlib import Path
 
 REPO = "han41858/agentopia"
 
@@ -67,6 +66,11 @@ def fingerprint(*parts):
 
 def ci_feedback(ci):
     jobs = repo(f"actions/runs/{ci['id']}/attempts/{ci['run_attempt']}/jobs?per_page=100")["jobs"]
+    failures = [job for job in jobs if job["conclusion"] == "failure"]
+    if len(failures) == 1 and failures[0].get("name") == "Test and build" and [
+        step["name"] for step in failures[0]["steps"] if step["conclusion"] == "failure"
+    ] == ["Run npm run format:check"]:
+        return "npm run format:check"
     diagnostics = []
     for job in jobs:
         if job["conclusion"] != "failure":
@@ -205,14 +209,8 @@ def complete(issue, run_id):
 
 
 def main():
-    event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text())
-    run = event.get("workflow_run")
-    if run:
-        match = re.fullmatch(r"AI development for Issue #(\d+)", run["display_title"])
-        if match and run["head_repository"]["full_name"] == REPO:
-            complete(int(match[1]), run["id"])
-    else:
-        complete(int(os.environ["AI_ISSUE"]), None)
+    run = os.environ.get("AI_REVIEW_RUN")
+    complete(int(os.environ["AI_ISSUE"]), int(run) if run else None)
 
 
 if __name__ == "__main__":
