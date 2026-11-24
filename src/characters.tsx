@@ -91,18 +91,23 @@ export function AdventurerParty({
   detailed = false,
   leader,
   forge = false,
+  showTitles = true,
 }: {
   members: Adventurer[];
   resting: string;
   detailed?: boolean;
   leader?: 'active' | 'resting';
   forge?: boolean;
+  showTitles?: boolean;
 }) {
   if (!leader && !members.length) return null;
   return (
     <span className={`adventurer-party${detailed ? ' detailed' : ''}`}>
       {leader && (
-        <span className="adventurer" title={partyLeaderLabel(leader)}>
+        <span
+          className="adventurer"
+          title={showTitles ? partyLeaderLabel(leader) : undefined}
+        >
           <PartyLeaderGlyph
             className={
               leader === 'active'
@@ -117,7 +122,7 @@ export function AdventurerParty({
         <span
           className="adventurer"
           key={member.agent}
-          title={partyLabel(member, resting)}
+          title={showTitles ? partyLabel(member, resting) : undefined}
         >
           <AdventurerGlyph
             agent={member.agent}

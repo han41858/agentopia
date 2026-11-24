@@ -51,6 +51,46 @@ test.describe('왕국 기본 표시', () => {
     ).toHaveText(['#2', '#3']);
   });
 
+  test('두 모드에서 PR·이슈 아이콘은 원래 제목을 툴팁으로 표시한다', async ({
+    page,
+  }) => {
+    await openWorld(page);
+    const kingdom = page.getByRole('region', { name: 'alpha' });
+    const markers = [
+      ['이슈 #4', /^이슈 #4 · /],
+      ['이슈 #1', /^이슈 #1 · /],
+      ['PR #12', /^PR #12 · /],
+    ] as const;
+
+    for (const mode of ['월드 모드', '간단 모드']) {
+      if (mode === '간단 모드') {
+        await page.getByRole('button', { name: mode }).click();
+      }
+      for (const [id, name] of markers) {
+        const marker = kingdom.getByRole('button', { name });
+        await expect(marker.locator('[title]')).toHaveCount(0);
+        await marker.click();
+
+        const dialog = page.getByRole('dialog', { name: id, exact: true });
+        const heading = dialog.getByRole('heading').first();
+        await expect(heading).toBeVisible();
+        const originalTitle = await heading.textContent();
+        await expect(marker).toHaveAttribute(
+          'title',
+          `${id} · ${originalTitle}`,
+        );
+
+        await dialog.getByRole('button', { name: '닫기' }).click();
+        await expect(dialog).toBeHidden();
+      }
+
+      const working = kingdom.getByRole('button', { name: /^PR #11 · / });
+      await expect(working).toHaveAccessibleName(/Codex · 개발 중/);
+      await expect(working.locator('.adventurer').first()).toBeAttached();
+      await expect(working.locator('[title]')).toHaveCount(0);
+    }
+  });
+
   test('기본 파티 구성 범례를 보여 준다', async ({ page }) => {
     await openWorld(page);
     await expect(
