@@ -182,6 +182,10 @@ export async function formatChanges(changes, work) {
   return result;
 }
 
+function isInspectable(path) {
+  return isEditable(path) || path === 'AGENTS.md' || path === 'e2e/github.ts';
+}
+
 export function snapshot(base, head) {
   const git = (...args) =>
     execFileSync('git', args, { encoding: 'utf8', maxBuffer, timeout: 30_000 });
@@ -228,7 +232,7 @@ export function snapshot(base, head) {
     inspect(name, input) {
       if (name === 'read_diff') return outputPage(diff(), input.line, 120);
       if (name === 'read_file' || name === 'find_in_file') {
-        if (!isEditable(input.path) && input.path !== 'AGENTS.md')
+        if (!isInspectable(input.path))
           return 'Path outside the allowed source and documentation.';
         const source = read(input.path);
         if (name === 'find_in_file') {
@@ -251,7 +255,7 @@ export function snapshot(base, head) {
       }
       const paths = [...files.keys()].filter(
         (path) =>
-          isEditable(path) &&
+          isInspectable(path) &&
           path.toLowerCase().includes(input.query.toLowerCase()),
       );
       const offset = Math.max(0, input.offset);

@@ -36,6 +36,18 @@ export function replayLine(base, head, target) {
   const edits = [{ path, before, after: edited[index] }];
   resolveEdits(edits, from);
   const [change] = resolveEdits(edits, to);
+  const hasConflictMarker = lines(change.text).some((line, index) => {
+    const text = line.replace(/\r?\n$/, '');
+    // Markdown underlines and empty table cells can be identical to bare separators.
+    if (
+      path.endsWith('.md') &&
+      /^(?:={7}|\|{7})$/.test(text) &&
+      line === latest[index]
+    )
+      return false;
+    return /^(?:<{7}|={7}|>{7}|\|{7})(?: |$)/.test(text);
+  });
+  if (hasConflictMarker) throw new Error('충돌 표식이 남아 있습니다.');
   const dir = mkdtempSync(join(tmpdir(), 'agentopia-index-'));
   try {
     const env = { ...process.env, GIT_INDEX_FILE: join(dir, 'index') };

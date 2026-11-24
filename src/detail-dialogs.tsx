@@ -3,8 +3,12 @@ import { heritageTier } from './heritage-scale.ts';
 import { WorldArt } from './world-art.tsx';
 import { useState } from 'react';
 import { ChevronRight, ExternalLink, Trash2, X } from 'lucide-react';
-import type { IssueRun, PullQuest, Quest, Region } from '../server/model.ts';
-import { agentNames } from './characters.tsx';
+import type {
+  WorkflowRunRecord,
+  PullQuest,
+  Quest,
+  Region,
+} from '../server/model.ts';
 import { facilities, FacilityGlyph } from './facility-art.tsx';
 import { facilityKind, isCurrentFacility } from './facility-kind.ts';
 import { heritageBuildings } from './heritage-arc.tsx';
@@ -21,41 +25,45 @@ import {
   IssuePullEntries,
 } from './activity-browser.tsx';
 import type { IssueActivityKind } from './activity-browser.tsx';
-import './issue-actions.css';
+import './workflow-runs.css';
 
-function IssueActions({
+function WorkflowRuns({
   runs,
   evidenceUrl,
 }: {
-  runs: IssueRun[];
+  runs: WorkflowRunRecord[];
   evidenceUrl?: string;
 }) {
   if (!runs.length) return null;
 
   return (
-    <section className="issue-actions" aria-label="GitHub Actions">
+    <section className="workflow-runs" aria-label="GitHub Actions">
       <h4>GitHub Actions</h4>
       <ul
-        className="issue-actions-list"
+        className="workflow-runs-list"
         aria-label="GitHub Actions 실행 목록"
         tabIndex={0}
       >
         {runs.map(({ url, title, status, startedAt }) => (
-          <li key={url} className="issue-action-row">
-            <div className="issue-action-meta">
-              {startedAt && Number.isFinite(Date.parse(startedAt)) ? (
-                <time dateTime={startedAt}>
-                  {releaseTime.format(new Date(startedAt))} KST
-                </time>
-              ) : (
-                <span>—</span>
-              )}
-              <span className="issue-action-status">{status || '—'}</span>
-              {url === evidenceUrl && <span>근거</span>}
-            </div>
-            <a href={url} target="_blank" rel="noreferrer">
+          <li key={url} className="workflow-run-row">
+            {startedAt && Number.isFinite(Date.parse(startedAt)) ? (
+              <time dateTime={startedAt}>
+                {releaseTime.format(new Date(startedAt))} KST
+              </time>
+            ) : (
+              <span>—</span>
+            )}
+            <span
+              className="workflow-run-status"
+              data-run-status={status}
+              title={status || undefined}
+            >
+              {status || '—'}
+            </span>
+            {url === evidenceUrl && <span>근거</span>}
+            <a href={url} title={title} target="_blank" rel="noreferrer">
               <span>{title}</span>
-              <ExternalLink size={14} aria-hidden="true" />
+              <ExternalLink size={11} aria-hidden="true" />
             </a>
           </li>
         ))}
@@ -111,7 +119,7 @@ export function QuestDetail({
       close={close}
     >
       <h3>{quest.title}</h3>
-      {alerts.has(quest.stage) && <Badge stage={quest.stage} />}
+      {quest.stage === 'failed' && <Badge stage={quest.stage} />}
       {quest.stateReason === 'not_planned' && (
         <p>GitHub 종료 사유 · 작업하지 않기로 함</p>
       )}
@@ -122,8 +130,22 @@ export function QuestDetail({
           {quest.detail && <p>{quest.detail}</p>}
         </div>
       )}
-      {evidence && !evidenceRun && <OutLink item={evidence} />}
-      <IssueActions runs={runs} evidenceUrl={evidenceRun?.url} />
+      {evidence && !evidenceRun && (
+        <OutLink
+          item={evidence}
+          statusBadge={
+            evidence.title === 'GitHub Actions 상태 기록' && evidence.status ? (
+              <span
+                className="workflow-run-status"
+                data-automation-status={evidence.status}
+              >
+                {evidence.status}
+              </span>
+            ) : undefined
+          }
+        />
+      )}
+      <WorkflowRuns runs={runs} evidenceUrl={evidenceRun?.url} />
       {quest.review && (
         <p>
           현재 커밋의 AI 리뷰 결과 <strong>{quest.review}</strong>
@@ -180,8 +202,6 @@ export function PullDetail({
 }) {
   const kind = facilityKind(pull.title);
   const iconLabel = facilities[kind].name + (pull.draft ? ' · 초안 PR' : '');
-  const author = pull.author && agentNames[pull.author];
-  const reviewer = pull.reviewer && agentNames[pull.reviewer];
   const { activity, status } = useActivitySummary({
     region: region.slug,
     token,
@@ -218,7 +238,12 @@ export function PullDetail({
       close={close}
     >
       <h3>{pull.title}</h3>
-      <PullStatus pull={pull} />
+      <PullStatus pull={pull} detail />
+      {pull.review && (
+        <p>
+          AI 리뷰 결과 <strong>{pull.review}</strong>
+        </p>
+      )}
       {status && <small role="status">{status}</small>}
       {entries}
       {!!pull.issues?.length && (
@@ -245,20 +270,18 @@ export function PullDetail({
           ))}
         </ul>
       )}
-      {author && <p>작성 · {author}</p>}
-      {reviewer && (
-        <p>
-          리뷰 기록 · {reviewer} {pull.review}
-        </p>
-      )}
-      {pull.runs.map((run) => (
-        <OutLink key={run.url} item={run} />
-      ))}
+      <WorkflowRuns runs={pull.runs} />
     </Dialog>
   );
 }
 
-export function PullStatus({ pull }: { pull: PullQuest }) {
+export function PullStatus({
+  pull,
+  detail = false,
+}: {
+  pull: PullQuest;
+  detail?: boolean;
+}) {
   if (pull.cancelled)
     return (
       <span className="badge idle">
@@ -267,7 +290,7 @@ export function PullStatus({ pull }: { pull: PullQuest }) {
     );
   if (pull.stage === 'idle') return null;
   return alerts.has(pull.stage) ||
-    pull.stage === 'ci' ||
+    (!detail && pull.stage === 'ci') ||
     pull.stage === 'complete' ? (
     <Badge stage={pull.stage} label={pullStatus(pull)} />
   ) : (
@@ -338,8 +361,8 @@ export function PlazaDetail({
         <p>조회된 PR이 없습니다.</p>
       )}
       {facilityHistory.length > 0 && (
-        <section className="facility-history" aria-label="시설 이력">
-          <h4>시설 이력</h4>
+        <section className="facility-history" aria-label="작업 이력">
+          <h4>작업 이력</h4>
           <FacilityRows entries={facilityHistory} openPull={openPull} />
           <OutLink
             item={{
@@ -420,29 +443,19 @@ export function RegionDetail({
   return (
     <Dialog
       title={region.slug}
+      titleHref={`https://github.com/${region.slug}`}
+      showLinkIcon={false}
       className="palace-dialog"
       close={close}
       headingActions={
-        <>
-          <a
-            className="icon-button"
-            href={`https://github.com/${region.slug}`}
-            target="_blank"
-            rel="noreferrer"
-            aria-label="저장소로 이동"
-            title="저장소로 이동"
-          >
-            <ExternalLink size={18} aria-hidden="true" />
-          </a>
-          <button
-            className="icon-button remove-region"
-            onClick={() => setConfirmRemoval(true)}
-            aria-label="월드맵에서 제거"
-            title="월드맵에서 제거"
-          >
-            <Trash2 size={18} aria-hidden="true" />
-          </button>
-        </>
+        <button
+          className="icon-button remove-region"
+          onClick={() => setConfirmRemoval(true)}
+          aria-label="월드맵에서 제거"
+          title="월드맵에서 제거"
+        >
+          <Trash2 size={18} aria-hidden="true" />
+        </button>
       }
     >
       {snapshot?.error && <p className="fetch-error">{snapshot.error}</p>}
@@ -458,7 +471,7 @@ export function RegionDetail({
       {history.length > 0 && (
         <>
           <h4>
-            왕국 배포 기록 <small>(KST)</small>
+            배포 기록 <small>(KST)</small>
           </h4>
           <div className="release-history">
             {history.slice(0, visibleCount).map((release) => {

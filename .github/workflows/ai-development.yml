@@ -10,6 +10,10 @@ on:
         description: '재개할 이슈 번호'
         required: true
         type: number
+      review_note:
+        description: '수동 재개 시 리뷰어가 재확인할 오류와 재현 조건 (선택)'
+        required: false
+        type: string
       recovery_run:
         description: '완료 단계가 재개할 검토 실행 번호'
         required: false
@@ -17,6 +21,11 @@ on:
 
       ci_feedback:
         description: '완료 단계에서 확인한 현재 HEAD의 CI 오류'
+        required: false
+        type: string
+
+      ci_blocker:
+        description: '자동 수정 위치를 확인하지 못한 CI 검사와 실행 링크'
         required: false
         type: string
 
@@ -36,6 +45,7 @@ jobs:
     environment: ai-development
     permissions:
       contents: read
+      actions: read # Verify the Environment deployment branch policy.
       issues: write
       pull-requests: write # Post the review comment on the draft PR.
     outputs:
@@ -45,6 +55,10 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
+      - name: Verify the AI environment branch policy
+        run: bash .github/scripts/check-ai-environment.sh
+        env:
+          GH_TOKEN: ${{ github.token }}
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: 24

@@ -79,7 +79,7 @@ svg {
   margin-top: 4px;
 }
 .world-header,
-.world-controls {
+.header-tools {
   display: flex;
   align-items: center;
 }
@@ -87,22 +87,44 @@ svg {
   --header-button-size: 38px;
   gap: 12px;
 }
+.header-tools,
 .world-controls {
   flex: none;
   gap: 6px;
+}
+.world-controls {
+  position: relative;
+  display: grid;
+  grid-template-areas: 'mode add token refresh';
+  align-items: center;
+}
+.world-controls > .mode-switch {
+  grid-area: mode;
+}
+.world-controls > .add-repository-button {
+  grid-area: add;
+}
+.world-controls > .ticket-button {
+  grid-area: token;
+}
+.world-controls > .refresh-button,
+.refresh-usage {
+  grid-area: refresh;
+}
+.refresh-usage {
+  /* Attach usage to the refresh cell without changing the row height or tab order. */
+  position: absolute;
+  top: 100%;
+  right: 0;
+  left: 0;
 }
 .world-heading {
   --crest-size: 42px;
   display: flex;
   flex: 1;
-  flex-wrap: wrap;
   align-items: center;
-  align-content: flex-start;
   gap: 10px;
-  min-width: var(--crest-size);
   height: var(--crest-size);
-  /* Clip the entire title when it wraps below the crest. */
-  overflow: hidden;
 }
 .crest {
   flex: none;
@@ -138,7 +160,8 @@ svg {
 }
 .add-repository-button,
 .ticket-button,
-.refresh-button {
+.refresh-button,
+.header-bookmark {
   width: var(--header-button-size);
   height: var(--header-button-size);
   padding: 0;
@@ -525,7 +548,8 @@ svg {
 .expedition-legend .claude {
   color: #ffbf9e;
 }
-.refresh-button {
+.refresh-button,
+.header-bookmark-face {
   position: relative;
   isolation: isolate;
   overflow: hidden;
@@ -536,8 +560,17 @@ svg {
   background: #15212f;
   color: #f2cd93;
 }
-.refresh-button:hover {
+.refresh-button:hover,
+.header-bookmark:hover .header-bookmark-face {
   border-color: var(--gold);
+}
+.header-bookmark {
+  /* Keep the shared countdown running across breakpoint and disclosure changes. */
+  position: absolute;
+  visibility: hidden;
+  flex: none;
+  border: 0;
+  background: none;
 }
 .refresh-button[data-warning='true'] {
   color: #ffb6ad;
@@ -1214,11 +1247,6 @@ svg {
   font-variant-numeric: tabular-nums;
 }
 
-.refresh-control {
-  display: grid;
-  justify-items: center;
-  position: relative;
-}
 .world-header:has(.github-usage) {
   padding-bottom: 19px;
 }
@@ -1414,8 +1442,15 @@ svg {
 .pull-dialog .dialog-title-link [role='img'] {
   display: inline-flex;
 }
+.issue-dialog .dialog-heading .activity-counters,
+.issue-dialog .dialog-heading .activity-counter {
+  color: inherit;
+}
 .issue-dialog .dialog-heading .activity-counter {
   background: transparent;
+}
+.issue-dialog .dialog-heading .activity-counter svg {
+  stroke: currentColor;
 }
 .pull-dialog .dialog-title-link img {
   width: 28px;
@@ -1547,6 +1582,108 @@ svg {
   }
   .mode-switch-option {
     width: var(--header-button-size);
+  }
+}
+
+@media (max-width: 640px) {
+  .world-header {
+    --header-button-size: 44px;
+    position: relative;
+    z-index: 10;
+    min-height: var(--header-button-size);
+  }
+  .world-header:has(.github-usage) {
+    padding-bottom: 0;
+  }
+  .header-tools {
+    --header-tool-gap: 4px;
+    --header-tool-duration: 160ms;
+    position: absolute;
+    top: 50%;
+    right: calc(-1 * clamp(12px, 3vw, 32px));
+    transform: translateY(-50%);
+    pointer-events: none;
+  }
+  .header-tools,
+  .world-controls {
+    gap: var(--header-tool-gap);
+  }
+  .world-controls {
+    --tools-reveal-edge: 100%;
+    grid-template-areas: 'refresh mode add token';
+    isolation: isolate;
+    visibility: hidden;
+    /* Reveal the button row behind the bookmark without clipping usage below it. */
+    clip-path: polygon(
+      var(--tools-reveal-edge) 0,
+      100% 0,
+      100% calc(100% + 100vh),
+      -100vw calc(100% + 100vh),
+      -100vw 100%,
+      var(--tools-reveal-edge) 100%
+    );
+  }
+  .world-controls::before {
+    content: '';
+    position: absolute;
+    z-index: -1;
+    inset: 0 0 0 calc(-1 * var(--header-tool-gap));
+    background: #15212f;
+    pointer-events: none;
+  }
+  .refresh-usage .github-usage-tooltip {
+    /* Let the tooltip extend under the three tools to the right of refresh. */
+    right: calc(-3 * (var(--header-button-size) + var(--header-tool-gap)));
+  }
+  .header-bookmark {
+    position: relative;
+    z-index: 1;
+    left: calc(100% - var(--header-button-size));
+    visibility: visible;
+    pointer-events: auto;
+  }
+  .header-bookmark-face {
+    /* Keep the face at 75% in both states without shrinking the hit area. */
+    position: absolute;
+    inset: 0 0 0 25%;
+    pointer-events: none;
+  }
+  .header-bookmark-face > svg,
+  .world-controls > button:not(.mode-switch) > svg {
+    width: 20px;
+    height: 20px;
+  }
+  .header-bookmark:focus-visible {
+    outline: none;
+  }
+  .header-bookmark:focus-visible .header-bookmark-face {
+    outline: 2px solid #f0d18f;
+    outline-offset: -4px;
+  }
+  .world-controls > button:focus-visible {
+    outline-offset: -4px;
+  }
+  .header-tools[data-open='true'] .world-controls {
+    --tools-reveal-edge: calc(-1 * var(--header-tool-gap));
+    visibility: visible;
+    pointer-events: auto;
+  }
+  .header-tools[data-open='true'] .header-bookmark {
+    left: 0;
+  }
+  .header-tools[data-open='true'] .header-bookmark .refresh-fill {
+    visibility: hidden;
+  }
+}
+
+@media (max-width: 640px) and (prefers-reduced-motion: no-preference) {
+  .header-bookmark {
+    transition: left var(--header-tool-duration) ease-out;
+  }
+  .world-controls {
+    transition:
+      clip-path var(--header-tool-duration) ease-out,
+      visibility var(--header-tool-duration);
   }
 }
 

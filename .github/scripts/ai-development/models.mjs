@@ -21,7 +21,7 @@ const integer = { type: 'integer' };
 const nullableText = { anyOf: [string, { type: 'null' }] };
 
 export const developmentSchema = object({
-  status: { type: 'string', enum: ['completed', 'needs_human'] },
+  status: { type: 'string', enum: ['completed', 'in_progress', 'needs_human'] },
   title: string,
   summary: string,
   edits: {
@@ -439,6 +439,9 @@ export function createModels({
       } finally {
         clearTimeout(timer);
       }
+      const id = response.headers.get(isCodex ? 'x-request-id' : 'request-id');
+      const requestId =
+        id && /^[A-Za-z0-9_-]{1,100}$/.test(id) ? `, request_id=${id}` : '';
       const status = response.status;
       const retryAfter = response.headers.get('retry-after');
       if (!attempt && (status === 429 || status === 503 || status === 529)) {
@@ -449,9 +452,11 @@ export function createModels({
         }
       }
       throw Object.assign(
-        new Error(`${name} API HTTP ${status}. (${stage}, ${rejectionReason})`),
+        new Error(
+          `${name} API HTTP ${status}. (${stage}, ${rejectionReason}${requestId})`,
+        ),
         {
-          diagnostic: `${name} API HTTP ${status} (${stage}, ${rejectionReason})`,
+          diagnostic: `${name} API HTTP ${status} (${stage}, ${rejectionReason}${requestId})`,
           requestRejected: [400, 401, 403, 404, 422, 429].includes(status),
         },
       );
@@ -482,14 +487,13 @@ export function createModels({
         mode === 'review' ? (limits.reviewTurns ?? limits.turns) : limits.turns;
       const reviewFormat =
         'Keep the Korean summary under 400 characters. Use at most 6 findings, with each string under 250 characters and a positive line number. pass requires zero findings; changes_requested requires at least one. For needs_human, identify the concrete blocker.';
-      const developmentFormat = `Return a nonempty Korean summary of at most ${developmentSummaryLimit} UTF-16 code units and at most ${limits.edits} exact edits. Use a single-line GitMoji Korean title of at most 100 UTF-16 code units. Use the read tools for intermediate checks. Reserve needs_human for a blocker that requires a decision or information from the user. If the full change cannot fit safely, return needs_human with a concrete reason and no edits.`;
+      const developmentFormat = `Return a nonempty Korean summary of at most ${developmentSummaryLimit} UTF-16 code units and at most ${limits.edits} exact edits. Use a single-line GitMoji Korean title of at most 100 UTF-16 code units. For unfinished development use in_progress; no partial edits will be published. Use the read tools for intermediate checks. Reserve needs_human for a blocker that requires a decision or information from the user. If the full change cannot fit safely, return needs_human with a concrete reason and no edits.`;
       const taskInstructions =
         instructions +
         '\n' +
         (mode === 'review' ? reviewFormat : developmentFormat);
       let correction;
       let promptedForSpec = false;
-      let resumedCheckpoint = false;
       let reviewCanPass = true;
       const missingBlocker =
         '자동화가 사람 확인을 요청했지만 구체적인 중단 사유를 제공하지 않았습니다.';
@@ -509,9 +513,7 @@ export function createModels({
           limits.toolCallsTotal - toolCalls,
         );
         const requireResult =
-          remainingReads === 0 ||
-          finalTurn ||
-          (mode === 'review' && turn === turnLimit - 1);
+          remainingReads === 0 || finalTurn || turn === turnLimit - 1;
         const turnInstructions = requireResult
           ? `${taskInstructions}
 Return the final structured result now. If evidence is insufficient, return needs_human with the specific blocker.`
@@ -681,12 +683,15 @@ API requests remaining, including this one: ${turnLimit - turn + 1}. Read tools 
           result = parseJSON(text);
           if (correction === 'blocker' && result?.status !== 'needs_human')
             return unexplainedStop;
-          if (
-            result?.status === 'needs_human' &&
-            isCheckpoint(result.summary)
-          ) {
-            if (resumedCheckpoint || finalTurn) return unexplainedStop;
-            resumedCheckpoint = true;
+          if (mode === 'development' && result?.status === 'in_progress') {
+            validateDevelopment(result, limits.edits, issueTitle);
+            if (finalTurn || correction)
+              return {
+                status: 'needs_human',
+                title: '',
+                summary: '개발 호출 한도 내에 최종 변경을 확인하지 못했습니다.',
+                edits: [],
+              };
             input.push(
               ...(isCodex
                 ? output
@@ -699,7 +704,7 @@ API requests remaining, including this one: ${turnLimit - turn + 1}. Read tools 
               {
                 role: 'user',
                 content:
-                  'Continue from this intermediate checkpoint. Use the remaining read tools when available, or provide the final result. If you need a human decision, describe the concrete blocker.',
+                  'Continue in this conversation. Only a complete, validated final set of edits can be published.',
               },
             );
             continue;
@@ -707,6 +712,7 @@ API requests remaining, including this one: ${turnLimit - turn + 1}. Read tools 
           if (
             result?.status === 'needs_human' &&
             (typeof result.summary !== 'string' ||
+              isCheckpoint(result.summary) ||
               !/[\p{L}\p{N}]/u.test(result.summary))
           ) {
             if (finalTurn) return unexplainedStop;

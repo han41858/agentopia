@@ -1,4 +1,8 @@
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { test } from 'node:test';
 import {
   formatChanges,
@@ -149,17 +153,42 @@ test('syntax failures report file and parser position without disclosing source'
   }
 });
 
-test('literal lookup locates UI text without counting as a full UI spec read', () => {
-  const work = gitSnapshot('HEAD', 'HEAD');
-  assert.match(
-    work.inspect('find_in_file', {
-      path: 'src/detail-dialogs.tsx',
-      text: '시설 이력',
-    }),
-    /\d+: .*시설 이력/,
+test('literal lookup locates UI text without counting as a full UI spec read', (t) => {
+  const previous = process.cwd();
+  const directory = mkdtempSync(join(tmpdir(), 'agentopia-lookup-'));
+  t.after(() => {
+    process.chdir(previous);
+    rmSync(directory, { recursive: true, force: true });
+  });
+  process.chdir(directory);
+  mkdirSync('e2e');
+  const path = 'e2e/example.spec.ts';
+  writeFileSync(
+    path,
+    '// Example UI assertion\nexpect(title).toHaveText("예시 제목");\n',
   );
-  work.inspect('find_in_file', { path: 'e2e/dialogs.spec.ts', text: 'expect' });
-  assert.equal(work.needsUiSpec(['src/detail-dialogs.tsx']), true);
+  execFileSync('git', ['init', '--quiet']);
+  writeFileSync('e2e/github.ts', '// shared readiness helper');
+  execFileSync('git', ['add', path, 'e2e/github.ts']);
+  const tree = execFileSync('git', ['write-tree'], { encoding: 'utf8' }).trim();
+  const work = gitSnapshot(tree, tree);
+  assert.equal(
+    work.inspect('find_in_file', { path, text: '예시 제목' }),
+    '2: expect(title).toHaveText("예시 제목");',
+  );
+  assert.match(
+    work.inspect('read_file', { path: 'e2e/github.ts', line: 1 }),
+    /shared readiness helper/,
+  );
+  assert.throws(
+    () =>
+      resolveEdits(
+        [{ path: 'e2e/github.ts', before: 'shared', after: 'changed' }],
+        work,
+      ),
+    /허용 범위/,
+  );
+  assert.equal(work.needsUiSpec([path]), true);
   assert.match(
     work.inspect('find_in_file', {
       path: '.github/workflows/ci.yml',

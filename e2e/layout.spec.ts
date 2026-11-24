@@ -1,6 +1,6 @@
 import type { Locator, Page } from '@playwright/test';
 import { alpha, noPlaza } from './fixtures.ts';
-import { openWorld } from './github.ts';
+import { mockGitHub, openWorld, seedSettings } from './github.ts';
 import { expect, test } from './test.ts';
 
 type Box = { x: number; y: number; width: number; height: number };
@@ -12,6 +12,13 @@ function boxes(locator: Locator) {
       return { x, y, width, height };
     }),
   );
+}
+
+async function expectUsageBelowRefresh(page: Page) {
+  const [refresh] = await boxes(page.locator('.refresh-button'));
+  const [usage] = await boxes(page.locator('.refresh-usage'));
+  expect(usage.y).toBeCloseTo(refresh.y + refresh.height, 1);
+  expect(usage.x + usage.width).toBeCloseTo(refresh.x + refresh.width, 1);
 }
 
 function overlaps(a: Box, b: Box) {
@@ -82,7 +89,18 @@ for (const width of [1280, 390, 320]) {
     });
 
     test.beforeEach(async ({ page }) => {
-      await openWorld(page, [alpha, noPlaza]);
+      if (touch) {
+        await mockGitHub(page);
+        await seedSettings(page, [alpha, noPlaza]);
+        await page.goto('/');
+        // 도구를 펼치지 않고 초기 갱신이 끝날 때까지 기다립니다.
+        await expect(page.locator('.refresh-button')).toHaveAttribute(
+          'aria-busy',
+          'false',
+        );
+      } else {
+        await openWorld(page, [alpha, noPlaza]);
+      }
       await expect(page.locator('.heritage-slot')).toHaveCount(3);
       expect(
         await page.evaluate(() => matchMedia('(pointer: coarse)').matches),
@@ -98,7 +116,11 @@ for (const width of [1280, 390, 320]) {
       );
       expect(overflow).toBeLessThanOrEqual(0);
 
-      const controls = await boxes(page.locator('.world-controls button'));
+      const controls = await boxes(
+        page.locator(
+          '.header-bookmark:visible, .world-controls button:visible',
+        ),
+      );
       const palaces = await boxes(page.locator('.kingdom'));
       const facilities = await boxes(page.locator('.facility-marker'));
       const monsters = await boxes(page.locator('.monster-marker'));
@@ -168,7 +190,11 @@ for (const width of [1280, 390, 320]) {
         page,
       }) => {
         for (const mode of ['world', 'simple']) {
-          if (mode === 'simple') await page.locator('.mode-switch').tap();
+          if (mode === 'simple') {
+            await page.getByRole('button', { name: '상단 도구 열기' }).tap();
+            await page.locator('.mode-switch').tap();
+            await page.getByRole('button', { name: '상단 도구 접기' }).tap();
+          }
           await expect(page.locator('[data-display-mode]')).toHaveAttribute(
             'data-display-mode',
             mode,
@@ -198,36 +224,202 @@ for (const width of [1280, 390, 320]) {
         }
       });
 
-      test('두 모드에서 헤더 버튼이 로고 오른쪽 첫 줄에 정렬된다', async ({
+      test('두 모드에서 제목과 지도를 고정하고 같은 줄에 도구를 펼친다', async ({
         page,
       }) => {
+        const title = page.getByRole('heading', { name: 'Agentopia' });
+        const open = page.getByRole('button', { name: '상단 도구 열기' });
+        const close = page.getByRole('button', { name: '상단 도구 접기' });
+        const controls = page.locator('.world-controls');
+        const map = page.locator('.map-viewport');
+        const bookmarkFace = page.locator('.header-bookmark-face');
+
         for (const mode of ['world', 'simple']) {
-          if (mode === 'simple') await page.locator('.mode-switch').tap();
           await expect(page.locator('[data-display-mode]')).toHaveAttribute(
             'data-display-mode',
             mode,
           );
+          await expect(open).toHaveAttribute('aria-expanded', 'false');
+          await expect(controls).toBeHidden();
+          await expect(title).toBeInViewport({ ratio: 1 });
+          const [heading] = await boxes(title);
           const [crest] = await boxes(page.locator('.crest'));
-          const buttons = await boxes(
-            page.locator('.world-controls > button, .refresh-button'),
+          const [collapsedHit] = await boxes(open);
+          const [collapsedFace] = await boxes(bookmarkFace);
+          const [collapsedIcon] = await boxes(open.locator('svg'));
+          const [viewport] = await boxes(map);
+          const centerY = collapsedHit.y + collapsedHit.height / 2;
+          expect(heading.y + heading.height / 2).toBeCloseTo(
+            crest.y + crest.height / 2,
+            0,
           );
-          expect(buttons).toHaveLength(4);
-          for (const button of buttons) {
-            expect(button.x).toBeGreaterThanOrEqual(crest.x + crest.width);
-            expect(button.y + button.height / 2).toBeCloseTo(
-              crest.y + crest.height / 2,
-              0,
+          expect(centerY).toBeCloseTo(crest.y + crest.height / 2, 1);
+          expect(heading.x + heading.width).toBeLessThan(collapsedHit.x);
+          expect(collapsedHit.x + collapsedHit.width).toBe(width);
+          expect(collapsedHit.width).toBe(touchTarget);
+          expect(collapsedHit.height).toBe(touchTarget);
+          expect(collapsedFace.x + collapsedFace.width).toBe(width);
+          expect(collapsedFace.y).toBe(collapsedHit.y);
+          expect(collapsedFace.height).toBe(collapsedHit.height);
+          expect(collapsedIcon.x + collapsedIcon.width / 2).toBeCloseTo(
+            collapsedFace.x + collapsedFace.width / 2,
+            1,
+          );
+          expect(collapsedIcon.y + collapsedIcon.height / 2).toBeCloseTo(
+            centerY,
+            1,
+          );
+
+          // 표시 영역 왼쪽의 투명한 부분을 눌러 도구를 엽니다.
+          await page.touchscreen.tap(
+            Math.round((collapsedHit.x + collapsedFace.x) / 2),
+            Math.round(centerY),
+          );
+          await expect(close).toHaveAttribute('aria-expanded', 'true');
+          const buttons = page.locator(
+            '.header-bookmark, .world-controls > button',
+          );
+          await expect(buttons).toHaveCount(5);
+          for (const [index, name] of [
+            '상단 도구 접기',
+            '새로 고침',
+            '간단 모드',
+            '저장소 추가',
+            'GitHub 연결',
+          ].entries()) {
+            await expect(buttons.nth(index)).toHaveAccessibleName(name);
+          }
+          const row = await boxes(buttons);
+          const [expandedFace] = await boxes(bookmarkFace);
+          const refresh = row[1];
+          expect(collapsedFace.width).toBe(refresh.width * 0.75);
+          expect(expandedFace.width).toBe(collapsedFace.width);
+          expect(expandedFace.height).toBe(collapsedFace.height);
+          expect(expandedFace.y).toBe(row[0].y);
+          expect(expandedFace.x + expandedFace.width).toBe(
+            row[0].x + row[0].width,
+          );
+          expect(row[0].x).toBeLessThan(collapsedHit.x);
+          expect(row[4].x + row[4].width).toBe(width);
+          for (const [index, button] of row.entries()) {
+            expect(button.x).toBeGreaterThanOrEqual(
+              index ? row[index - 1].x + row[index - 1].width : 0,
             );
-            expect(button.height).toBe(buttons[0].height);
+            expect(button.y + button.height / 2).toBeCloseTo(centerY, 1);
             expect(button.x + button.width).toBeLessThanOrEqual(width);
+          }
+
+          const singles = page.locator(
+            '.header-bookmark, .world-controls > button:not(.mode-switch)',
+          );
+          for (const [index, button] of (await boxes(singles)).entries()) {
+            expect(button.width).toBe(collapsedHit.width);
+            expect(button.height).toBe(collapsedHit.height);
+            const single = singles.nth(index);
+            const face = index === 0 ? bookmarkFace : single;
+            await expect(single).toHaveCSS('padding', '0px');
+            await expect(face).toHaveCSS('border-width', '1px');
+            const [icon] = await boxes(single.locator('svg'));
+            expect(icon.width).toBe(collapsedIcon.width);
+            expect(icon.height).toBe(collapsedIcon.height);
+            const faceBox = index === 0 ? expandedFace : button;
+            expect(icon.x + icon.width / 2).toBeCloseTo(
+              faceBox.x + faceBox.width / 2,
+              1,
+            );
+            expect(icon.y + icon.height / 2).toBeCloseTo(centerY, 1);
+          }
+          await expectUsageBelowRefresh(page);
+          expect(await boxes(title)).toEqual([heading]);
+          expect(await boxes(map)).toEqual([viewport]);
+          expect(
+            await page.evaluate(
+              () =>
+                document.documentElement.scrollWidth -
+                document.documentElement.clientWidth,
+            ),
+          ).toBe(0);
+
+          // 펼친 상태에서도 표시 영역 왼쪽의 투명한 부분을 눌러 닫습니다.
+          await page.touchscreen.tap(
+            Math.round((row[0].x + expandedFace.x) / 2),
+            Math.round(centerY),
+          );
+          await expect(controls).toBeHidden();
+          expect(await boxes(open)).toEqual([collapsedHit]);
+          expect(await boxes(bookmarkFace)).toEqual([collapsedFace]);
+
+          await page.touchscreen.tap(
+            Math.round(collapsedFace.x + collapsedFace.width / 2),
+            Math.round(centerY),
+          );
+          await expect(controls).toBeVisible();
+          await page.touchscreen.tap(1, Math.round(centerY));
+          await expect(controls).toBeHidden();
+          expect(await boxes(open)).toEqual([collapsedHit]);
+          expect(await boxes(bookmarkFace)).toEqual([collapsedFace]);
+          expect(await boxes(title)).toEqual([heading]);
+          expect(await boxes(map)).toEqual([viewport]);
+          if (mode === 'world') {
+            await open.tap();
+            await page.locator('.mode-switch').tap();
+            await close.tap();
+            await expect(controls).toBeHidden();
           }
         }
       });
 
+      test('책갈피는 키보드로 열고 닫으며 설정 창은 한 번의 탭으로 열린다', async ({
+        page,
+      }) => {
+        const open = page.getByRole('button', { name: '상단 도구 열기' });
+        const close = page.getByRole('button', { name: '상단 도구 접기' });
+        const refresh = page.getByRole('button', { name: '새로 고침' });
+        const controls = page.locator('.world-controls');
+
+        await page.keyboard.press('Tab');
+        await expect(open).toBeFocused();
+        await page.keyboard.press('Tab');
+        expect(
+          await controls.evaluate((node) =>
+            node.contains(document.activeElement),
+          ),
+        ).toBe(false);
+        await open.focus();
+        await page.keyboard.press('Enter');
+        await expect(close).toBeFocused();
+        for (const name of [
+          '새로 고침',
+          '간단 모드',
+          '저장소 추가',
+          'GitHub 연결',
+        ]) {
+          await page.keyboard.press('Tab');
+          await expect(
+            page.getByRole('button', { name, exact: true }),
+          ).toBeFocused();
+        }
+        await page.keyboard.press('Escape');
+        await expect(open).toBeFocused();
+        await expect(refresh).toBeHidden();
+
+        for (const name of ['저장소 추가', 'GitHub 연결']) {
+          await open.tap();
+          await controls.getByRole('button', { name, exact: true }).tap();
+          const dialog = page.getByRole('dialog');
+          await expect(dialog).toBeVisible();
+          await expect(controls).toBeHidden();
+          await dialog.getByRole('button', { name: '닫기' }).tap();
+          await expect(dialog).toBeHidden();
+        }
+      });
+
       test('터치로 누르는 요소가 충분히 크다', async ({ page }) => {
+        const bookmark = page.locator('.header-bookmark');
+        await bookmark.tap();
         const targets = [
           ...(await boxes(
-            page.locator('.world-controls > button, .refresh-button'),
+            page.locator('.header-bookmark, .world-controls > button'),
           )),
           ...(await boxes(page.locator('.facility-marker'))),
           ...(await boxes(page.locator('.heritage-slot'))),
@@ -235,12 +427,13 @@ for (const width of [1280, 390, 320]) {
             page.locator('.branch-road-node[data-road-role="road"]'),
           )),
         ];
-        expect(targets).toHaveLength(4 + 4 + 3 + 4);
+        expect(targets).toHaveLength(5 + 4 + 3 + 4);
         for (const box of targets) {
           expect(Math.round(box.width)).toBeGreaterThanOrEqual(touchTarget);
           expect(Math.round(box.height)).toBeGreaterThanOrEqual(touchTarget);
         }
 
+        await bookmark.tap();
         await page.getByRole('button', { name: /PR #11/ }).tap();
         const counters = await boxes(
           page.getByRole('dialog').locator('.activity-counter'),
@@ -257,6 +450,36 @@ for (const width of [1280, 390, 320]) {
       }) => {
         const [option] = await boxes(page.locator('.mode-switch-option'));
         expect(option.height).toBeLessThan(touchTarget);
+        await expect(page.locator('.header-bookmark')).toBeHidden();
+        await expect(
+          page.getByRole('heading', { name: 'Agentopia' }),
+        ).toBeInViewport({ ratio: 1 });
+        const buttons = page.locator('.world-controls > button:visible');
+        await expect(buttons).toHaveCount(4);
+        const row = await boxes(buttons);
+        for (const [index, name] of [
+          '간단 모드',
+          '저장소 추가',
+          'GitHub 연결',
+          '새로 고침',
+        ].entries()) {
+          const button = buttons.nth(index);
+          await expect(button).toHaveAccessibleName(name);
+          if (index > 0) {
+            const previous = row[index - 1];
+            expect(row[index].x).toBeGreaterThanOrEqual(
+              previous.x + previous.width,
+            );
+          }
+          await page.keyboard.press('Tab');
+          await expect(button).toBeFocused();
+        }
+        await expectUsageBelowRefresh(page);
+        await page.getByRole('button', { name: '간단 모드' }).click();
+        await expect(page.locator('[data-display-mode]')).toHaveAttribute(
+          'data-display-mode',
+          'simple',
+        );
       });
     }
   });
