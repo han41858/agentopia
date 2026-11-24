@@ -361,12 +361,14 @@ function App() {
               title={toolsLabel}
               onClick={() => setToolsOpen(!toolsOpen)}
             >
-              {refreshFill}
-              {toolsOpen ? (
-                <ChevronRight size={20} aria-hidden="true" />
-              ) : (
-                <ChevronLeft size={20} aria-hidden="true" />
-              )}
+              <span className="header-bookmark-face">
+                {refreshFill}
+                {toolsOpen ? (
+                  <ChevronRight size={20} aria-hidden="true" />
+                ) : (
+                  <ChevronLeft size={20} aria-hidden="true" />
+                )}
+              </span>
             </button>
             <div
               id="world-controls"

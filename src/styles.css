@@ -549,7 +549,7 @@ svg {
   color: #ffbf9e;
 }
 .refresh-button,
-.header-bookmark {
+.header-bookmark-face {
   position: relative;
   isolation: isolate;
   overflow: hidden;
@@ -561,7 +561,7 @@ svg {
   color: #f2cd93;
 }
 .refresh-button:hover,
-.header-bookmark:hover {
+.header-bookmark:hover .header-bookmark-face {
   border-color: var(--gold);
 }
 .header-bookmark {
@@ -569,6 +569,8 @@ svg {
   position: absolute;
   visibility: hidden;
   flex: none;
+  border: 0;
+  background: none;
 }
 .refresh-button[data-warning='true'] {
   color: #ffb6ad;
@@ -1640,12 +1642,24 @@ svg {
     visibility: visible;
     pointer-events: auto;
   }
-  .header-bookmark > svg,
+  .header-bookmark-face {
+    /* Narrow only the visible face; the button keeps its full hit area. */
+    position: absolute;
+    inset: 0 0 0 50%;
+    pointer-events: none;
+  }
+  .header-bookmark-face > svg,
   .world-controls > button:not(.mode-switch) > svg {
     width: 20px;
     height: 20px;
   }
-  .header-bookmark:focus-visible,
+  .header-bookmark:focus-visible {
+    outline: none;
+  }
+  .header-bookmark:focus-visible .header-bookmark-face {
+    outline: 2px solid #f0d18f;
+    outline-offset: -4px;
+  }
   .world-controls > button:focus-visible {
     outline-offset: -4px;
   }
@@ -1654,7 +1668,8 @@ svg {
     visibility: visible;
     pointer-events: auto;
   }
-  .header-tools[data-open='true'] .header-bookmark {
+  .header-tools[data-open='true'] .header-bookmark,
+  .header-tools[data-open='true'] .header-bookmark-face {
     left: 0;
   }
   .header-tools[data-open='true'] .header-bookmark .refresh-fill {
@@ -1663,7 +1678,8 @@ svg {
 }
 
 @media (max-width: 640px) and (prefers-reduced-motion: no-preference) {
-  .header-bookmark {
+  .header-bookmark,
+  .header-bookmark-face {
     transition: left var(--header-tool-duration) ease-out;
   }
   .world-controls {
