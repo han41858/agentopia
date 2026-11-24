@@ -101,6 +101,93 @@ function outsideWall(page: Page, selector: string) {
   }, selector);
 }
 
+function heritageArtGaps(area: Locator) {
+  return area.evaluate(async (node) => {
+    const wall = node.querySelector<SVGSVGElement>('.kingdom-wall');
+    const shape = wall?.querySelector<SVGPathElement>('defs path');
+    const palace = node.querySelector<HTMLImageElement>('.kingdom-crest');
+    const heritage = [
+      ...node.querySelectorAll<HTMLImageElement>('.heritage-slot img'),
+    ];
+    if (!wall || !shape || !palace || !heritage.length)
+      throw new Error('성벽, 유산 또는 왕궁 그림을 찾지 못했습니다.');
+    await Promise.all([palace, ...heritage].map((image) => image.decode()));
+    // 스타일 변경 뒤 ResizeObserver가 성벽 경로를 갱신할 때까지 기다립니다.
+    await new Promise<void>((resolve) => {
+      requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+    });
+    const matrix = wall.getScreenCTM();
+    if (!matrix) throw new Error('성벽의 화면 좌표를 찾지 못했습니다.');
+    const inverse = matrix.inverse();
+
+    function paintedColumns(image: HTMLImageElement) {
+      const canvas = document.createElement('canvas');
+      const { width, height } = image;
+      canvas.width = width;
+      canvas.height = height;
+      const context = canvas.getContext('2d');
+      if (!context) throw new Error('그림의 투명 영역을 측정할 수 없습니다.');
+      context.drawImage(image, 0, 0, width, height);
+      const { data } = context.getImageData(0, 0, width, height);
+      const rect = image.getBoundingClientRect();
+      const columns = Array.from({ length: width }, (_, x) => {
+        let top = height;
+        let bottom = 0;
+        for (let y = 0; y < height; y++) {
+          if (data[(y * width + x) * 4 + 3] < 16) continue;
+          top = Math.min(top, y);
+          bottom = y + 1;
+        }
+        if (!bottom) return undefined;
+        return {
+          x: rect.left + ((x + 0.5) * rect.width) / width,
+          top: rect.top + (top * rect.height) / height,
+          bottom: rect.top + (bottom * rect.height) / height,
+        };
+      });
+      return { columns, rect };
+    }
+
+    const palaceArt = paintedColumns(palace);
+    let above = Infinity;
+    let below = Infinity;
+    for (const image of heritage) {
+      for (const column of paintedColumns(image).columns) {
+        if (!column) continue;
+        const point = new DOMPoint(column.x, column.top).matrixTransform(
+          inverse,
+        );
+        let low = 0;
+        let high = wall.viewBox.baseVal.height / 2;
+        // 경로 중심선 대신 6px 성벽 선의 안쪽을 보수적으로 측정합니다.
+        for (let step = 0; step < 12; step++) {
+          const y = (low + high) / 2;
+          const inside = [-3, 3].every((offset) =>
+            shape.isPointInFill(new DOMPoint(point.x + offset, y - 3)),
+          );
+          if (inside) high = y;
+          else low = y;
+        }
+        above = Math.min(above, point.y - high);
+
+        const palaceX = Math.floor(
+          ((column.x - palaceArt.rect.left) / palaceArt.rect.width) *
+            palaceArt.columns.length,
+        );
+        const palaceColumn = palaceArt.columns[palaceX];
+        if (palaceColumn)
+          below = Math.min(
+            below,
+            (palaceColumn.top - column.bottom) / matrix.d,
+          );
+      }
+    }
+    if (!Number.isFinite(above) || !Number.isFinite(below))
+      throw new Error('유산 그림 위아래의 간격을 측정하지 못했습니다.');
+    return { above, below };
+  });
+}
+
 // 터치 화면에서 누르는 요소의 최소 크기(src/styles.css의 --map-hit-size).
 const touchTarget = 44;
 
@@ -235,6 +322,86 @@ for (const width of [1280, 390, 320]) {
           return shape?.isPointInFill(point.matrixTransform(matrix));
         });
       expect(corner).toBe(false);
+    });
+
+    test('유산 그림 위아래 여백을 줄이고 빈 유산 행은 남기지 않는다', async ({
+      page,
+    }) => {
+      const area = page.locator('.kingdom-area:has(.heritage-slot)');
+      const gaps = await heritageArtGaps(area);
+      expect(gaps.above).toBeGreaterThan(0);
+      expect(gaps.below).toBeGreaterThan(0);
+
+      const emptyPalace = page.locator(
+        '.kingdom-area:not(:has(.heritage-slot)) > .kingdom',
+      );
+      expect(await emptyPalace.evaluate((node) => node.offsetTop)).toBe(25);
+
+      if (!touch) {
+        const previousSpacing = await page.addStyleTag({
+          content: `
+            .kingdom-area:has(.heritage-slot) { padding-top: 60px; }
+            .heritage-arc:not(:empty) { margin-bottom: 2px; }
+            .heritage-arc:not(:empty) + .kingdom { padding-block: 3px; }
+          `,
+        });
+        const previous = await heritageArtGaps(area);
+        await previousSpacing.evaluate((node) => node.remove());
+        for (const reduction of [
+          previous.above - gaps.above,
+          previous.below - gaps.below,
+        ]) {
+          expect(reduction).toBeGreaterThanOrEqual(4);
+          expect(reduction).toBeLessThanOrEqual(8);
+        }
+      }
+    });
+
+    test('최대 등급 유산 네 채가 성벽과 왕궁 그림을 침범하지 않는다', async ({
+      page,
+    }) => {
+      await page.route('**/api/github?**', async (route) => {
+        const params = new URL(route.request().url()).searchParams;
+        if (!params.has('heritage') || params.get('repo') !== alpha) {
+          await route.fallback();
+          return;
+        }
+        const record = { count: 100_000 };
+        await route.fulfill({
+          json: {
+            mergedPulls: record,
+            resolvedIssues: record,
+            reviews: record,
+            comments: record,
+          },
+        });
+      });
+      await page.reload();
+
+      const area = page.locator('.kingdom-area:has(.heritage-slot)');
+      const slots = area.locator('.heritage-slot');
+      await expect(slots).toHaveCount(4);
+      await expect(area.locator('.heritage-slot[data-tier="5"]')).toHaveCount(
+        4,
+      );
+      const gaps = await heritageArtGaps(area);
+      expect(gaps.above).toBeGreaterThan(0);
+      // 유산 그림의 아래쪽에 칠해지는 1px 그림자도 왕궁에 닿지 않습니다.
+      expect(gaps.below).toBeGreaterThan(1);
+
+      const slotBoxes = await boxes(slots);
+      expect(
+        overlappingPairs([
+          ...slotBoxes,
+          ...(await boxes(area.locator('.kingdom'))),
+        ]),
+      ).toEqual([]);
+      if (touch) {
+        for (const box of slotBoxes) {
+          expect(box.width).toBeGreaterThanOrEqual(touchTarget - 0.1);
+          expect(box.height).toBeGreaterThanOrEqual(touchTarget - 0.1);
+        }
+      }
     });
 
     test('상세 창이 화면 안에 들어온다', async ({ page }) => {
