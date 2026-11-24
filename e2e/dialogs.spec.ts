@@ -89,6 +89,9 @@ test.describe('상세 창', () => {
     const dialog = page.getByRole('dialog', { name: '이슈 #1' });
 
     const counters = dialog.getByRole('group', { name: '이슈 활동' });
+    const headingColor = await dialog
+      .locator('.dialog-heading')
+      .evaluate((node) => getComputedStyle(node).color);
     for (const name of [
       '고유 커밋 3개',
       '이슈 댓글 4개',
@@ -98,6 +101,8 @@ test.describe('상세 창', () => {
       const counter = counters.getByRole('button', { name, exact: true });
       await expect(counter).toBeVisible();
       await expect(counter).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+      await expect(counter).toHaveCSS('color', headingColor);
+      await expect(counter.locator('svg')).toHaveCSS('stroke', headingColor);
       await expect(counter).toHaveAttribute('aria-expanded', 'false');
     }
     expect(github.count('activity')).toBe(0);
@@ -113,8 +118,14 @@ test.describe('상세 창', () => {
     const issueComments = counters.getByRole('button', {
       name: '이슈 댓글 4개',
     });
-    await issueComments.click();
+    await issueComments.focus();
+    await expect(issueComments).toBeFocused();
+    await issueComments.press('Enter');
     await expect(issueComments).toHaveAttribute('aria-expanded', 'true');
+    await expect(issueComments).toHaveCSS(
+      'background-color',
+      'rgba(0, 0, 0, 0)',
+    );
     await expect(dialog.locator('.activity-entry')).toHaveCount(2);
     const issueComment = dialog.getByText('지도 개편 범위를 정리했습니다.');
     await expect(issueComment).toBeVisible();
@@ -183,7 +194,7 @@ test.describe('상세 창', () => {
     issue.runs = [];
 
     const failedRun = {
-      title: '실패한 CI',
+      title: '실패한 CI · 전체 실행 이름이 좁은 화면에서 말줄임되는 긴 작업',
       url: `${repoUrl}/actions/runs/201`,
       status: 'failure',
       startedAt: '2026-01-15T01:00:00Z',
@@ -202,7 +213,7 @@ test.describe('상세 창', () => {
         'in_progress',
         'cancelled',
         'skipped',
-        'success',
+        'future_status',
         'success',
       ].map((status, index) => ({
         title: `실행 ${index + 1}`,
@@ -286,6 +297,13 @@ test.describe('상세 창', () => {
     await expect(rows).toHaveCount(8);
     await expect(failedLink).toBeVisible();
     await expect(failedLink).toHaveCount(1);
+    await expect(failedLink).toHaveAccessibleName(failedRun.title);
+    await expect(failedLink).toHaveAttribute('title', failedRun.title);
+    const runName = failedLink.locator('span');
+    await expect(runName).toHaveCSS('text-overflow', 'ellipsis');
+    expect(
+      await runName.evaluate((node) => node.scrollWidth > node.clientWidth),
+    ).toBe(true);
     await expect(rows.first().getByText('근거', { exact: true })).toBeVisible();
     await expect(previousLink).toBeVisible();
     await expect(previousLink).toHaveAttribute('href', previousRun.url);
@@ -293,16 +311,47 @@ test.describe('상세 창', () => {
     const startedAt = rows.first().locator('time');
     await expect(startedAt).toHaveAttribute('datetime', failedRun.startedAt);
     await expect(startedAt).toHaveText(/2026.*1.*15.*10:00 KST/);
-    await expect(list.locator('.issue-action-status')).toHaveText([
+    const badges = list.locator('.issue-action-status');
+    await expect(badges).toHaveText([
       'failure',
       'success',
       'queued',
       'in_progress',
       'cancelled',
       'skipped',
-      'success',
+      'future_status',
       'success',
     ]);
+    const badgeColors = [
+      ['rgb(80, 38, 53)', 'rgb(255, 206, 215)'],
+      ['rgb(26, 64, 43)', 'rgb(192, 241, 210)'],
+      ['rgb(75, 56, 18)', 'rgb(255, 226, 160)'],
+      ['rgb(23, 57, 84)', 'rgb(197, 231, 255)'],
+      ['rgb(66, 52, 81)', 'rgb(234, 216, 255)'],
+      ['rgb(45, 59, 66)', 'rgb(216, 228, 233)'],
+      ['rgb(54, 50, 65)', 'rgb(236, 230, 244)'],
+    ];
+    for (const [index, [background, foreground]] of badgeColors.entries()) {
+      await expect(badges.nth(index)).toHaveCSS('background-color', background);
+      await expect(badges.nth(index)).toHaveCSS('color', foreground);
+    }
+    for (const row of await rows.all()) {
+      expect(
+        await row.evaluate((node) => {
+          const rowBox = node.getBoundingClientRect();
+          const boxes = Array.from(node.children, (child) =>
+            child.getBoundingClientRect(),
+          );
+          const center = boxes[0].top + boxes[0].height / 2;
+          return boxes.every(
+            (box, index) =>
+              Math.abs(box.top + box.height / 2 - center) < 1 &&
+              box.left >= (boxes[index - 1]?.right ?? rowBox.left) &&
+              box.right <= rowBox.right + 1,
+          );
+        }),
+      ).toBe(true);
+    }
 
     await expect(startedAt).toBeInViewport({ ratio: 1 });
     await expect(
@@ -330,6 +379,60 @@ test.describe('상세 창', () => {
       'href',
       `${repoUrl}/actions/runs/194`,
     );
+  });
+
+  test('몬스터: 자동화 단계와 실행 상태를 각각 표시한다', async ({ page }) => {
+    await mockGitHub(page);
+    await seedSettings(page, [alpha]);
+    const report = structuredClone(alphaReport);
+    const issue = report.quests.find((item) => item.number === 1)!;
+    const repoUrl = `https://github.com/${alpha}`;
+    issue.evidence = {
+      title: 'GitHub Actions 상태 기록',
+      url: `${repoUrl}/issues/1#issuecomment-120`,
+      status: 'reviewing',
+    };
+    issue.runs = [
+      {
+        title: 'CI',
+        url: `${repoUrl}/actions/runs/201`,
+        status: 'success',
+      },
+    ];
+    issue.activity = { ...issue.activity!, issueComments: 0 };
+    await page.route('**/api/github?**', async (route) => {
+      if (new URL(route.request().url()).searchParams.has('branches')) {
+        await route.fulfill({ json: report });
+      } else {
+        await route.fallback();
+      }
+    });
+    await page.goto('/');
+    await settled(page);
+    await page.getByRole('button', { name: /^이슈 #1 / }).click();
+
+    const dialog = page.getByRole('dialog', { name: '이슈 #1' });
+    const evidence = dialog.getByRole('link', {
+      name: /GitHub Actions 상태 기록.*reviewing/,
+    });
+    await expect(evidence).toHaveAttribute('href', issue.evidence.url);
+    const stage = evidence.locator('.issue-action-status');
+    await expect(stage).toHaveText('reviewing');
+    await expect(stage).toHaveCSS('background-color', 'rgb(23, 57, 84)');
+    await expect(stage).toHaveCSS('color', 'rgb(197, 231, 255)');
+    const runStatus = dialog
+      .getByRole('region', { name: 'GitHub Actions' })
+      .locator('.issue-action-status');
+    await expect(runStatus).toHaveText('success');
+    await expect(runStatus).toHaveCSS('background-color', 'rgb(26, 64, 43)');
+
+    const counter = dialog.getByRole('img', { name: '이슈 댓글 0개' });
+    const headingColor = await dialog
+      .locator('.dialog-heading')
+      .evaluate((node) => getComputedStyle(node).color);
+    await expect(counter).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+    await expect(counter).toHaveCSS('color', headingColor);
+    await expect(counter.locator('svg')).toHaveCSS('stroke', headingColor);
   });
 
   test('몬스터: 실패한 이슈는 사유를 보여 주고, 없는 집계는 이슈로 조회한다', async ({
