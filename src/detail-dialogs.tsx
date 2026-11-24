@@ -478,7 +478,7 @@ export function RegionDetail({
           <h4>
             배포 기록 <small>(KST)</small>
           </h4>
-          <section className="release-history" aria-label="배포 기록">
+          <div className="release-history">
             {history.slice(0, visibleCount).map((release) => {
               const status = release.status;
               return (
@@ -513,7 +513,7 @@ export function RegionDetail({
                 </a>
               );
             })}
-          </section>
+          </div>
           {visibleCount < history.length && (
             <button
               className="text-button"

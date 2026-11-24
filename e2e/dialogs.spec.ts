@@ -533,8 +533,7 @@ test.describe('상세 창', () => {
     await openWorld(page);
     await page.getByTitle('왕궁 · main').click();
     const dialog = page.getByRole('dialog', { name: alpha });
-    const history = dialog.getByRole('region', { name: '배포 기록' });
-    const rows = history.locator('.release-row');
+    const rows = dialog.locator('.release-row');
 
     await expect(
       dialog.getByRole('heading', { name: '배포 기록 (KST)', exact: true }),

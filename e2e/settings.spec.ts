@@ -73,10 +73,7 @@ test.describe('저장소 설정', () => {
     await dialog.getByRole('button', { name: '추가', exact: true }).click();
 
     await expect(page.getByRole('dialog', { name: alpha })).toBeVisible();
-    const mapRegions = page
-      .getByRole('region')
-      .and(page.locator(':not(dialog *, [role="dialog"] *)'));
-    await expect(mapRegions).toHaveCount(2); // 지도 영역 + 왕국 1개
+    await expect(page.getByRole('region')).toHaveCount(2); // 지도 영역 + 왕국 1개
     expect(github.count('repository')).toBe(0);
   });
 
