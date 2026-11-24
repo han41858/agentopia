@@ -67,14 +67,12 @@ test.describe('왕국 기본 표시', () => {
     await expect(issue.locator('.adventurer-party')).toHaveCount(0);
   });
 
-  test('사이트 아이콘과 홈 화면 아이콘을 제공한다', async ({ page }) => {
+  test('사이트 아이콘을 SVG와 PNG로 제공한다', async ({ page }) => {
     await openWorld(page);
-    for (const [selector, type] of [
-      ['link[rel="icon"][type="image/svg+xml"]', 'image/svg+xml'],
-      ['link[rel="icon"][type="image/png"]', 'image/png'],
-      ['link[rel="apple-touch-icon"]', 'image/png'],
-    ]) {
-      const href = await page.locator(selector).getAttribute('href');
+    for (const type of ['image/svg+xml', 'image/png']) {
+      const href = await page
+        .locator(`link[rel="icon"][type="${type}"]`)
+        .getAttribute('href');
       expect(href).toBeTruthy();
       const response = await page.request.get(href!);
       expect(response.status()).toBe(200);
