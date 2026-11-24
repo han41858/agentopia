@@ -34,7 +34,7 @@ Agentopia는 GitHub에서 관측한 AI 개발 활동을 시각화하는 읽기 �
 ## AI 개발 자동화
 
 - 기능 개발은 기존 관련 이슈와 PR을 먼저 확인하고, 별도 요청이 없으면 개발 승인 라벨이 붙은 이슈로 진행합니다. 자동화 자체와 보호된 파일의 수정은 기존 별도 검토 경로를 사용합니다.
-- 자동화를 변경할 때는 ai-native의 최신 [자동화 지침](https://github.com/han41858/ai-native/blob/main/docs/ai-automation.md)과 [체크리스트](https://github.com/han41858/ai-native/blob/main/docs/ai-automation-checklist.md)를 [Agentopia 운영 정책](docs/development.md)과 대조합니다. 공통 지침에 반영할 장애 사례는 별도 작업으로 제안합니다.
+- AI 개발 자동화의 운영 기준은 [Agentopia 개발 문서](docs/development.md)에서 관리합니다. 자동화 정책을 변경할 때는 같은 PR에서 해당 문서와 관련 검사를 함께 갱신합니다.
 
 ## 검증과 보고
 
