@@ -1,9 +1,38 @@
 import type { Locator, Page } from '@playwright/test';
-import { alpha, noPlaza } from './fixtures.ts';
+import { alpha, alphaReport, noPlaza } from './fixtures.ts';
 import { mockGitHub, openWorld, seedSettings } from './github.ts';
 import { expect, test } from './test.ts';
 
 type Box = { x: number; y: number; width: number; height: number };
+
+async function mockRefreshUsage(page: Page) {
+  // 공통 모의 응답은 유지하고 alpha 갱신 응답에만 사용량을 넣습니다.
+  await page.route('**/api/github?**', async (route) => {
+    const { searchParams } = new URL(route.request().url());
+    const otherQueries = [
+      'owner',
+      'heritage',
+      'summary',
+      'activity',
+      'repository',
+    ];
+    if (
+      searchParams.get('repo') !== alpha ||
+      otherQueries.some((key) => searchParams.has(key))
+    ) {
+      await route.fallback();
+      return;
+    }
+    await route.fulfill({
+      headers: {
+        'X-Agentopia-GitHub-Usage': JSON.stringify({
+          core: { limit: 60, used: 15, remaining: 45 },
+        }),
+      },
+      json: alphaReport,
+    });
+  });
+}
 
 function boxes(locator: Locator) {
   return locator.evaluateAll((nodes) =>
@@ -72,8 +101,131 @@ function outsideWall(page: Page, selector: string) {
   }, selector);
 }
 
+function heritageArtGaps(area: Locator) {
+  return area.evaluate(async (node) => {
+    const wall = node.querySelector<SVGSVGElement>('.kingdom-wall');
+    const shape = wall?.querySelector<SVGPathElement>('defs path');
+    const palace = node.querySelector<HTMLImageElement>('.kingdom-crest');
+    const heritage = [
+      ...node.querySelectorAll<HTMLImageElement>('.heritage-slot img'),
+    ];
+    if (!wall || !shape || !palace || !heritage.length)
+      throw new Error('성벽, 유산 또는 왕궁 그림을 찾지 못했습니다.');
+    await Promise.all([palace, ...heritage].map((image) => image.decode()));
+    // 스타일 변경 뒤 ResizeObserver가 성벽 경로를 갱신할 때까지 기다립니다.
+    await new Promise<void>((resolve) => {
+      requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+    });
+    const matrix = wall.getScreenCTM();
+    if (!matrix) throw new Error('성벽의 화면 좌표를 찾지 못했습니다.');
+    const inverse = matrix.inverse();
+
+    function paintedColumns(image: HTMLImageElement) {
+      const canvas = document.createElement('canvas');
+      const { width, height } = image;
+      canvas.width = width;
+      canvas.height = height;
+      const context = canvas.getContext('2d');
+      if (!context) throw new Error('그림의 투명 영역을 측정할 수 없습니다.');
+      context.drawImage(image, 0, 0, width, height);
+      const { data } = context.getImageData(0, 0, width, height);
+      const rect = image.getBoundingClientRect();
+      const columns = Array.from({ length: width }, (_, x) => {
+        let top = height;
+        let bottom = 0;
+        for (let y = 0; y < height; y++) {
+          if (data[(y * width + x) * 4 + 3] < 16) continue;
+          top = Math.min(top, y);
+          bottom = y + 1;
+        }
+        if (!bottom) return undefined;
+        return {
+          x: rect.left + ((x + 0.5) * rect.width) / width,
+          top: rect.top + (top * rect.height) / height,
+          bottom: rect.top + (bottom * rect.height) / height,
+        };
+      });
+      return { columns, rect };
+    }
+
+    const palaceArt = paintedColumns(palace);
+    let above = Infinity;
+    let below = Infinity;
+    for (const image of heritage) {
+      for (const column of paintedColumns(image).columns) {
+        if (!column) continue;
+        const point = new DOMPoint(column.x, column.top).matrixTransform(
+          inverse,
+        );
+        let low = 0;
+        let high = wall.viewBox.baseVal.height / 2;
+        // 경로 중심선 대신 6px 성벽 선의 안쪽을 보수적으로 측정합니다.
+        for (let step = 0; step < 12; step++) {
+          const y = (low + high) / 2;
+          const inside = [-3, 3].every((offset) =>
+            shape.isPointInFill(new DOMPoint(point.x + offset, y - 3)),
+          );
+          if (inside) high = y;
+          else low = y;
+        }
+        above = Math.min(above, point.y - high);
+
+        const palaceX = Math.floor(
+          ((column.x - palaceArt.rect.left) / palaceArt.rect.width) *
+            palaceArt.columns.length,
+        );
+        const palaceColumn = palaceArt.columns[palaceX];
+        if (palaceColumn)
+          below = Math.min(
+            below,
+            (palaceColumn.top - column.bottom) / matrix.d,
+          );
+      }
+    }
+    if (!Number.isFinite(above) || !Number.isFinite(below))
+      throw new Error('유산 그림 위아래의 간격을 측정하지 못했습니다.');
+    return { above, below };
+  });
+}
+
 // 터치 화면에서 누르는 요소의 최소 크기(src/styles.css의 --map-hit-size).
 const touchTarget = 44;
+
+test.describe('높은 데스크톱의 왕국 하나', () => {
+  test.use({
+    viewport: { width: 1280, height: 1400 },
+    reducedMotion: 'reduce',
+  });
+
+  test('첫 성벽이 헤더 바로 아래에 놓인다', async ({ page }) => {
+    await mockGitHub(page);
+    await mockRefreshUsage(page);
+    await seedSettings(page, [alpha]);
+    await page.goto('/');
+    const wall = page.locator('.kingdom-wall');
+    const title = page.getByRole('heading', { name: 'Agentopia' });
+    const usageValue = page.locator('.github-usage-value');
+    await expect(wall).toHaveCount(1);
+    await expect(wall).toBeVisible();
+    await expect(usageValue).toBeVisible();
+    await expect(usageValue).toContainText('25.0%');
+    const [heading] = await boxes(title);
+    expect(heading.y).toBeLessThanOrEqual(24);
+
+    const [firstWall] = await boxes(wall);
+    const headerItems = await boxes(
+      page.locator(
+        '.crest, .world-controls > button:visible, .github-usage-value:visible',
+      ),
+    );
+    const headerBottom = Math.max(
+      ...headerItems.map((box) => box.y + box.height),
+    );
+    const gap = firstWall.y - headerBottom;
+    expect(gap).toBeGreaterThanOrEqual(12);
+    expect(gap).toBeLessThanOrEqual(20);
+  });
+});
 
 for (const width of [1280, 390, 320]) {
   // 좁은 화면은 터치 기기로 실행해 `pointer: coarse` 전용 스타일까지 확인합니다.
@@ -91,6 +243,7 @@ for (const width of [1280, 390, 320]) {
     test.beforeEach(async ({ page }) => {
       if (touch) {
         await mockGitHub(page);
+        await mockRefreshUsage(page);
         await seedSettings(page, [alpha, noPlaza]);
         await page.goto('/');
         // 도구를 펼치지 않고 초기 갱신이 끝날 때까지 기다립니다.
@@ -171,6 +324,93 @@ for (const width of [1280, 390, 320]) {
       expect(corner).toBe(false);
     });
 
+    test('유산 그림 위아래 여백을 줄이고 빈 유산 행은 남기지 않는다', async ({
+      page,
+    }) => {
+      const area = page.locator('.kingdom-area:has(.heritage-slot)');
+      const gaps = await heritageArtGaps(area);
+      expect(gaps.above).toBeGreaterThan(0);
+      expect(gaps.below).toBeGreaterThan(0);
+
+      const emptyPalace = page.locator(
+        '.kingdom-area:not(:has(.heritage-slot)) > .kingdom',
+      );
+      const emptyPalaceOffset = await emptyPalace.evaluate((node) => {
+        if (!(node instanceof HTMLElement))
+          throw new Error('왕궁이 HTML 요소가 아닙니다.');
+        return node.offsetTop;
+      });
+      expect(emptyPalaceOffset).toBe(25);
+
+      if (!touch) {
+        const previousSpacing = await page.addStyleTag({
+          content: `
+            .kingdom-area:has(.heritage-slot) { padding-top: 60px; }
+            .heritage-arc:not(:empty) { margin-bottom: 2px; }
+            .heritage-arc:not(:empty) + .kingdom { padding-block: 3px; }
+          `,
+        });
+        const previous = await heritageArtGaps(area);
+        await previousSpacing.evaluate((node) => {
+          node.parentNode?.removeChild(node);
+        });
+        for (const reduction of [
+          previous.above - gaps.above,
+          previous.below - gaps.below,
+        ]) {
+          expect(reduction).toBeGreaterThanOrEqual(4);
+          expect(reduction).toBeLessThanOrEqual(8);
+        }
+      }
+    });
+
+    test('최대 등급 유산 네 채가 성벽과 왕궁 그림을 침범하지 않는다', async ({
+      page,
+    }) => {
+      await page.route('**/api/github?**', async (route) => {
+        const params = new URL(route.request().url()).searchParams;
+        if (!params.has('heritage') || params.get('repo') !== alpha) {
+          await route.fallback();
+          return;
+        }
+        const record = { count: 100_000 };
+        await route.fulfill({
+          json: {
+            mergedPulls: record,
+            resolvedIssues: record,
+            reviews: record,
+            comments: record,
+          },
+        });
+      });
+      await page.reload();
+
+      const area = page.locator('.kingdom-area:has(.heritage-slot)');
+      const slots = area.locator('.heritage-slot');
+      await expect(slots).toHaveCount(4);
+      await expect(area.locator('.heritage-slot[data-tier="5"]')).toHaveCount(
+        4,
+      );
+      const gaps = await heritageArtGaps(area);
+      expect(gaps.above).toBeGreaterThan(0);
+      // 유산 그림의 아래쪽에 칠해지는 1px 그림자도 왕궁에 닿지 않습니다.
+      expect(gaps.below).toBeGreaterThan(1);
+
+      const slotBoxes = await boxes(slots);
+      expect(
+        overlappingPairs([
+          ...slotBoxes,
+          ...(await boxes(area.locator('.kingdom'))),
+        ]),
+      ).toEqual([]);
+      if (touch) {
+        for (const box of slotBoxes) {
+          expect(box.width).toBeGreaterThanOrEqual(touchTarget - 0.1);
+          expect(box.height).toBeGreaterThanOrEqual(touchTarget - 0.1);
+        }
+      }
+    });
+
     test('상세 창이 화면 안에 들어온다', async ({ page }) => {
       const facility = page.getByRole('button', { name: /PR #11/ });
       if (touch) await facility.tap();
@@ -232,6 +472,8 @@ for (const width of [1280, 390, 320]) {
         const close = page.getByRole('button', { name: '상단 도구 접기' });
         const controls = page.locator('.world-controls');
         const map = page.locator('.map-viewport');
+        const wall = page.locator('.kingdom-wall').first();
+        const usageValue = page.locator('.github-usage-value');
         const bookmarkFace = page.locator('.header-bookmark-face');
 
         for (const mode of ['world', 'simple']) {
@@ -241,6 +483,7 @@ for (const width of [1280, 390, 320]) {
           );
           await expect(open).toHaveAttribute('aria-expanded', 'false');
           await expect(controls).toBeHidden();
+          await expect(usageValue).toBeHidden();
           await expect(title).toBeInViewport({ ratio: 1 });
           const [heading] = await boxes(title);
           const [crest] = await boxes(page.locator('.crest'));
@@ -248,6 +491,10 @@ for (const width of [1280, 390, 320]) {
           const [collapsedFace] = await boxes(bookmarkFace);
           const [collapsedIcon] = await boxes(open.locator('svg'));
           const [viewport] = await boxes(map);
+          const [firstWall] = await boxes(wall);
+          expect(firstWall.y).toBeGreaterThanOrEqual(
+            collapsedHit.y + collapsedHit.height,
+          );
           const centerY = collapsedHit.y + collapsedHit.height / 2;
           expect(heading.y + heading.height / 2).toBeCloseTo(
             crest.y + crest.height / 2,
@@ -330,6 +577,15 @@ for (const width of [1280, 390, 320]) {
             expect(icon.y + icon.height / 2).toBeCloseTo(centerY, 1);
           }
           await expectUsageBelowRefresh(page);
+          await expect(usageValue).toBeVisible();
+          await expect(usageValue).toContainText('25.0%');
+          const [usage] = await boxes(usageValue);
+          const [expandedWall] = await boxes(wall);
+          const toolsBottom = Math.max(
+            ...[...row, usage].map((box) => box.y + box.height),
+          );
+          expect(expandedWall.y).toBeGreaterThanOrEqual(toolsBottom);
+          expect(expandedWall).toEqual(firstWall);
           expect(await boxes(title)).toEqual([heading]);
           expect(await boxes(map)).toEqual([viewport]);
           expect(
@@ -356,10 +612,12 @@ for (const width of [1280, 390, 320]) {
           await expect(controls).toBeVisible();
           await page.touchscreen.tap(1, Math.round(centerY));
           await expect(controls).toBeHidden();
+          await expect(usageValue).toBeHidden();
           expect(await boxes(open)).toEqual([collapsedHit]);
           expect(await boxes(bookmarkFace)).toEqual([collapsedFace]);
           expect(await boxes(title)).toEqual([heading]);
           expect(await boxes(map)).toEqual([viewport]);
+          expect(await boxes(wall)).toEqual([firstWall]);
           if (mode === 'world') {
             await open.tap();
             await page.locator('.mode-switch').tap();

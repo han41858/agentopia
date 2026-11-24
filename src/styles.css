@@ -85,6 +85,8 @@ svg {
 }
 .world-header {
   --header-button-size: 38px;
+  --header-usage-space: 16px;
+  margin-block: clamp(8px, 1vw, 12px) 0;
   gap: 12px;
 }
 .header-tools,
@@ -223,8 +225,8 @@ svg {
   grid-template-columns: minmax(0, 1fr);
   display: grid;
   grid-auto-rows: max-content;
-  align-content: center;
-  padding: 18px clamp(12px, 4vw, 44px);
+  align-content: start;
+  padding: 14px clamp(12px, 4vw, 44px) 18px;
 }
 .kingdoms {
   width: min(100%, 1160px);
@@ -1196,7 +1198,7 @@ svg {
   padding-bottom: 12px;
 }
 .kingdom-area:has(.heritage-slot) {
-  padding-top: 60px;
+  padding-top: 54px;
   padding-inline: 40px;
   min-width: min(100%, 285px);
 }
@@ -1205,12 +1207,20 @@ svg {
   grid-template-columns: repeat(4, minmax(0, 1fr));
   width: max-content;
   column-gap: 4px;
-  margin: 0 auto 2px;
+  margin: 0 auto;
 }
 .heritage-arc:empty {
+  /* Keep a target for the lazy-load observer without reserving a row. */
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline-start: 50%;
   width: 1px;
   min-height: 1px;
-  margin: 0 auto;
+  margin: 0;
+}
+.heritage-arc:not(:empty) + .kingdom {
+  /* Move the art up without shrinking the palace button. */
+  padding-block: 0 6px;
 }
 .heritage-slot {
   display: grid;
@@ -1248,7 +1258,8 @@ svg {
 }
 
 .world-header:has(.github-usage) {
-  padding-bottom: 19px;
+  /* Reserve the absolute usage line below the controls without moving the row. */
+  margin-block-end: var(--header-usage-space);
 }
 .github-usage {
   position: absolute;
@@ -1257,6 +1268,7 @@ svg {
   z-index: 3;
 }
 .github-usage-value {
+  display: block;
   padding: 3px 0 0;
   border: 0;
   color: #adc2b9;
@@ -1591,9 +1603,8 @@ svg {
     position: relative;
     z-index: 10;
     min-height: var(--header-button-size);
-  }
-  .world-header:has(.github-usage) {
-    padding-bottom: 0;
+    /* Keep the map in place when the bookmark reveals the usage line. */
+    margin-block-end: var(--header-usage-space);
   }
   .header-tools {
     --header-tool-gap: 4px;

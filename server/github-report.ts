@@ -1,7 +1,15 @@
 import { preferredPalaceBranches } from './branch-roads.ts';
 import type { BranchInventory } from './branch-roads.ts';
 import { observeGitHub } from './github-query.ts';
-import { linkedPullIssues, makeForges, makeQuests, runIssue } from './model.ts';
+import {
+  linkedPullIssues,
+  makeForges,
+  makeQuests,
+  readState,
+  runIssue,
+  selectIssueAutomation,
+  stateMatchesRun,
+} from './model.ts';
 import type {
   Comment,
   Issue,
@@ -249,6 +257,31 @@ export async function getReport(
     Promise.all(issueTasks),
     commentsTask,
   ]);
+  // The repository-wide comment window can miss an active issue's checkpoint.
+  const automation = selectIssueAutomation(region, runs, comments);
+  const missingCheckpoints = [...automation].flatMap(
+    ([number, { run, record }]) =>
+      run?.status === 'in_progress' &&
+      issues.get(number)?.state === 'open' &&
+      !record
+        ? [{ number, run }]
+        : [],
+  );
+  const targeted = await Promise.all(
+    missingCheckpoints.slice(0, 8).map(async ({ number, run }) => {
+      const recent = await optional(
+        'AI 상태 기록',
+        get<Comment[]>(
+          `/issues/${number}/comments?per_page=100&since=${encodeURIComponent(run.created_at)}`,
+        ),
+        [],
+      );
+      return recent.filter((entry) => {
+        const state = readState(entry, region);
+        return state && state.issue === number && stateMatchesRun(state, run);
+      });
+    }),
+  );
   const tags = tagResult?.tags ?? [];
   if (tagResult?.dateLookupFailed) warnings.add('태그 커밋 시각');
   const tagCommits = new Map(tags.map((tag) => [tag.name, tag.sha]));
@@ -302,7 +335,7 @@ export async function getReport(
     [...issues.values()],
     pulls,
     runs,
-    comments,
+    comments.concat(...targeted),
     parents,
     releases,
     pullLinks,

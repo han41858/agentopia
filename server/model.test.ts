@@ -1173,3 +1173,152 @@ test('an old failed CI does not replace a current recovery checkpoint', () => {
     ),
   );
 });
+
+test('parallel cancellations stay in history without hiding development or its real outcome', () => {
+  const current = run(1);
+  const parallel = [
+    run(1, { id: 103, status: 'completed', conclusion: 'cancelled' }),
+    run(1, { id: 102, status: 'completed', conclusion: 'skipped' }),
+  ];
+  const checkpoint = comment(1, 'developing', {
+    runId: undefined,
+    run: current.id,
+  });
+  const userComment = {
+    ...comment(1, 'failed', { runId: 103 }),
+    body: `개발 실행 실패\n${comment(1, 'failed', { runId: 103 }).body}`,
+    user: { login: 'guest' },
+  };
+  const quest = (work: Run, state = checkpoint, siblings = parallel) =>
+    makeQuests(
+      commitTrail,
+      [issue(1)],
+      [],
+      [...siblings, work],
+      [state, userComment],
+      new Map(),
+      [],
+    )[0];
+
+  assert.equal(readState(checkpoint, commitTrail)?.runId, current.id);
+  const active = quest(current);
+  assert.equal(active.stage, 'developing');
+  assert.equal(active.evidence?.url, checkpoint.html_url);
+  assert.equal(active.adventurers?.[0]?.active, 'develop');
+  assert.deepEqual(
+    active.runs.map(({ status }) => status),
+    ['cancelled', 'skipped', 'in_progress'],
+  );
+
+  for (const [conclusion, expected] of [
+    ['failure', 'failed'],
+    ['cancelled', 'attention'],
+    ['action_required', 'attention'],
+  ]) {
+    const interrupted = quest({ ...current, status: 'completed', conclusion });
+    assert.equal(interrupted.stage, expected);
+    assert.equal(interrupted.evidence?.url, current.html_url);
+  }
+  const human = comment(1, 'needs_human', {
+    runId: undefined,
+    run: String(current.id),
+    reason: '사람 확인 요청',
+  });
+  assert.equal(quest(current, human).stage, 'attention');
+  assert.equal(quest(current, human).reason, '사람 확인 요청');
+
+  const retry = quest({ ...current, run_attempt: 2 }, human);
+  assert.equal(retry.stage, 'developing');
+  assert.equal(retry.evidence?.url, current.html_url);
+  assert.equal(retry.adventurers?.[0]?.active, undefined);
+
+  const latest = run(1, {
+    id: 104,
+    html_url: `https://github.com/${commitTrail.slug}/actions/runs/104`,
+  });
+  const latestQuest = quest(latest, human, [...parallel, current]);
+  assert.equal(latestQuest.stage, 'developing');
+  assert.equal(latestQuest.evidence?.url, latest.html_url);
+});
+
+test('checkpoint lineage takes precedence over the edit time of an older comment', () => {
+  const current = run(1, { run_attempt: 2 });
+  const checkpoint = comment(1, 'reviewing', {
+    runId: undefined,
+    run: current.id,
+    attempt: 2,
+  });
+  const old = {
+    ...comment(1, 'needs_human'),
+    updated_at: '2026-11-19T10:10:00Z',
+  };
+  const [quest] = makeQuests(
+    commitTrail,
+    [issue(1)],
+    [],
+    [current],
+    [checkpoint, old],
+    new Map(),
+    [],
+  );
+  assert.equal(quest.stage, 'reviewing');
+  assert.equal(quest.evidence?.status, 'reviewing');
+});
+
+test('an active issue without a PR recovers its matching bot checkpoint on refresh', async (context) => {
+  const slug = 'example/active-checkpoint';
+  const state = comment(
+    1,
+    'developing',
+    { developer: 'codex', runId: undefined, run: 101, attempt: 2 },
+    'active-checkpoint',
+  );
+  let available = false;
+  let targeted = 0;
+  let listed = false;
+  context.mock.method(globalThis, 'fetch', async (url: string) => {
+    const path = new URL(url).pathname.slice(('/repos/' + slug).length);
+    if (path === '/issues') return Response.json([issue(1)]);
+    if (path === '/pulls') return Response.json([]);
+    if (path === '/actions/runs')
+      return Response.json({
+        workflow_runs: [
+          run(1, { id: 103, status: 'completed', conclusion: 'cancelled' }),
+          run(1, { id: 102, status: 'completed', conclusion: 'skipped' }),
+          run(1, { run_attempt: 2 }),
+        ],
+      });
+    if (path === '/issues/comments')
+      return Response.json(listed ? [state] : []);
+    if (path === '/issues/1/comments') {
+      targeted++;
+      return Response.json(
+        available
+          ? [state]
+          : [
+              { ...state, user: { login: 'guest' } },
+              comment(1, 'needs_human', { attempt: 1 }, 'active-checkpoint'),
+            ],
+      );
+    }
+    throw Error(path);
+  });
+  async function refresh() {
+    const result = await githubResponse(
+      new URL(`https://example.test/api/github?repo=${slug}&history=cached`),
+      'GET',
+      'Bearer test_active_issue',
+    );
+    assert.equal(result.status, 200);
+    const quest = (JSON.parse(result.body) as Report).quests[0];
+    assert.equal(quest.stage, 'developing');
+    return quest.adventurers;
+  }
+  assert.deepEqual(await refresh(), []);
+  available = true;
+  const expected = [{ agent: 'codex', roles: ['develop'], active: 'develop' }];
+  assert.deepEqual(await refresh(), expected);
+  listed = true;
+  assert.deepEqual(await refresh(), expected);
+  assert.equal(targeted, 2);
+});

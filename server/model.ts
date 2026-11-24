@@ -311,16 +311,117 @@ export function readState(comment: Comment, region: Region) {
   try {
     const state = JSON.parse(
       Buffer.from(marker[1], 'base64').toString('utf8'),
-    ) as AutomationState;
+    ) as AutomationState & { run?: unknown };
+    const run =
+      typeof state.run === 'string' && /^[1-9]\d*$/.test(state.run)
+        ? Number(state.run)
+        : state.run;
+    const runId = state.runId === undefined ? run : state.runId;
     if (
-      Number.isSafeInteger(state.runId) &&
+      typeof runId === 'number' &&
+      Number.isSafeInteger(runId) &&
+      runId > 0 &&
+      (state.run === undefined || run === runId) &&
+      (state.attempt === undefined ||
+        (Number.isSafeInteger(state.attempt) && state.attempt > 0)) &&
       state.issue === Number(comment.issue_url.split('/').pop()) &&
+      typeof state.status === 'string' &&
       Object.hasOwn(automationStages, state.status)
     )
-      return state;
+      return { ...state, runId };
   } catch {
     return;
   }
+}
+
+type StateRecord = { state: AutomationState; comment: Comment };
+
+type IssueAutomation = {
+  runs: Run[];
+  records: StateRecord[];
+  run?: Run;
+  record?: StateRecord;
+};
+
+export function stateMatchesRun(state: AutomationState, run: Run) {
+  return state.runId === run.id && (state.attempt ?? 1) === run.run_attempt;
+}
+
+export function selectIssueAutomation(
+  region: Region,
+  runs: Run[],
+  comments: Comment[],
+) {
+  const byIssue = new Map<number, IssueAutomation>();
+  function forIssue(number: number) {
+    let entry = byIssue.get(number);
+    if (!entry) {
+      entry = { runs: [], records: [] };
+      byIssue.set(number, entry);
+    }
+    return entry;
+  }
+
+  for (const run of runs) {
+    const number = runIssue(run);
+    if (number !== undefined) forIssue(number).runs.push(run);
+  }
+  for (const comment of comments) {
+    const state = readState(comment, region);
+    if (state) forIssue(state.issue).records.push({ state, comment });
+  }
+
+  for (const entry of byIssue.values()) {
+    const latestAttempts = new Map<number, Run>();
+    for (const run of entry.runs) {
+      const previous = latestAttempts.get(run.id);
+      if (!previous || run.run_attempt > previous.run_attempt)
+        latestAttempts.set(run.id, run);
+    }
+    const candidates = [...latestAttempts.values()].sort((a, b) => b.id - a.id);
+    const record = entry.records
+      .filter(({ state }) => {
+        const run = latestAttempts.get(state.runId);
+        if (!run) return true;
+        const attempt = state.attempt ?? 1;
+        return (
+          attempt > run.run_attempt ||
+          (attempt === run.run_attempt && run.conclusion !== 'skipped')
+        );
+      })
+      .sort(
+        (a, b) =>
+          b.state.runId - a.state.runId ||
+          (b.state.attempt ?? 1) - (a.state.attempt ?? 1) ||
+          Date.parse(b.comment.updated_at) - Date.parse(a.comment.updated_at),
+      )[0];
+
+    // A parallel trigger can be cancelled before it writes any checkpoint.
+    const run = candidates.find(
+      (candidate) =>
+        candidate.conclusion !== 'skipped' &&
+        (candidate.conclusion !== 'cancelled' ||
+          entry.records.some(({ state }) => stateMatchesRun(state, candidate))),
+    );
+    if (
+      record &&
+      (!run ||
+        stateMatchesRun(record.state, run) ||
+        record.state.runId > run.id ||
+        (record.state.runId === run.id &&
+          (record.state.attempt ?? 1) > run.run_attempt))
+    ) {
+      entry.record = record;
+      // The checkpoint can be newer than the available Actions snapshot.
+      if (run && stateMatchesRun(record.state, run)) entry.run = run;
+    } else {
+      // Keep reporting cancellation when there is no better evidence of work.
+      entry.run =
+        run ??
+        candidates.find((candidate) => candidate.conclusion === 'cancelled');
+    }
+  }
+  return byIssue;
 }
 
 export function runStage(run: Pick<Run, 'status' | 'conclusion'>): Stage {
@@ -543,32 +644,7 @@ export function makeQuests(
   releases: Release[],
   pullLinks: ReadonlyMap<number, PullLinks> = new Map(),
 ): Quest[] {
-  const records = new Map<
-    number,
-    { state: AutomationState; comment: Comment }
-  >();
-  const pastReviewers = new Map<number, Set<Agent>>();
-  for (const comment of comments) {
-    const state = readState(comment, region);
-    if (
-      state?.reviewer &&
-      ['codex', 'claude'].includes(state.reviewer) &&
-      (state.reviewInProgress || state.reviews?.length)
-    ) {
-      const reviewers = pastReviewers.get(state.issue) ?? new Set<Agent>();
-      reviewers.add(state.reviewer);
-      pastReviewers.set(state.issue, reviewers);
-    }
-    const previous = state && records.get(state.issue);
-    if (
-      state &&
-      (!previous ||
-        Date.parse(comment.updated_at) >
-          Date.parse(previous.comment.updated_at))
-    ) {
-      records.set(state.issue, { state, comment });
-    }
-  }
+  const byIssue = selectIssueAutomation(region, runs, comments);
 
   const pullsByIssue = new Map<number, Pull[]>();
   for (const pull of pulls) {
@@ -596,17 +672,11 @@ export function makeQuests(
 
   return issues.map((issue) => {
     const issuePulls = pullsByIssue.get(issue.number) ?? [];
-    const automation = runs.filter((run) => runIssue(run) === issue.number);
-    const record = records.get(issue.number);
-    const run = automation[0];
-    const state =
-      record &&
-      (!run ||
-        record.state.runId > run.id ||
-        (record.state.runId === run.id &&
-          (record.state.attempt ?? 1) >= run.run_attempt))
-        ? record.state
-        : undefined;
+    const selection = byIssue.get(issue.number);
+    const automation = selection?.runs ?? [];
+    const record = selection?.record;
+    const run = selection?.run;
+    const state = record?.state;
     const runPulls = issuePulls.filter(
       (item) =>
         item.state === 'open' &&
@@ -672,8 +742,7 @@ export function makeQuests(
     if (
       run &&
       (outcome === 'failed' || outcome === 'attention') &&
-      (!state || state.status !== 'needs_human') &&
-      (!record || run.id >= record.state.runId) &&
+      state?.status !== 'needs_human' &&
       stage !== 'complete'
     ) {
       stage = outcome;
@@ -745,12 +814,7 @@ export function makeQuests(
     }
 
     const adventurers = new Map<Agent, Adventurer>();
-    const matchingRun = Boolean(
-      run &&
-      state &&
-      run.id === state.runId &&
-      run.run_attempt === (state.attempt ?? 1),
-    );
+    const matchingRun = Boolean(run && state && stateMatchesRun(state, run));
     const running = matchingRun && run?.status === 'in_progress';
     const addAdventurer = (
       agent: Agent,
@@ -788,8 +852,13 @@ export function makeQuests(
           (state?.status === 'developing' || state?.status === 'revising'),
       );
     const submittedReviewer = pull && pullLinks.get(pull.number)?.reviewer;
-    for (const agent of pastReviewers.get(issue.number) ?? [])
-      addAdventurer(agent, 'review', false);
+    for (const { state: previous } of selection?.records ?? []) {
+      if (
+        (previous.reviewer === 'codex' || previous.reviewer === 'claude') &&
+        (previous.reviewInProgress || previous.reviews?.length)
+      )
+        addAdventurer(previous.reviewer, 'review', false);
+    }
     for (const item of issuePulls) {
       const link = pullLinks.get(item.number);
       for (const agent of link?.reviewParticipants ??

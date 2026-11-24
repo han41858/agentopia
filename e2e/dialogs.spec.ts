@@ -40,7 +40,7 @@ test.describe('상세 창', () => {
     await expect(
       dialog.getByRole('heading', { name: '✨ 지도: 새 시설 추가' }),
     ).toBeVisible();
-    await expect(dialog.getByText('제작 중')).toBeVisible();
+    await expect(dialog.getByText('제작 중')).toHaveCount(0);
     await expect(dialog.getByText('AI 리뷰 결과 pass')).toBeVisible();
     await expect(dialog.getByText(/작성 ·|리뷰 기록 ·/)).toHaveCount(0);
     await expect(
@@ -86,12 +86,15 @@ test.describe('상세 창', () => {
     await expect(
       dialog.getByRole('button', { name: '댓글 5개' }),
     ).toBeVisible();
-    await expect(dialog.getByRole('img', { name: '실행 실패' })).toBeVisible();
+    await expect(dialog.locator('.badge.failed')).toHaveCount(0);
     const runs = dialog.getByRole('list', { name: 'GitHub Actions 실행 목록' });
-    await expect(runs.getByRole('link', { name: 'CI' })).toBeVisible();
-    await expect(runs.locator('time')).toHaveText(/2026.*1.*15.*10:00 KST/);
-    await expect(runs.getByText('failure')).toBeVisible();
-    await expect(runs.getByRole('listitem')).toHaveCSS('font-size', '11px');
+    const latest = runs.getByRole('listitem').first();
+    await expect(latest.getByRole('link', { name: 'CI' })).toBeVisible();
+    await expect(latest.locator('time')).toHaveText(/2026.*1.*15.*10:00 KST/);
+    const failure = latest.locator('.workflow-run-status');
+    await expect(failure).toBeVisible();
+    await expect(failure).toHaveText('failure');
+    await expect(latest).toHaveCSS('font-size', '11px');
     expect(github.queries('summary')).toEqual([
       { repo: alpha, summary: 'pull', number: '12' },
     ]);
@@ -123,7 +126,7 @@ test.describe('상세 창', () => {
     await page.goto('/');
     await page.getByRole('button', { name: /PR #12/ }).click();
     const dialog = page.getByRole('dialog', { name: 'PR #12' });
-    await expect(dialog.getByText('품질 시험', { exact: true })).toBeVisible();
+    await expect(dialog.getByText('품질 시험', { exact: true })).toHaveCount(0);
     await expect(dialog.locator('.badge img')).toHaveCount(0);
     const list = dialog.getByRole('list', { name: 'GitHub Actions 실행 목록' });
     const rows = list.getByRole('listitem');
@@ -544,6 +547,9 @@ test.describe('상세 창', () => {
       'PR #12',
       'PR #13',
     ]);
+    await expect(
+      current.getByRole('button', { name: /PR #12/ }).locator('.badge.failed'),
+    ).toBeVisible();
 
     const history = dialog.getByRole('region', { name: '작업 이력' });
     await expect(
