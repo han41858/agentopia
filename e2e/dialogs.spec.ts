@@ -100,6 +100,93 @@ test.describe('상세 창', () => {
     ]);
   });
 
+  test('이슈와 PR 팝업에서 최신 Actions 실행을 먼저 표시한다', async ({
+    page,
+  }) => {
+    const report = structuredClone(alphaReport);
+    const runs = [
+      {
+        title: 'CI',
+        status: 'success',
+        startedAt: '2026-01-14T16:30:00Z',
+      },
+      {
+        title: 'CI',
+        status: 'in_progress',
+        startedAt: '2026-01-14T16:23:45Z',
+      },
+      {
+        title: 'CI',
+        status: 'failure',
+        startedAt: '2026-01-14T16:23:05Z',
+      },
+      {
+        title: 'AI development',
+        status: 'cancelled',
+        startedAt: '2026-01-14T16:01:00Z',
+      },
+      { title: 'AI development', status: 'queued' },
+    ].map((run, index) => ({
+      ...run,
+      url: `https://github.com/${alpha}/actions/runs/${400 + index}`,
+    }));
+    const issue = report.quests.find(({ number }) => number === 1)!;
+    issue.runs = runs;
+    issue.evidence = runs[3]!;
+    report.forges!.find(({ number }) => number === 12)!.runs = runs;
+    await seedSettings(page, [alpha]);
+    await mockGitHub(page);
+    await page.route('**/api/github?**', (route) =>
+      new URL(route.request().url()).searchParams.has('branches')
+        ? route.fulfill({ json: report })
+        : route.fallback(),
+    );
+    await page.goto('/');
+
+    for (const [button, name] of [
+      [/^이슈 #1 /, '이슈 #1'],
+      [/PR #12/, 'PR #12'],
+    ] as const) {
+      await page.getByRole('button', { name: button }).click();
+      const dialog = page.getByRole('dialog', { name });
+      const list = dialog.getByRole('list', {
+        name: 'GitHub Actions 실행 목록',
+      });
+      const rows = list.getByRole('listitem');
+      await expect(rows).toHaveCount(runs.length);
+      await expect(list.locator('time')).toHaveText([
+        /01:30 KST/,
+        /01:23 KST/,
+        /01:23 KST/,
+        /01:01 KST/,
+      ]);
+      await expect(list.locator('.workflow-run-status')).toHaveText(
+        runs.map(({ status }) => status),
+      );
+      if (name === '이슈 #1') {
+        await expect(
+          rows.nth(3).getByText('근거', { exact: true }),
+        ).toBeVisible();
+      }
+      for (const [index, run] of runs.entries()) {
+        const row = rows.nth(index);
+        await expect(
+          row.getByRole('link', { name: run.title }),
+        ).toHaveAttribute('href', run.url);
+        if (run.startedAt) {
+          await expect(row.locator('time')).toHaveAttribute(
+            'datetime',
+            run.startedAt,
+          );
+        } else {
+          await expect(row.getByText('—', { exact: true })).toBeVisible();
+        }
+      }
+      await page.keyboard.press('Escape');
+      await expect(dialog).toBeHidden();
+    }
+  });
+
   test('좁은 PR 팝업은 CI 상태와 실행 목록을 캐릭터 없이 표시한다', async ({
     page,
   }) => {
@@ -391,11 +478,12 @@ test.describe('상세 창', () => {
     expect(
       await runName.evaluate((node) => node.scrollWidth > node.clientWidth),
     ).toBe(true);
-    await expect(rows.first().getByText('근거', { exact: true })).toBeVisible();
+    const failedRow = rows.filter({ hasText: failedRun.title });
+    await expect(failedRow.getByText('근거', { exact: true })).toBeVisible();
     await expect(previousLink).toBeVisible();
     await expect(previousLink).toHaveAttribute('href', previousRun.url);
     await expect(rows.nth(1).getByText('—', { exact: true })).toBeVisible();
-    const startedAt = rows.first().locator('time');
+    const startedAt = failedRow.locator('time');
     await expect(startedAt).toHaveAttribute('datetime', failedRun.startedAt);
     await expect(startedAt).toHaveText(/2026.*1.*15.*10:00 KST/);
     const badges = list.locator('.workflow-run-status');
@@ -430,7 +518,7 @@ test.describe('상세 창', () => {
 
     await expect(startedAt).toBeInViewport({ ratio: 1 });
     await expect(
-      rows.first().getByText('failure', { exact: true }),
+      failedRow.getByText('failure', { exact: true }),
     ).toBeInViewport({ ratio: 1 });
     expect(await list.evaluate((node) => node.scrollWidth)).toBe(
       await list.evaluate((node) => node.clientWidth),

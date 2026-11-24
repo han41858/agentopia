@@ -88,10 +88,7 @@ export function QuestDetail({
   const evidence = quest.evidence;
   const runsByUrl = new Map(quest.runs.map((run) => [run.url, run]));
   const evidenceRun = evidence && runsByUrl.get(evidence.url);
-  if (evidenceRun) runsByUrl.delete(evidenceRun.url);
-  const runs = evidenceRun
-    ? [evidenceRun, ...runsByUrl.values()]
-    : [...runsByUrl.values()];
+  const runs = [...runsByUrl.values()];
   return (
     <Dialog
       className="issue-dialog"
