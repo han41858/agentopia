@@ -79,7 +79,7 @@ svg {
   margin-top: 4px;
 }
 .world-header,
-.world-controls {
+.header-tools {
   display: flex;
   align-items: center;
 }
@@ -87,22 +87,44 @@ svg {
   --header-button-size: 38px;
   gap: 12px;
 }
+.header-tools,
 .world-controls {
   flex: none;
   gap: 6px;
+}
+.world-controls {
+  position: relative;
+  display: grid;
+  grid-template-areas: 'mode add token refresh';
+  align-items: center;
+}
+.world-controls > .mode-switch {
+  grid-area: mode;
+}
+.world-controls > .add-repository-button {
+  grid-area: add;
+}
+.world-controls > .ticket-button {
+  grid-area: token;
+}
+.world-controls > .refresh-button,
+.refresh-usage {
+  grid-area: refresh;
+}
+.refresh-usage {
+  /* Attach usage to the refresh cell without changing the row height or tab order. */
+  position: absolute;
+  top: 100%;
+  right: 0;
+  left: 0;
 }
 .world-heading {
   --crest-size: 42px;
   display: flex;
   flex: 1;
-  flex-wrap: wrap;
   align-items: center;
-  align-content: flex-start;
   gap: 10px;
-  min-width: var(--crest-size);
   height: var(--crest-size);
-  /* Clip the entire title when it wraps below the crest. */
-  overflow: hidden;
 }
 .crest {
   flex: none;
@@ -138,7 +160,8 @@ svg {
 }
 .add-repository-button,
 .ticket-button,
-.refresh-button {
+.refresh-button,
+.header-bookmark {
   width: var(--header-button-size);
   height: var(--header-button-size);
   padding: 0;
@@ -525,7 +548,8 @@ svg {
 .expedition-legend .claude {
   color: #ffbf9e;
 }
-.refresh-button {
+.refresh-button,
+.header-bookmark {
   position: relative;
   isolation: isolate;
   overflow: hidden;
@@ -536,8 +560,15 @@ svg {
   background: #15212f;
   color: #f2cd93;
 }
-.refresh-button:hover {
+.refresh-button:hover,
+.header-bookmark:hover {
   border-color: var(--gold);
+}
+.header-bookmark {
+  /* Keep the shared countdown running across breakpoint and disclosure changes. */
+  position: absolute;
+  visibility: hidden;
+  flex: none;
 }
 .refresh-button[data-warning='true'] {
   color: #ffb6ad;
@@ -1214,11 +1245,6 @@ svg {
   font-variant-numeric: tabular-nums;
 }
 
-.refresh-control {
-  display: grid;
-  justify-items: center;
-  position: relative;
-}
 .world-header:has(.github-usage) {
   padding-bottom: 19px;
 }
@@ -1554,6 +1580,72 @@ svg {
   }
   .mode-switch-option {
     width: var(--header-button-size);
+  }
+}
+
+@media (max-width: 640px) {
+  .world-header {
+    --header-button-size: 44px;
+    position: relative;
+    z-index: 10;
+    min-height: var(--header-button-size);
+  }
+  .world-header:has(.github-usage) {
+    padding-bottom: 0;
+  }
+  .header-tools {
+    position: absolute;
+    top: 0;
+    right: calc(-1 * clamp(12px, 3vw, 32px));
+    pointer-events: none;
+  }
+  .header-tools,
+  .world-controls {
+    gap: 4px;
+  }
+  .world-controls {
+    grid-template-areas: 'refresh mode add token';
+  }
+  .refresh-usage .github-usage-tooltip {
+    /* Let the tooltip extend under the three tools to the right of refresh. */
+    right: calc(-3 * (var(--header-button-size) + 4px));
+  }
+  .header-bookmark {
+    top: 0;
+    right: 0;
+    visibility: visible;
+    pointer-events: auto;
+    border-radius: 7px 0 0 7px;
+  }
+  .header-bookmark:focus-visible {
+    outline-offset: -4px;
+  }
+  .header-tools[data-open='false'] .world-controls {
+    visibility: hidden;
+  }
+  .header-tools[data-open='true'] {
+    top: calc(100% + clamp(12px, 3vw, 32px));
+    right: 0;
+    pointer-events: auto;
+  }
+  .header-tools[data-open='true'] .header-bookmark {
+    position: relative;
+    border-radius: 7px;
+  }
+  .header-tools[data-open='true'] .header-bookmark .refresh-fill {
+    visibility: hidden;
+  }
+}
+
+@media (max-width: 640px) and (prefers-reduced-motion: no-preference) {
+  .header-tools[data-open='true'] {
+    animation: reveal-header-tools 160ms ease-out;
+  }
+  @keyframes reveal-header-tools {
+    from {
+      opacity: 0;
+      transform: translateX(8px);
+    }
   }
 }
 

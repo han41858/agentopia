@@ -6,7 +6,13 @@ import {
 import { WorldArt } from './world-art.tsx';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { Plus, RefreshCw, Ticket } from 'lucide-react';
+import {
+  ChevronLeft,
+  ChevronRight,
+  Plus,
+  RefreshCw,
+  Ticket,
+} from 'lucide-react';
 import { repositoryRegion } from '../server/model.ts';
 import type { PullQuest, Region, Report } from '../server/model.ts';
 import { AdventurerGlyph, PartyLeaderGlyph } from './characters.tsx';
@@ -39,6 +45,8 @@ import type { RoadTarget } from './kingdom-region.tsx';
 import { useRegionRefresh } from './use-region-refresh.ts';
 import type { RefreshJobs, RefreshUsage } from './use-region-refresh.ts';
 import './styles.css';
+
+const narrowHeaderQuery = '(max-width: 640px)';
 
 function App() {
   const isSimple = useDisplayMode() === 'simple';
@@ -83,6 +91,71 @@ function App() {
   const refreshJobs = useRef<RefreshJobs>({ token, jobs: new Map() });
   const [showConnect, setShowConnect] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
+  const [toolsOpen, setToolsOpen] = useState(false);
+  const [narrowHeader, setNarrowHeader] = useState(
+    () => window.matchMedia(narrowHeaderQuery).matches,
+  );
+  const headerTools = useRef<HTMLDivElement>(null);
+  const bookmark = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    const media = window.matchMedia(narrowHeaderQuery);
+
+    function syncHeader(matches: boolean) {
+      setNarrowHeader(matches);
+      if (!matches) setToolsOpen(false);
+    }
+
+    function onChange(event: MediaQueryListEvent) {
+      syncHeader(event.matches);
+    }
+
+    media.addEventListener('change', onChange);
+    syncHeader(media.matches);
+    return () => media.removeEventListener('change', onChange);
+  }, []);
+
+  useEffect(() => {
+    if (!narrowHeader || !toolsOpen) return;
+
+    function dismissOutside(event: PointerEvent) {
+      if (
+        event.target instanceof Node &&
+        !headerTools.current?.contains(event.target)
+      ) {
+        setToolsOpen(false);
+      }
+    }
+
+    function dismissOnEscape(event: KeyboardEvent) {
+      if (
+        event.key !== 'Escape' ||
+        event.defaultPrevented ||
+        document.querySelector('dialog[open]')
+      )
+        return;
+      event.preventDefault();
+      setToolsOpen(false);
+      bookmark.current?.focus();
+    }
+
+    document.addEventListener('pointerdown', dismissOutside);
+    document.addEventListener('keydown', dismissOnEscape);
+    return () => {
+      document.removeEventListener('pointerdown', dismissOutside);
+      document.removeEventListener('keydown', dismissOnEscape);
+    };
+  }, [narrowHeader, toolsOpen]);
+
+  function openSettings(kind: 'repository' | 'token') {
+    if (toolsOpen) {
+      // Leave a visible trigger for the dialog to restore focus to.
+      bookmark.current?.focus();
+      setToolsOpen(false);
+    }
+    if (kind === 'repository') setShowAdd(true);
+    else setShowConnect(true);
+  }
 
   useEffect(() => {
     try {
@@ -231,6 +304,40 @@ function App() {
     setSelectedQuest({ region, number: item.number, kind: 'pull' });
   }, []);
 
+  const toolsLabel = toolsOpen ? '상단 도구 접기' : '상단 도구 열기';
+  const refreshFill = !loading && (
+    <span
+      key={progress.key}
+      className="refresh-fill"
+      style={{ animationDuration: `${progress.duration}ms` }}
+      aria-hidden="true"
+    />
+  );
+
+  const refreshButton = (
+    <button
+      key="refresh"
+      className="refresh-button"
+      aria-label="새로 고침"
+      aria-busy={loading}
+      data-warning={!loading && partial}
+      title={
+        !loading && partial
+          ? '일부 GitHub 기록을 확인하지 못했습니다.'
+          : `다음 자동 갱신까지 약 ${Math.ceil(progress.duration / 1000)}초`
+      }
+      disabled={!worldRegions.length}
+      onClick={() => refresh.current?.()}
+    >
+      {refreshFill}
+      <RefreshCw
+        size={16}
+        className={loading ? 'rotate' : ''}
+        aria-hidden="true"
+      />
+    </button>
+  );
+
   return (
     <>
       <main className="world" aria-labelledby="world-title">
@@ -243,63 +350,59 @@ function App() {
               Agentopia
             </h1>
           </div>
-          <div className="world-controls">
-            <ModeSwitch />
+          <div ref={headerTools} className="header-tools" data-open={toolsOpen}>
             <button
-              className="connect add-repository-button"
-              aria-label="저장소 추가"
-              title="저장소 추가"
-              onClick={() => setShowAdd(true)}
+              ref={bookmark}
+              type="button"
+              className="header-bookmark"
+              aria-label={toolsLabel}
+              aria-expanded={toolsOpen}
+              aria-controls="world-controls"
+              title={toolsLabel}
+              onClick={() => setToolsOpen(!toolsOpen)}
             >
-              <Plus size={19} aria-hidden="true" />
+              {refreshFill}
+              {toolsOpen ? (
+                <ChevronRight size={20} aria-hidden="true" />
+              ) : (
+                <ChevronLeft size={20} aria-hidden="true" />
+              )}
             </button>
-            <button
-              className="connect ticket-button"
-              data-filled={Boolean(token)}
-              data-tone={token ? tokenStatus.tone : undefined}
-              aria-label={token ? tokenStatus.label : 'GitHub 연결'}
-              title={token ? tokenStatus.label : 'GitHub 연결'}
-              onClick={() => setShowConnect(true)}
-            >
-              <Ticket size={19} aria-hidden="true" />
-            </button>
-            <div className="refresh-control">
+            <div id="world-controls" className="world-controls">
+              {narrowHeader && refreshButton}
+              <ModeSwitch />
               <button
-                className="refresh-button"
-                aria-label="새로 고침"
-                aria-busy={loading}
-                data-warning={!loading && partial}
-                title={
-                  !loading && partial
-                    ? '일부 GitHub 기록을 확인하지 못했습니다.'
-                    : `다음 자동 갱신까지 약 ${Math.ceil(progress.duration / 1000)}초`
-                }
-                disabled={!worldRegions.length}
-                onClick={() => refresh.current?.()}
+                className="connect add-repository-button"
+                aria-label="저장소 추가"
+                title="저장소 추가"
+                onClick={() => openSettings('repository')}
               >
-                {!loading && (
-                  <span
-                    key={progress.key}
-                    className="refresh-fill"
-                    style={{ animationDuration: `${progress.duration}ms` }}
-                    aria-hidden="true"
-                  />
-                )}
-                <RefreshCw
-                  size={16}
-                  className={loading ? 'rotate' : ''}
-                  aria-hidden="true"
-                />
+                <Plus size={19} aria-hidden="true" />
               </button>
-              <GitHubUsage
-                token={token}
-                refresh={
-                  refreshUsage?.token === token ? refreshUsage.usage : undefined
-                }
-                refreshStale={
-                  refreshUsage?.token === token && refreshUsage.stale
-                }
-              />
+              <button
+                className="connect ticket-button"
+                data-filled={Boolean(token)}
+                data-tone={token ? tokenStatus.tone : undefined}
+                aria-label={token ? tokenStatus.label : 'GitHub 연결'}
+                title={token ? tokenStatus.label : 'GitHub 연결'}
+                onClick={() => openSettings('token')}
+              >
+                <Ticket size={19} aria-hidden="true" />
+              </button>
+              {!narrowHeader && refreshButton}
+              <div className="refresh-usage">
+                <GitHubUsage
+                  token={token}
+                  refresh={
+                    refreshUsage?.token === token
+                      ? refreshUsage.usage
+                      : undefined
+                  }
+                  refreshStale={
+                    refreshUsage?.token === token && refreshUsage.stale
+                  }
+                />
+              </div>
             </div>
           </div>
         </header>
