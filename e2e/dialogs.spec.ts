@@ -177,6 +177,7 @@ test.describe('상세 창', () => {
       body: 'PR #12에서 확인한 변경 사항입니다.',
       url: `${repoUrl}/pull/12#issuecomment-120`,
     };
+    issue.stage = 'attention';
     issue.evidence = { title: comment.title, url: comment.url };
     issue.adventurers = [
       { agent: 'codex', roles: ['develop'], active: 'develop' },
@@ -244,6 +245,7 @@ test.describe('상세 창', () => {
 
     await page.getByRole('button', { name: /^이슈 #1 / }).click();
     const dialog = page.getByRole('dialog', { name: '이슈 #1' });
+    await expect(dialog.getByRole('img', { name: '개입 필요' })).toHaveCount(0);
     const rpgStatus = /모험가 전투|모험가 검토|출정 준비|재전투/;
     await expect(dialog.getByText(rpgStatus)).toHaveCount(0);
     await expect(dialog.getByTitle(rpgStatus)).toHaveCount(0);

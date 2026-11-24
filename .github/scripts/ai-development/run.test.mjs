@@ -25,6 +25,8 @@ for (const scenario of [
   'completion-dispatch',
   'ci-repair',
   'ci-format-repair',
+  'post-ci-review',
+  'post-ci-limit',
   'interrupted-development',
   'first-guard',
   'initial-stop',
@@ -209,6 +211,16 @@ for (const scenario of [
             after: 'Revision1',
           });
         }
+        if (commits && scenario.startsWith('post-ci-')) {
+          const context = JSON.parse(body.input[0].content);
+          if (commits === 3) assert.match(context.failedCI, /locator/);
+          else assert.match(context.priorReview, /결함/);
+          edits.push({
+            path: 'README.md',
+            before: commits === 1 ? 'Updated' : 'Revision' + (commits - 1),
+            after: 'Revision' + commits,
+          });
+        }
         if (scenario === 'blocked-edit')
           edits[0].path = '.github/workflows/ci.yml';
         if (
@@ -233,6 +245,11 @@ for (const scenario of [
       }
       if (claudeDeveloper ? openai : anthropic) {
         reviewCalls++;
+        if (scenario.startsWith('post-ci-')) {
+          const context = JSON.parse(body.messages[0].content);
+          assert.equal(context.reviewHead, head);
+          assert.equal(context.failedCI, undefined);
+        }
         if (scenario === 'interrupted-review' && !resumed)
           throw Error('connection lost');
         if (
@@ -247,6 +264,10 @@ for (const scenario of [
             findings: [],
           });
         if (
+          (scenario.startsWith('post-ci-') &&
+            (reviewCalls <= 2 ||
+              reviewCalls === 4 ||
+              (reviewCalls === 5 && scenario === 'post-ci-limit'))) ||
           scenario === 'review-limit' ||
           (reviewCalls === 1 &&
             ['review-revision', 'review-no-change'].includes(scenario))
@@ -507,7 +528,10 @@ for (const scenario of [
       if (scenario !== 'merge-conflict') await manualResume();
       return;
     }
-    if (['ci-repair', 'ci-format-repair'].includes(scenario)) {
+    if (
+      ['ci-repair', 'ci-format-repair'].includes(scenario) ||
+      scenario.startsWith('post-ci-')
+    ) {
       const formatOnly = scenario === 'ci-format-repair';
       const original = saved();
       const dispatch = (run) =>
@@ -528,6 +552,18 @@ for (const scenario of [
       process.env.GITHUB_RUN_ID = '2';
       dispatch(original.runId);
       await import(runner + '?repair');
+      if (scenario.startsWith('post-ci-')) {
+        assert.equal(
+          saved().status,
+          scenario === 'post-ci-limit' ? 'needs_human' : 'ready',
+        );
+        assert.equal(saved().recovery.reviewRevisions, 2);
+        assert.equal(saved().recovery.ciReviewHead, undefined);
+        await import(runner + '?duplicate-recovery');
+        assert.equal(developmentCalls, 5);
+        assert.equal(reviewCalls, 5);
+        return;
+      }
       assert.equal(saved().status, 'ready');
       assert.notEqual(saved().head, original.head);
       assert.equal(saved().reviews[0].head, saved().head);

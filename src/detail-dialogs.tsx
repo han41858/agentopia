@@ -115,7 +115,7 @@ export function QuestDetail({
       close={close}
     >
       <h3>{quest.title}</h3>
-      {alerts.has(quest.stage) && <Badge stage={quest.stage} />}
+      {quest.stage === 'failed' && <Badge stage={quest.stage} />}
       {quest.stateReason === 'not_planned' && (
         <p>GitHub 종료 사유 · 작업하지 않기로 함</p>
       )}
