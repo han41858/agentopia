@@ -1,6 +1,6 @@
 import type { Locator, Page } from '@playwright/test';
 import { alpha, noPlaza } from './fixtures.ts';
-import { openWorld } from './github.ts';
+import { mockGitHub, openWorld, seedSettings } from './github.ts';
 import { expect, test } from './test.ts';
 
 type Box = { x: number; y: number; width: number; height: number };
@@ -89,7 +89,18 @@ for (const width of [1280, 390, 320]) {
     });
 
     test.beforeEach(async ({ page }) => {
-      await openWorld(page, [alpha, noPlaza]);
+      if (touch) {
+        await mockGitHub(page);
+        await seedSettings(page, [alpha, noPlaza]);
+        await page.goto('/');
+        // 도구를 펼치지 않고 초기 갱신이 끝날 때까지 기다립니다.
+        await expect(page.locator('.refresh-button')).toHaveAttribute(
+          'aria-busy',
+          'false',
+        );
+      } else {
+        await openWorld(page, [alpha, noPlaza]);
+      }
       await expect(page.locator('.heritage-slot')).toHaveCount(3);
       expect(
         await page.evaluate(() => matchMedia('(pointer: coarse)').matches),

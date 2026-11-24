@@ -89,10 +89,16 @@ test.describe('모바일 책갈피의 갱신', () => {
   test('개폐는 요청을 보내지 않고 새로 고침만 강제 갱신한다', async ({
     page,
   }) => {
-    const github = await openWorld(page, [empty]);
-    await settled(page);
+    const github = await mockGitHub(page);
+    await seedSettings(page, [empty]);
+    await page.goto('/');
+    const refresh = page.locator('.refresh-button');
+    await expect(refresh).toBeHidden();
+    await expect(refresh).toHaveAttribute('aria-busy', 'false');
+    expect(github.count('report')).toBe(1);
     const before = github.calls.length;
     const open = page.getByRole('button', { name: '상단 도구 열기' });
+    await expect(open).toHaveAttribute('aria-expanded', 'false');
     const fill = page.locator('.header-bookmark .refresh-fill');
     const refreshFill = page.locator('.refresh-button .refresh-fill');
     await expect(fill).toHaveCSS('animation-duration', '60s');
