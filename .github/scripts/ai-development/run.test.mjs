@@ -91,7 +91,7 @@ for (const scenario of [
             : 'AGENTS.md',
         ),
         scenario === 'adjacent-line'
-          ? '# Test\nConcurrent addition\n'
+          ? '# Test\nConcurrent addition\n=======\n'
           : 'Updated base ' + advances,
       );
       git(remote, 'add', '.');
@@ -774,7 +774,7 @@ for (const scenario of [
       assert.equal(saved().recovery.conflicts, 1);
       assert.equal(
         git(remote, 'show', branch + ':README.md'),
-        '# Updated\nConcurrent addition',
+        '# Updated\nConcurrent addition\n=======',
       );
     }
     blocked = true;
