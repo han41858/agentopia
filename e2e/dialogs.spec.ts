@@ -88,7 +88,9 @@ test.describe('상세 창', () => {
     await page.getByRole('button', { name: /^이슈 #1 / }).click();
     const dialog = page.getByRole('dialog', { name: '이슈 #1' });
 
-    await expect(dialog.getByText('모험가 전투')).toBeVisible();
+    await expect(
+      dialog.getByText(/모험가 전투|모험가 검토|출정 준비|재전투/),
+    ).toHaveCount(0);
     const counters = dialog.getByRole('group', { name: '이슈 활동' });
     for (const name of [
       '고유 커밋 3개',
@@ -181,13 +183,31 @@ test.describe('상세 창', () => {
     const failedRun = {
       title: '실패한 CI',
       url: `${repoUrl}/actions/runs/201`,
+      status: 'failure',
+      startedAt: '2026-01-15T01:00:00Z',
     };
     const previousRun = {
       title: '이전 CI',
       url: `${repoUrl}/actions/runs/200`,
+      status: 'success',
     };
     failedIssue.evidence = failedRun;
-    failedIssue.runs = [failedRun, previousRun];
+    failedIssue.runs = [
+      failedRun,
+      previousRun,
+      ...[
+        'queued',
+        'in_progress',
+        'cancelled',
+        'skipped',
+        'success',
+        'success',
+      ].map((status, index) => ({
+        title: `실행 ${index + 1}`,
+        url: `${repoUrl}/actions/runs/${199 - index}`,
+        status,
+      })),
+    ];
 
     const sourceQueries: Record<string, string>[] = [];
     await page.route('**/api/github?**', async (route) => {
@@ -239,21 +259,60 @@ test.describe('상세 창', () => {
     await dialog.getByRole('button', { name: '닫기' }).click();
     await expect(dialog).toBeHidden();
 
+    await page.setViewportSize({ width: 320, height: 640 });
     await page.getByRole('button', { name: /^이슈 #2 / }).click();
     const failed = page.getByRole('dialog', { name: '이슈 #2' });
     await expect(failed.getByText('품질 시험이 실패했습니다.')).toBeVisible();
+    const actions = failed.getByRole('region', { name: 'GitHub Actions' });
+    const list = actions.getByRole('list', {
+      name: 'GitHub Actions 실행 목록',
+    });
+    const rows = list.getByRole('listitem');
     const failedLink = failed.locator(`a[href="${failedRun.url}"]`);
-    const previousLink = failed.getByRole('link', { name: previousRun.title });
-    const actions = failed.getByText('GitHub Actions', { exact: true });
+    const previousLink = list.getByRole('link', { name: previousRun.title });
+    await expect(actions.locator('summary, button')).toHaveCount(0);
+    await expect(list).toBeVisible();
+    await expect(rows).toHaveCount(8);
     await expect(failedLink).toBeVisible();
-    await expect(previousLink).toBeHidden();
-    await actions.click();
+    await expect(failedLink).toHaveCount(1);
+    await expect(rows.first().getByText('근거', { exact: true })).toBeVisible();
     await expect(previousLink).toBeVisible();
     await expect(previousLink).toHaveAttribute('href', previousRun.url);
-    await expect(failedLink).toHaveCount(1);
-    await actions.click();
-    await expect(previousLink).toBeHidden();
-    await expect(failedLink).toBeVisible();
+    await expect(rows.nth(1).getByText('—', { exact: true })).toBeVisible();
+    const startedAt = rows.first().locator('time');
+    await expect(startedAt).toHaveAttribute('datetime', failedRun.startedAt);
+    await expect(startedAt).toHaveText(/2026.*1.*15.*10:00 KST/);
+    await expect(list.locator('.issue-action-status')).toHaveText([
+      'failure',
+      'success',
+      'queued',
+      'in_progress',
+      'cancelled',
+      'skipped',
+      'success',
+      'success',
+    ]);
+
+    await list.scrollIntoViewIfNeeded();
+    await expect(startedAt).toBeInViewport();
+    await expect(
+      rows.first().getByText('failure', { exact: true }),
+    ).toBeInViewport();
+    expect(await list.evaluate((node) => node.scrollWidth)).toBe(
+      await list.evaluate((node) => node.clientWidth),
+    );
+    const lastLink = list.getByRole('link', { name: '실행 6', exact: true });
+    await expect(lastLink).not.toBeInViewport();
+    await list.hover();
+    await page.mouse.wheel(0, 800);
+    await expect
+      .poll(() => list.evaluate((node) => node.scrollTop))
+      .toBeGreaterThan(0);
+    await expect(lastLink).toBeInViewport();
+    await expect(lastLink).toHaveAttribute(
+      'href',
+      `${repoUrl}/actions/runs/194`,
+    );
   });
 
   test('몬스터: 실패한 이슈는 사유를 보여 주고, 없는 집계는 이슈로 조회한다', async ({
