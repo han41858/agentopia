@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48">
+  <title>Agentopia</title>
+  <defs>
+    <linearGradient id="glow" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2a1f4d" />
+      <stop offset="1" stop-color="#f2a53a" />
+    </linearGradient>
+  </defs>
+  <g stroke="#150f2b" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round">
+    <!-- 좌우 탑 -->
+    <rect x="3.5" y="25" width="12" height="19" fill="#d9d2c5" />
+    <rect x="32.5" y="25" width="12" height="19" fill="#d9d2c5" />
+    <polygon points="1.8,25 9.5,13.5 17.2,25" fill="#f5bd4f" />
+    <polygon points="30.8,25 38.5,13.5 46.2,25" fill="#f5bd4f" />
+  </g>
+  <!-- 탑 지붕 음영, 처마 그림자, 창 -->
+  <g fill="#c98a26" opacity=".6">
+    <polygon points="9.5,14.7 16,24.2 9.5,24.2" />
+    <polygon points="38.5,14.7 45,24.2 38.5,24.2" />
+  </g>
+  <g fill="#8f8572" opacity=".55">
+    <rect x="4.3" y="25.8" width="10.4" height="2.2" />
+    <rect x="33.3" y="25.8" width="10.4" height="2.2" />
+  </g>
+  <g fill="#2a1f4d">
+    <rect x="8" y="31.5" width="3" height="5.6" rx="1.5" />
+    <rect x="37" y="31.5" width="3" height="5.6" rx="1.5" />
+  </g>
+  <g stroke="#150f2b" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round">
+    <!-- 깃발 -->
+    <path d="M24 2.2v6" fill="none" />
+    <path d="M24 2.4l8.4 2.9-8.4 2.9z" fill="#ee5a50" />
+    <!-- 본관 -->
+    <rect x="15.5" y="19" width="17" height="25" fill="#f6f1e8" />
+    <polygon points="12.6,19 24,6.8 35.4,19" fill="#f5bd4f" />
+    <!-- 성문 -->
+    <path d="M20 44v-8a4 4 0 0 1 8 0v8z" fill="url(#glow)" />
+  </g>
+  <polygon points="24,8 33.9,18.2 24,18.2" fill="#c98a26" opacity=".6" />
+  <rect x="16.3" y="19.8" width="15.4" height="2.4" fill="#8f8572" opacity=".55" />
+  <!-- 본관 띠 장식 -->
+  <rect x="16.3" y="25.2" width="15.4" height="2.2" fill="#f5bd4f" />
+  <path d="M16.3 25.2h15.4M16.3 27.4h15.4" stroke="#150f2b" stroke-width="1" fill="none" />
+</svg>

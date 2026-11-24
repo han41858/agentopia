@@ -67,6 +67,19 @@ test.describe('왕국 기본 표시', () => {
     await expect(issue.locator('.adventurer-party')).toHaveCount(0);
   });
 
+  test('사이트 아이콘을 SVG와 PNG로 제공한다', async ({ page }) => {
+    await openWorld(page);
+    for (const type of ['image/svg+xml', 'image/png']) {
+      const href = await page
+        .locator(`link[rel="icon"][type="${type}"]`)
+        .getAttribute('href');
+      expect(href).toBeTruthy();
+      const response = await page.request.get(href!);
+      expect(response.status()).toBe(200);
+      expect(response.headers()['content-type']).toContain(type);
+    }
+  });
+
   test('시설에 올리면 연결된 몬스터를 함께 강조한다', async ({ page }) => {
     await openWorld(page);
     const facility = page.getByRole('button', { name: /PR #11/ });
