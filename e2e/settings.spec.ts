@@ -94,26 +94,38 @@ test.describe('저장소 설정', () => {
   test('왕궁 창에서 확인을 거쳐 월드맵에서 제거한다', async ({ page }) => {
     await openWorld(page, [alpha, noPlaza]);
     await page.getByTitle('왕궁 · main').first().click();
-    await page
-      .getByRole('dialog', { name: alpha })
-      .getByRole('button', { name: '월드맵에서 제거' })
-      .click();
+    const palace = page.getByRole('dialog', { name: alpha });
+    await expect(palace.getByRole('button', { name: '닫기' })).toBeVisible();
+    const openConfirm = palace.getByRole('button', { name: '월드맵에서 제거' });
     const confirm = page.getByRole('dialog', { name: '월드맵에서 제거' });
-    await expect(confirm).toContainText(`${alpha} 저장소를`);
 
-    // 취소하면 그대로 남습니다.
-    await confirm.getByRole('button', { name: '취소' }).click();
+    await openConfirm.click();
+    await expect(confirm).toBeVisible();
+    await expect(confirm).toContainText(`${alpha} 저장소를`);
+    await expect(confirm.getByRole('button', { name: '닫기' })).toHaveCount(0);
+
+    // 취소하면 저장소를 유지하고 왕궁 창으로 돌아갑니다.
+    await confirm.getByRole('button', { name: '취소', exact: true }).click();
+    await expect(confirm).toBeHidden();
+    await expect(palace).toBeVisible();
     await expect(page.getByRole('region', { name: 'alpha' })).toBeVisible();
 
-    await page
-      .getByRole('dialog', { name: alpha })
-      .getByRole('button', { name: '월드맵에서 제거' })
-      .click();
-    await page
-      .getByRole('dialog', { name: '월드맵에서 제거' })
-      .getByRole('button', { name: '제거' })
-      .click();
+    await openConfirm.click();
+    await expect(confirm).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(confirm).toBeHidden();
+    await expect(palace).toBeVisible();
 
+    await openConfirm.click();
+    await expect(confirm).toBeVisible();
+    await page.mouse.click(1, 1);
+    await expect(confirm).toBeHidden();
+    await expect(palace).toBeVisible();
+
+    await openConfirm.click();
+    await confirm.getByRole('button', { name: '제거', exact: true }).click();
+
+    await expect(confirm).toBeHidden();
     await expect(page.getByRole('region', { name: 'alpha' })).toHaveCount(0);
     await expect(page.getByRole('region', { name: 'noplaza' })).toBeVisible();
     await expect.poll(() => savedRepositories(page)).toEqual([noPlaza]);

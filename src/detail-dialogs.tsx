@@ -409,6 +409,7 @@ export function RegionDetail({
       <Dialog
         key="confirm-removal"
         title="월드맵에서 제거"
+        showCloseButton={false}
         close={() => setConfirmRemoval(false)}
       >
         <p>{region.slug} 저장소를 월드맵에서 제거할까요?</p>

@@ -44,6 +44,7 @@ export function Dialog({
   showLinkIcon = true,
   titleIcon,
   headingActions,
+  showCloseButton = true,
   className,
   children,
   close,
@@ -53,6 +54,7 @@ export function Dialog({
   showLinkIcon?: boolean;
   titleIcon?: ReactNode;
   headingActions?: ReactNode;
+  showCloseButton?: boolean;
   className?: string;
   children: ReactNode;
   close: () => void;
@@ -127,9 +129,11 @@ export function Dialog({
           )}
         </h2>
         {headingActions}
-        <button className="icon-button" aria-label="닫기" onClick={close}>
-          <X size={20} />
-        </button>
+        {showCloseButton && (
+          <button className="icon-button" aria-label="닫기" onClick={close}>
+            <X size={20} />
+          </button>
+        )}
       </div>
       <div className="dialog-body">{children}</div>
     </dialog>
