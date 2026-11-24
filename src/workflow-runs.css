@@ -23,7 +23,7 @@
 }
 
 .workflow-run-row + .workflow-run-row {
-  border-top: 1px solid currentColor;
+  margin-block-start: 0.25rem;
 }
 
 .workflow-run-row > :not(a) {
