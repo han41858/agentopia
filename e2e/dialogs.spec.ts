@@ -293,11 +293,10 @@ test.describe('상세 창', () => {
       'success',
     ]);
 
-    await list.scrollIntoViewIfNeeded();
-    await expect(startedAt).toBeInViewport();
+    await expect(startedAt).toBeInViewport({ ratio: 1 });
     await expect(
       rows.first().getByText('failure', { exact: true }),
-    ).toBeInViewport();
+    ).toBeInViewport({ ratio: 1 });
     expect(await list.evaluate((node) => node.scrollWidth)).toBe(
       await list.evaluate((node) => node.clientWidth),
     );
@@ -323,7 +322,7 @@ test.describe('상세 창', () => {
     const dialog = page.getByRole('dialog', { name: '이슈 #2' });
 
     await expect(dialog.getByText('품질 시험이 실패했습니다.')).toBeVisible();
-    await expect(dialog.getByRole('img', { name: '실행 실패' })).toBeVisible();
+    await expect(dialog.getByText('실행 실패', { exact: true })).toBeVisible();
     // 이슈 집계(댓글 6개)가 활동량에 반영됩니다. PR 집계 값(5)이면 실패합니다.
     await expect(
       dialog
