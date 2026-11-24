@@ -68,7 +68,9 @@ test.describe('예외 상태', () => {
     const dialog = page.getByRole('dialog', { name: '작업 목록' });
     await expect(dialog.locator('.quest-row small')).toHaveText(['PR #21']);
     await expect(dialog.getByText('장비 검수 중')).toBeVisible();
-    await expect(dialog.getByText('시설 이력')).toHaveCount(0);
+    await expect(
+      dialog.getByRole('region', { name: '작업 이력', exact: true }),
+    ).toHaveCount(0);
   });
 
   test('활동이 없는 저장소는 왕궁만 그리고 배포 기록이 없다고 알린다', async ({
