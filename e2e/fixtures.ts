@@ -34,6 +34,7 @@ const alphaForges: PullQuest[] = [
     draft: false,
     stage: 'developing',
     author: 'codex',
+    review: 'pass',
     issues: [1],
     adventurers: [{ agent: 'codex', roles: ['develop'], active: 'develop' }],
     activity: {
