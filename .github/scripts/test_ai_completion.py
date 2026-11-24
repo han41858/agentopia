@@ -76,7 +76,7 @@ class CompletionTest(unittest.TestCase):
                         "message": "locator failed"}]
         with patch.object(completion, "repo", side_effect=[jobs, annotations]) as fetch:
             self.assertEqual(completion.ci_feedback({"id": 7, "run_attempt": 2}),
-                             "e2e/dialogs.spec.ts:94 locator failed")
+                             ("e2e/dialogs.spec.ts:94 locator failed", None))
             self.assertEqual([c.args[0] for c in fetch.call_args_list],
                              ["actions/runs/7/attempts/2/jobs?per_page=100", "check-runs/9/annotations?per_page=100"])
 
@@ -84,10 +84,13 @@ class CompletionTest(unittest.TestCase):
         job = {"id": 17, "name": "Test and build", "conclusion": "failure",
                "steps": [{"name": "Run npm run format:check", "conclusion": "failure"}]}
         with patch.object(completion, "repo", return_value={"jobs": [job]}) as fetch:
-            self.assertEqual(completion.ci_feedback({"id": 7, "run_attempt": 2}), "npm run format:check")
+            self.assertEqual(completion.ci_feedback({"id": 7, "run_attempt": 2}), ("npm run format:check", None))
             fetch.assert_called_once()
         with patch.object(completion, "repo", side_effect=[{"jobs": [job, dict(job, name="UI test")]}, [], []]):
-            self.assertEqual(completion.ci_feedback({"id": 7, "run_attempt": 2}), "")
+            feedback, blocker = completion.ci_feedback({"id": 7, "run_attempt": 2})
+            self.assertIsNone(feedback)
+            self.assertIn("Run npm run format:check", blocker)
+            self.assertIn("/actions/runs/7/attempts/2", blocker)
 
     def test_paginated_comments(self):
         result = Mock(returncode=0, stdout='{"id":1}\n{"id":2}\n')

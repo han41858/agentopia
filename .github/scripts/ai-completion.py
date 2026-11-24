@@ -70,7 +70,7 @@ def ci_feedback(ci):
     if len(failures) == 1 and failures[0].get("name") == "Test and build" and [
         step["name"] for step in failures[0]["steps"] if step["conclusion"] == "failure"
     ] == ["Run npm run format:check"]:
-        return "npm run format:check"
+        return "npm run format:check", None
     diagnostics = []
     for job in jobs:
         if job["conclusion"] != "failure":
@@ -79,14 +79,25 @@ def ci_feedback(ci):
         for item in annotations:
             if item["annotation_level"] == "failure" and item["path"].startswith(("e2e/", "src/", "server/", "api/")):
                 diagnostics.append(f"{item['path'][:250]}:{item['start_line']} {item['message'][:1200]}")
-    return "\n".join(diagnostics).replace("\x00", "")[:4000]
+    feedback = "\n".join(diagnostics).replace("\x00", "")[:4000]
+    if feedback:
+        return feedback, None
+    steps = [step["name"] for job in failures for step in job.get("steps", [])
+             if step.get("conclusion") == "failure"]
+    # Only render plain, bounded check names in the issue comment.
+    names = [re.sub(r"[^a-zA-Z0-9 ./_:*'-]", "", name)[:100] for name in steps[:4]]
+    label = ", ".join(filter(None, names)) or "CI"
+    link = f"https://github.com/{REPO}/actions/runs/{int(ci['id'])}/attempts/{int(ci['run_attempt'])}"
+    return None, f"자동 수정할 위치를 확인할 수 없습니다. 실패한 검사: {label} ({link})"
 
 
-def request_recovery(issue, state, feedback=None):
+def request_recovery(issue, state, feedback=None, blocker=None):
     if not state.get("recovery"):
         raise RuntimeError("Legacy review has no publication checkpoint. Human confirmation required.")
     # Development serializes per issue and accepts only the latest trusted ready run.
     extra = ["-f", f"ci_feedback={feedback}"] if feedback else []
+    if blocker:
+        extra += ["-f", f"ci_blocker={blocker}"]
     subprocess.run(["gh", "workflow", "run", "ai-development.yml", "--repo", REPO,
                     "--ref", "dev", "-f", f"issue={issue}", "-f", f"recovery_run={state['runId']}", *extra],
                    check=True)
@@ -164,10 +175,9 @@ def complete(issue, run_id):
                 if not current_target(issue, number, state):
                     return
                 if ci["conclusion"] == "failure" and state.get("recovery"):
-                    feedback = ci_feedback(ci)
-                    if feedback:
-                        request_recovery(issue, state, feedback)
-                        return
+                    feedback, blocker = ci_feedback(ci)
+                    request_recovery(issue, state, feedback, blocker)
+                    return
                 if ci["conclusion"] != "success":
                     raise RuntimeError(f"CI did not pass: {ci['html_url']}")
                 break

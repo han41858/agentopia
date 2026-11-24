@@ -20,6 +20,11 @@ on:
         required: false
         type: string
 
+      ci_blocker:
+        description: '자동 수정 위치를 확인하지 못한 CI 검사와 실행 링크'
+        required: false
+        type: string
+
 permissions: {}
 
 jobs:
