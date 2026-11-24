@@ -175,15 +175,33 @@ export function snapshot(base, head) {
   };
   const diff = () =>
     git('diff', '--no-ext-diff', '--no-textconv', base, head, '--');
+  let readUiSpec = false;
   return {
     files,
     read,
+    needsUiSpec(paths) {
+      if (readUiSpec) return false;
+      const changed =
+        paths ??
+        git('diff', '--name-only', '--no-renames', '-z', base, head).split(
+          '\0',
+        );
+      return changed.some((path) =>
+        /^(src|server|api|assets|e2e)\//.test(path),
+      );
+    },
     inspect(name, input) {
       if (name === 'read_diff') return outputPage(diff(), input.line, 120);
       if (name === 'read_file') {
         if (!isEditable(input.path) && input.path !== 'AGENTS.md')
           return 'Path outside the allowed source and documentation.';
-        return outputPage(read(input.path), input.line, 120);
+        const page = outputPage(read(input.path), input.line, 120);
+        if (
+          /^e2e\/[\w.-]+\.spec\.ts$/.test(input.path) &&
+          /^\d+: [^\n]*\S/m.test(page)
+        )
+          readUiSpec = true;
+        return page;
       }
       const paths = [...files.keys()].filter(
         (path) =>

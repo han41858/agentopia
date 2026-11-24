@@ -608,6 +608,7 @@ Edit Markdown, TypeScript or CSS in src/, server/, api/, docs/ or README.md, and
 Use exact unique before/after replacements, null before for create or null after for delete.
 Use a GitMoji and Korean area and summary for the title. Do not claim that checks ran.`,
             inspect: work.inspect,
+            needsUiSpec: work.needsUiSpec,
             prepareChanges: (edits) => resolveEdits(edits, work),
           });
           delete recovery.pending;
@@ -689,14 +690,17 @@ Use a GitMoji and Korean area and summary for the title. Do not claim that check
         );
         await checkBase(baseSha);
         phase = `${names[reviewer]} 리뷰`;
+        const reviewedWork = snapshot(baseSha, head);
         const review = await runModel({
           agent: reviewer,
           mode: 'review',
           context,
           instructions: `${rules}\nRead the diff and relevant files. Review introduced changes for correctness and regressions.
+For UI-affecting changes independently read the relevant e2e/*.spec.ts at this HEAD and compare assertions against changed roles, accessible names and interactions. Request changes when coverage is stale or missing.
 Flag removed coverage, skipped tests and assertions weakened to mask regressions.
 Report material findings with their location, impact, evidence and fix. Do not edit files. Do not claim that checks ran.`,
-          inspect: snapshot(baseSha, head).inspect,
+          inspect: reviewedWork.inspect,
+          needsUiSpec: reviewedWork.needsUiSpec,
         });
         delete state.reviewInProgress;
         delete recovery.pending;

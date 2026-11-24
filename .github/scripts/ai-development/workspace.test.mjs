@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { resolveEdits } from './workspace.mjs';
+import { resolveEdits, snapshot as gitSnapshot } from './workspace.mjs';
 
 const source = 'export const value = 1;\n';
 const snapshot = {
@@ -93,4 +93,17 @@ test('updates existing UI specs without granting access to fixtures or configura
   ]) {
     assert.throws(() => resolveEdits([denied], work));
   }
+});
+
+test('UI checks require an actual spec page independently in development and review', () => {
+  const work = gitSnapshot('HEAD', 'HEAD');
+  const review = gitSnapshot('HEAD', 'HEAD');
+  const paths = ['src/detail-dialogs.tsx'];
+  assert.equal(work.needsUiSpec(['docs/development.md']), false);
+  work.inspect('list_files', { query: 'dialogs', offset: 0 });
+  work.inspect('read_file', { path: 'e2e/dialogs.spec.ts', line: 100000 });
+  assert.equal(work.needsUiSpec(paths), true);
+  work.inspect('read_file', { path: 'e2e/dialogs.spec.ts', line: 80 });
+  assert.equal(work.needsUiSpec(paths), false);
+  assert.equal(review.needsUiSpec(paths), true);
 });
