@@ -46,6 +46,7 @@
   [data-run-status='requested'],
   [data-run-status='waiting'],
   [data-run-status='pending'],
+  [data-run-status='action_required'],
   [data-automation-status='queued'],
   [data-automation-status='needs_human']
 ) {
@@ -58,8 +59,8 @@
   [data-automation-status='developing'],
   [data-automation-status='reviewing'],
   [data-automation-status='revising'],
-  [data-automation-status='merging'],
-  [data-automation-status='ci']
+  [data-automation-status='recovering'],
+  [data-automation-status='merging']
 ) {
   background: #173954;
   color: #c5e7ff;
@@ -78,6 +79,7 @@
   [data-run-status='failure'],
   [data-run-status='timed_out'],
   [data-run-status='startup_failure'],
+  [data-run-status='stale'],
   [data-automation-status='failed']
 ) {
   background: #502635;
