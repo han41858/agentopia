@@ -227,10 +227,21 @@ export function snapshot(base, head) {
     },
     inspect(name, input) {
       if (name === 'read_diff') return outputPage(diff(), input.line, 120);
-      if (name === 'read_file') {
+      if (name === 'read_file' || name === 'find_in_file') {
         if (!isEditable(input.path) && input.path !== 'AGENTS.md')
           return 'Path outside the allowed source and documentation.';
-        const page = outputPage(read(input.path), input.line, 120);
+        const source = read(input.path);
+        if (name === 'find_in_file') {
+          if (!input.text.trim()) return 'Provide a nonempty literal.';
+          const hits = [];
+          for (const [index, line] of source.split('\n').entries()) {
+            if (line.includes(input.text))
+              hits.push(`${index + 1}: ${line.trim().slice(0, 220)}`);
+            if (hits.length === 16) break;
+          }
+          return hits.join('\n') || 'No matching lines.';
+        }
+        const page = outputPage(source, input.line, 120);
         if (
           /^e2e\/[\w.-]+\.spec\.ts$/.test(input.path) &&
           /^\d+: [^\n]*\S/m.test(page)

@@ -148,3 +148,23 @@ test('syntax failures report file and parser position without disclosing source'
     });
   }
 });
+
+test('literal lookup locates UI text without counting as a full UI spec read', () => {
+  const work = gitSnapshot('HEAD', 'HEAD');
+  assert.match(
+    work.inspect('find_in_file', {
+      path: 'src/detail-dialogs.tsx',
+      text: '시설 이력',
+    }),
+    /\d+: .*시설 이력/,
+  );
+  work.inspect('find_in_file', { path: 'e2e/dialogs.spec.ts', text: 'expect' });
+  assert.equal(work.needsUiSpec(['src/detail-dialogs.tsx']), true);
+  assert.match(
+    work.inspect('find_in_file', {
+      path: '.github/workflows/ci.yml',
+      text: 'jobs',
+    }),
+    /outside/,
+  );
+});

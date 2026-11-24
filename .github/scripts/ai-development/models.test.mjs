@@ -16,8 +16,54 @@ for (const agent of ['codex', 'claude']) {
         modelNames: { codex: 'mock', claude: 'mock' },
         limits: { ...config.limits, toolCallsPerTurn: 2, toolCallsTotal: 3 },
         log: () => {},
-        request: async () => {
+        request: async (_, options) => {
           requests++;
+          const body = JSON.parse(options.body);
+          if (requests > 1) {
+            const results =
+              agent === 'codex'
+                ? body.input
+                    .filter((x) => x.type === 'function_call_output')
+                    .slice(-count)
+                    .map((x) => x.output)
+                : body.messages.at(-1).content.map((x) => x.content);
+            assert.equal(results.length, count);
+            assert.equal(
+              results.filter((x) => x.startsWith('Not executed')).length,
+              budget === 'per turn'
+                ? requests === 2
+                  ? 1
+                  : 2
+                : requests === 2
+                  ? 0
+                  : 1,
+            );
+          }
+          if (requests === 3) {
+            assert.equal(body.tool_choice?.type ?? body.tool_choice, 'none');
+            const text = JSON.stringify({
+              status: 'completed',
+              title: '📝 문서: 설명 수정',
+              summary: '문서 갱신',
+              edits: [{ path: 'README.md', before: 'A', after: 'B' }],
+            });
+            return Response.json(
+              agent === 'codex'
+                ? {
+                    status: 'completed',
+                    output: [
+                      {
+                        type: 'message',
+                        content: [{ type: 'output_text', text }],
+                      },
+                    ],
+                  }
+                : {
+                    stop_reason: 'end_turn',
+                    content: [{ type: 'text', text }],
+                  },
+            );
+          }
           const calls = Array.from({ length: count }, (_, index) =>
             agent === 'codex'
               ? {
@@ -40,21 +86,19 @@ for (const agent of ['codex', 'claude']) {
           );
         },
       });
-      await assert.rejects(
-        models.run({
-          agent,
-          mode: 'development',
-          instructions: 'Inspect source.',
-          context: 'Test',
-          inspect: () => {
-            reads++;
-            return 'server/model.ts';
-          },
-        }),
-        /도구 호출 한도/,
-      );
-      assert.equal(requests, budget === 'per turn' ? 1 : 2);
-      assert.equal(reads, budget === 'per turn' ? 0 : 2);
+      const result = await models.run({
+        agent,
+        mode: 'development',
+        instructions: 'Inspect source.',
+        context: 'Test',
+        inspect: () => {
+          reads++;
+          return 'server/model.ts';
+        },
+      });
+      assert.equal(result.status, 'completed');
+      assert.equal(requests, 3);
+      assert.equal(reads, 3);
     });
   }
 }
