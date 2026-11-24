@@ -89,6 +89,7 @@ test.describe('모바일 책갈피의 갱신', () => {
   test('개폐는 요청을 보내지 않고 새로 고침만 강제 갱신한다', async ({
     page,
   }) => {
+    await page.clock.setFixedTime(new Date('2026-11-22T03:00:00Z'));
     const github = await mockGitHub(page);
     await seedSettings(page, [empty]);
     await page.goto('/');
