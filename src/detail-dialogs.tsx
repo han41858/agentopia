@@ -3,13 +3,8 @@ import { heritageTier } from './heritage-scale.ts';
 import { WorldArt } from './world-art.tsx';
 import { useState } from 'react';
 import { ChevronRight, ExternalLink, Trash2, X } from 'lucide-react';
-import type { PullQuest, Quest, Region } from '../server/model.ts';
-import {
-  AdventurerGlyph,
-  agentNames,
-  MonsterGlyph,
-  partyLabel,
-} from './characters.tsx';
+import type { IssueRun, PullQuest, Quest, Region } from '../server/model.ts';
+import { AdventurerGlyph, agentNames, MonsterGlyph } from './characters.tsx';
 import { ActivityAura } from './activity-effects.tsx';
 import { facilities, FacilityGlyph } from './facility-art.tsx';
 import { facilityKind, isCurrentFacility } from './facility-kind.ts';
@@ -17,13 +12,7 @@ import { heritageBuildings } from './heritage-arc.tsx';
 import type { HeritageMetric, HeritageRecord } from '../server/heritage.ts';
 import type { Snapshot } from './snapshot.ts';
 import { alerts } from './snapshot.ts';
-import {
-  monsterRest,
-  MonsterStatusIcons,
-  pullStatus,
-  Badge,
-  IssueBadge,
-} from './map-markers.tsx';
+import { pullStatus, Badge } from './map-markers.tsx';
 import { releaseTime, OutLink, ResultLink, Dialog } from './dialog.tsx';
 import {
   useActivityBrowser,
@@ -33,6 +22,48 @@ import {
   IssuePullEntries,
 } from './activity-browser.tsx';
 import type { IssueActivityKind } from './activity-browser.tsx';
+import './issue-actions.css';
+
+function IssueActions({
+  runs,
+  evidenceUrl,
+}: {
+  runs: IssueRun[];
+  evidenceUrl?: string;
+}) {
+  if (!runs.length) return null;
+
+  return (
+    <section className="issue-actions" aria-label="GitHub Actions">
+      <h4>GitHub Actions</h4>
+      <ul
+        className="issue-actions-list"
+        aria-label="GitHub Actions 실행 목록"
+        tabIndex={0}
+      >
+        {runs.map(({ url, title, status, startedAt }) => (
+          <li key={url} className="issue-action-row">
+            <div className="issue-action-meta">
+              {startedAt && Number.isFinite(Date.parse(startedAt)) ? (
+                <time dateTime={startedAt}>
+                  {releaseTime.format(new Date(startedAt))} KST
+                </time>
+              ) : (
+                <span>—</span>
+              )}
+              <span className="issue-action-status">{status || '—'}</span>
+              {url === evidenceUrl && <span>근거</span>}
+            </div>
+            <a href={url} target="_blank" rel="noreferrer">
+              <span>{title}</span>
+              <ExternalLink size={14} aria-hidden="true" />
+            </a>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
 
 export function QuestDetail({
   quest,
@@ -49,10 +80,11 @@ export function QuestDetail({
   const [visited, setVisited] = useState<IssueActivityKind[]>([]);
   const evidence = quest.evidence;
   const runsByUrl = new Map(quest.runs.map((run) => [run.url, run]));
-  const evidenceStatus =
-    evidence && (evidence.status ?? runsByUrl.get(evidence.url)?.status);
-  if (evidence) runsByUrl.delete(evidence.url);
-  const runs = [...runsByUrl.values()];
+  const evidenceRun = evidence && runsByUrl.get(evidence.url);
+  if (evidenceRun) runsByUrl.delete(evidenceRun.url);
+  const runs = evidenceRun
+    ? [evidenceRun, ...runsByUrl.values()]
+    : [...runsByUrl.values()];
   return (
     <Dialog
       className="issue-dialog"
@@ -80,7 +112,7 @@ export function QuestDetail({
       close={close}
     >
       <h3>{quest.title}</h3>
-      <IssueBadge quest={quest} />
+      {alerts.has(quest.stage) && <Badge stage={quest.stage} />}
       {quest.stateReason === 'not_planned' && (
         <p>GitHub 종료 사유 · 작업하지 않기로 함</p>
       )}
@@ -91,7 +123,8 @@ export function QuestDetail({
           {quest.detail && <p>{quest.detail}</p>}
         </div>
       )}
-      {evidence && <OutLink item={{ ...evidence, status: evidenceStatus }} />}
+      {evidence && !evidenceRun && <OutLink item={evidence} />}
+      <IssueActions runs={runs} evidenceUrl={evidenceRun?.url} />
       {quest.review && (
         <p>
           현재 커밋의 AI 리뷰 결과 <strong>{quest.review}</strong>
@@ -107,8 +140,9 @@ export function QuestDetail({
               <div
                 className={`battle-adventurer ${agent}`}
                 key={agent}
-                title={partyLabel(member, monsterRest(quest))}
-                aria-label={partyLabel(member, monsterRest(quest))}
+                title={agentNames[agent]}
+                role="img"
+                aria-label={agentNames[agent]}
               >
                 <AdventurerGlyph
                   agent={agent}
@@ -129,7 +163,6 @@ export function QuestDetail({
             />
           </ActivityAura>
           <small className="expedition-number">{`#${quest.number}`}</small>
-          <MonsterStatusIcons quest={quest} />
         </div>
       </div>
       {visited.map((kind) => (
@@ -164,14 +197,6 @@ export function QuestDetail({
             item={{ ...item, title: `PR #${item.number} · ${item.title}` }}
           />
         ))}
-      {runs.length > 0 && (
-        <details className="issue-history">
-          <summary>GitHub Actions</summary>
-          {runs.map((item) => (
-            <OutLink key={item.url} item={item} />
-          ))}
-        </details>
-      )}
     </Dialog>
   );
 }

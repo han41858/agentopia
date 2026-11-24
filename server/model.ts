@@ -73,6 +73,7 @@ export type Adventurer = {
   fallen?: boolean;
 };
 export type Source = { title: string; url: string; status?: string };
+export type IssueRun = Source & { startedAt?: string };
 export type ActivityKind = 'commits' | 'comments' | 'reviews';
 export type ActivityCounts = Partial<Record<ActivityKind, number>>;
 export type ActivityEntry = Source & {
@@ -112,7 +113,7 @@ export type Quest = {
     activities?: ActivityCounts;
   })[];
   commit?: Source;
-  runs: Source[];
+  runs: IssueRun[];
 };
 export type PullQuest = Source & {
   number: number;
@@ -193,6 +194,7 @@ export type Run = {
   status: string;
   conclusion: string | null;
   created_at: string;
+  run_started_at?: string | null;
   updated_at: string;
   head_branch: string;
   head_sha: string;
@@ -899,7 +901,14 @@ export function makeQuests(
       })),
       runs: [...automation, ...(ci ? [ci] : []), ...earlierCI]
         .slice(0, 8)
-        .map(runSource),
+        .map((run) => ({
+          ...runSource(run),
+          status:
+            run.status === 'completed'
+              ? (run.conclusion ?? run.status)
+              : run.status,
+          startedAt: run.run_started_at ?? undefined,
+        })),
     };
     return withPublishedRelease(quest, releases);
   });
