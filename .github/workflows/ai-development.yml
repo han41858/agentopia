@@ -10,6 +10,10 @@ on:
         description: '재개할 이슈 번호'
         required: true
         type: number
+      review_note:
+        description: '수동 재개 시 리뷰어가 재확인할 오류와 재현 조건 (선택)'
+        required: false
+        type: string
       recovery_run:
         description: '완료 단계가 재개할 검토 실행 번호'
         required: false

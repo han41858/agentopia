@@ -265,6 +265,11 @@ for (const scenario of [
         )
           advance();
         if (scenario === 'review-human' && resumed)
+          assert.equal(
+            JSON.parse(body.messages[0].content).reproductionNote,
+            '모바일 재현 조건',
+          );
+        if (scenario === 'review-human' && resumed)
           assert.match(
             JSON.parse(body.messages[0].content).unresolvedReview,
             /기준을 확인/,
@@ -508,6 +513,14 @@ for (const scenario of [
       await import(runner + '?duplicate');
       assert.equal(developmentCalls + reviewCalls, calls);
       if (scenario === 'review-human') {
+        writeFileSync(
+          event,
+          JSON.stringify({
+            repository: { full_name: repository },
+            sender: { login: 'tester' },
+            inputs: { review_note: '모바일 재현 조건' },
+          }),
+        );
         await manualResume();
         assert.equal(developmentCalls, 1);
         assert.equal(reviewCalls, 2);
