@@ -80,6 +80,15 @@ class CompletionTest(unittest.TestCase):
             self.assertEqual([c.args[0] for c in fetch.call_args_list],
                              ["actions/runs/7/attempts/2/jobs?per_page=100", "check-runs/9/annotations?per_page=100"])
 
+    def test_format_only_failure_with_no_file_annotations(self):
+        job = {"id": 17, "name": "Test and build", "conclusion": "failure",
+               "steps": [{"name": "Run npm run format:check", "conclusion": "failure"}]}
+        with patch.object(completion, "repo", return_value={"jobs": [job]}) as fetch:
+            self.assertEqual(completion.ci_feedback({"id": 7, "run_attempt": 2}), "npm run format:check")
+            fetch.assert_called_once()
+        with patch.object(completion, "repo", side_effect=[{"jobs": [job, dict(job, name="UI test")]}, [], []]):
+            self.assertEqual(completion.ci_feedback({"id": 7, "run_attempt": 2}), "")
+
     def test_paginated_comments(self):
         result = Mock(returncode=0, stdout='{"id":1}\n{"id":2}\n')
         with patch.object(completion.subprocess, "run", return_value=result) as run:

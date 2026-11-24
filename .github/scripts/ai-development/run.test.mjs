@@ -1,6 +1,12 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  mkdtempSync,
+  mkdirSync,
+  rmSync,
+  writeFileSync,
+  readFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -96,7 +102,10 @@ for (const scenario of [
         sender: { login: 'tester' },
       }),
     );
+    const stepOutput = join(root, 'step-output');
+    writeFileSync(stepOutput, '');
     Object.assign(process.env, {
+      GITHUB_OUTPUT: stepOutput,
       GITHUB_EVENT_PATH: event,
       GITHUB_REPOSITORY: repository,
       GITHUB_REF: 'refs/heads/dev',
@@ -429,6 +438,10 @@ for (const scenario of [
     if (scenario.startsWith('review-')) {
       const ready = scenario === 'review-revision';
       assert.equal(saved().status, ready ? 'ready' : 'needs_human');
+      assert.equal(
+        readFileSync(stepOutput, 'utf8'),
+        ready ? 'ready=true\n' : '',
+      );
       assert.equal(saved().reviews[0].head, head);
       assert.equal(creations, 1);
       assert.equal(commits, ready ? 2 : scenario === 'review-limit' ? 3 : 1);

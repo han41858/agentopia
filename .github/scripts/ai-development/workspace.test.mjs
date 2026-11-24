@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { resolveEdits, snapshot as gitSnapshot } from './workspace.mjs';
+import {
+  formatChanges,
+  resolveEdits,
+  snapshot as gitSnapshot,
+} from './workspace.mjs';
 
 const source = 'export const value = 1;\n';
 const snapshot = {
@@ -106,4 +110,28 @@ test('UI checks require an actual spec page independently in development and rev
   work.inspect('read_file', { path: 'e2e/dialogs.spec.ts', line: 80 });
   assert.equal(work.needsUiSpec(paths), false);
   assert.equal(review.needsUiSpec(paths), true);
+});
+
+test('formats proposals before publication and drops format-only no-ops', async () => {
+  const path = 'src/value.ts';
+  assert.deepEqual(
+    await formatChanges([{ path, text: 'export const value=1' }], snapshot),
+    [],
+  );
+  assert.deepEqual(
+    await formatChanges(
+      [
+        { path, text: 'export const value=2' },
+        { path: 'e2e/example.spec.ts', text: "test(  '예시',()=>{} )" },
+      ],
+      snapshot,
+    ),
+    [
+      { path, text: 'export const value = 2;\n' },
+      { path: 'e2e/example.spec.ts', text: "test('예시', () => {});\n" },
+    ],
+  );
+  assert.deepEqual(await formatChanges([{ path, text: null }], snapshot), [
+    { path, text: null },
+  ]);
 });

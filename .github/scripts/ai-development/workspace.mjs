@@ -1,3 +1,5 @@
+import { format } from 'prettier';
+import formatterOptions from '../../../prettier.config.mjs';
 import { execFileSync } from 'node:child_process';
 
 const maxBuffer = 8 * 1024 * 1024;
@@ -153,6 +155,19 @@ export function resolveEdits(edits, { files, read }) {
   return changes.map(([path, text]) => ({ path, text }));
 }
 
+export async function formatChanges(changes, work) {
+  const result = [];
+  for (const { path, text } of changes) {
+    const formatted =
+      text === null
+        ? null
+        : await format(text, { ...formatterOptions, filepath: path });
+    if (formatted !== (work.files.has(path) ? work.read(path) : null))
+      result.push({ path, text: formatted });
+  }
+  return result;
+}
+
 export function snapshot(base, head) {
   const git = (...args) =>
     execFileSync('git', args, { encoding: 'utf8', maxBuffer, timeout: 30_000 });
@@ -179,6 +194,12 @@ export function snapshot(base, head) {
   return {
     files,
     read,
+    existingBranchEdits() {
+      return git('diff', '--name-only', '--no-renames', '-z', base, head)
+        .split('\0')
+        .filter((path) => isEditable(path) && files.get(path) === '100644')
+        .map((path) => ({ path, text: read(path) }));
+    },
     needsUiSpec(paths) {
       if (readUiSpec) return false;
       const changed =
