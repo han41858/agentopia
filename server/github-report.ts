@@ -1,7 +1,13 @@
 import { preferredPalaceBranches } from './branch-roads.ts';
 import type { BranchInventory } from './branch-roads.ts';
 import { observeGitHub } from './github-query.ts';
-import { linkedPullIssues, makeForges, makeQuests, runIssue } from './model.ts';
+import {
+  linkedPullIssues,
+  makeForges,
+  makeQuests,
+  readState,
+  runIssue,
+} from './model.ts';
 import type {
   Comment,
   Issue,
@@ -249,6 +255,47 @@ export async function getReport(
     Promise.all(issueTasks),
     commentsTask,
   ]);
+  // The repository-wide comment window can miss an active issue's checkpoint.
+  const observed = new Set(
+    comments.flatMap((comment) => {
+      const state = readState(comment, region);
+      return state
+        ? [`${state.issue}/${state.runId}/${state.attempt ?? 1}`]
+        : [];
+    }),
+  );
+  const seenIssues = new Set<number>();
+  const missingCheckpoints = runs.filter((run) => {
+    const number = runIssue(run);
+    if (!number || seenIssues.has(number)) return false;
+    seenIssues.add(number);
+    return (
+      run.status === 'in_progress' &&
+      issues.get(number)?.state === 'open' &&
+      !observed.has(`${number}/${run.id}/${run.run_attempt}`)
+    );
+  });
+  const targeted = await Promise.all(
+    missingCheckpoints.slice(0, 8).map(async (run) => {
+      const number = runIssue(run);
+      const recent = await optional(
+        'AI 상태 기록',
+        get<Comment[]>(
+          `/issues/${number}/comments?per_page=100&since=${encodeURIComponent(run.created_at)}`,
+        ),
+        [],
+      );
+      return recent.filter((entry) => {
+        const state = readState(entry, region);
+        return (
+          state &&
+          state.issue === number &&
+          state.runId === run.id &&
+          (state.attempt ?? 1) === run.run_attempt
+        );
+      });
+    }),
+  );
   const tags = tagResult?.tags ?? [];
   if (tagResult?.dateLookupFailed) warnings.add('태그 커밋 시각');
   const tagCommits = new Map(tags.map((tag) => [tag.name, tag.sha]));
@@ -302,7 +349,7 @@ export async function getReport(
     [...issues.values()],
     pulls,
     runs,
-    comments,
+    comments.concat(...targeted),
     parents,
     releases,
     pullLinks,
