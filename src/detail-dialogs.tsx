@@ -288,7 +288,7 @@ export function PullStatus({
         <X size={14} aria-hidden="true" /> 작업 취소
       </span>
     );
-  if (pull.stage === 'idle') return null;
+  if (pull.stage === 'idle' || (detail && pull.stage === 'failed')) return null;
   return alerts.has(pull.stage) ||
     (!detail && pull.stage === 'ci') ||
     pull.stage === 'complete' ? (
