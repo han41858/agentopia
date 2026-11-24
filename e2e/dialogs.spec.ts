@@ -562,6 +562,30 @@ test.describe('상세 창', () => {
     await expect(page.getByRole('dialog', { name: 'PR #119' })).toBeVisible();
   });
 
+  test('왕궁: 저장소 제목 링크에 키보드로 접근할 수 있다', async ({ page }) => {
+    await openWorld(page);
+    await page.getByTitle('왕궁 · main').click();
+    const dialog = page.getByRole('dialog', { name: alpha });
+    const heading = dialog.getByRole('heading', { name: alpha, exact: true });
+    const link = heading.getByRole('link', { name: alpha, exact: true });
+    const remove = dialog.getByRole('button', { name: '월드맵에서 제거' });
+    const close = dialog.getByRole('button', { name: '닫기' });
+
+    await expect(link).toHaveAttribute('href', `https://github.com/${alpha}`);
+    await expect(heading.locator('svg')).toHaveCount(0);
+    await expect(
+      dialog.getByLabel('저장소로 이동', { exact: true }),
+    ).toHaveCount(0);
+    await expect(remove).toBeVisible();
+    await expect(close).toBeVisible();
+
+    await expect(link).toBeFocused();
+    await page.keyboard.press('Tab');
+    await expect(remove).toBeFocused();
+    await page.keyboard.press('Shift+Tab');
+    await expect(link).toBeFocused();
+  });
+
   test('왕궁: 배포 기록을 최신 순으로 10개씩 보여 준다', async ({ page }) => {
     await openWorld(page);
     await page.getByTitle('왕궁 · main').click();

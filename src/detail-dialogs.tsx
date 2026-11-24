@@ -443,29 +443,19 @@ export function RegionDetail({
   return (
     <Dialog
       title={region.slug}
+      titleHref={`https://github.com/${region.slug}`}
+      showLinkIcon={false}
       className="palace-dialog"
       close={close}
       headingActions={
-        <>
-          <a
-            className="icon-button"
-            href={`https://github.com/${region.slug}`}
-            target="_blank"
-            rel="noreferrer"
-            aria-label="저장소로 이동"
-            title="저장소로 이동"
-          >
-            <ExternalLink size={18} aria-hidden="true" />
-          </a>
-          <button
-            className="icon-button remove-region"
-            onClick={() => setConfirmRemoval(true)}
-            aria-label="월드맵에서 제거"
-            title="월드맵에서 제거"
-          >
-            <Trash2 size={18} aria-hidden="true" />
-          </button>
-        </>
+        <button
+          className="icon-button remove-region"
+          onClick={() => setConfirmRemoval(true)}
+          aria-label="월드맵에서 제거"
+          title="월드맵에서 제거"
+        >
+          <Trash2 size={18} aria-hidden="true" />
+        </button>
       }
     >
       {snapshot?.error && <p className="fetch-error">{snapshot.error}</p>}
