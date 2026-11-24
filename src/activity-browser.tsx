@@ -152,11 +152,15 @@ export function ActivityEntries({
       {!result.entries.length && <p>GitHub 기록이 없습니다.</p>}
       {result.entries.map((item) =>
         compact ? (
-          <ResultLink key={item.url} item={item} />
+          item.url === linkedEvidenceUrl ? (
+            <p key={item.url}>위에 표시된 근거 기록</p>
+          ) : (
+            <ResultLink key={item.url} item={item} />
+          )
         ) : (
           <div className="activity-entry" key={item.url}>
             {item.url === linkedEvidenceUrl ? (
-              <strong>위에 표시된 근거 댓글</strong>
+              <strong>위에 표시된 근거 기록</strong>
             ) : (
               <OutLink item={item} />
             )}
@@ -195,11 +199,13 @@ export function IssuePullEntries({
   token,
   pulls,
   kind,
+  linkedEvidenceUrl,
 }: {
   region: string;
   token: string;
   pulls: Quest['pulls'];
   kind: ActivityKind;
+  linkedEvidenceUrl?: string;
 }) {
   return pulls
     .filter((pull) => pull.activities?.[kind] !== 0)
@@ -211,6 +217,7 @@ export function IssuePullEntries({
         number={pull.number}
         kind={kind}
         chooseSource={pulls.length > 1}
+        linkedEvidenceUrl={linkedEvidenceUrl}
       />
     ));
 }
@@ -221,12 +228,14 @@ function PullEntrySource({
   number,
   kind,
   chooseSource,
+  linkedEvidenceUrl,
 }: {
   region: string;
   token: string;
   number: number;
   kind: ActivityKind;
   chooseSource: boolean;
+  linkedEvidenceUrl?: string;
 }) {
   const [visited, setVisited] = useState(false);
   const entries = (
@@ -236,6 +245,7 @@ function PullEntrySource({
       number={number}
       kind={kind}
       compact={kind === 'commits'}
+      linkedEvidenceUrl={linkedEvidenceUrl}
     />
   );
   if (!chooseSource) return entries;

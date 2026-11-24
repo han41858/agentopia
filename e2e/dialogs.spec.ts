@@ -1,5 +1,5 @@
-import { alpha } from './fixtures.ts';
-import { openWorld } from './github.ts';
+import { alpha, alphaReport } from './fixtures.ts';
+import { mockGitHub, openWorld, seedSettings, settled } from './github.ts';
 import { expect, test } from './test.ts';
 
 test.describe('상세 창', () => {
@@ -81,18 +81,21 @@ test.describe('상세 창', () => {
     ).toBeVisible();
   });
 
-  test('몬스터: 이슈 상태, 활동량, 공략 결과를 보여 준다', async ({ page }) => {
+  test('몬스터: 상태와 활동 집계를 먼저 보여 주고 선택한 기록만 조회한다', async ({
+    page,
+  }) => {
     const github = await openWorld(page);
     await page.getByRole('button', { name: /^이슈 #1 / }).click();
     const dialog = page.getByRole('dialog', { name: '이슈 #1' });
 
     await expect(dialog.getByText('모험가 전투')).toBeVisible();
     const counters = dialog.getByRole('group', { name: '이슈 활동' });
-    for (const name of ['고유 커밋 3개', 'PR 댓글 2개', '리뷰 1개']) {
-      await expect(
-        counters.getByRole('img', { name, exact: true }),
-      ).toBeVisible();
+    for (const name of ['고유 커밋 3개', '이슈 댓글 4개', 'PR 댓글 2개', '리뷰 1개']) {
+      const counter = counters.getByRole('button', { name, exact: true });
+      await expect(counter).toBeVisible();
+      await expect(counter).toHaveAttribute('aria-expanded', 'false');
     }
+    expect(github.count('activity')).toBe(0);
     const title = dialog.getByRole('link', { name: '이슈 #1', exact: true });
     await expect(title).toHaveAttribute('href', /issues\/1$/);
     await expect(title.locator('svg')).toHaveCount(0);
@@ -102,28 +105,140 @@ test.describe('상세 창', () => {
     await expect(
       dialog.getByRole('link', { name: /PR #11 · ✨ 지도: 새 시설 추가/ }),
     ).toBeVisible();
-    // 댓글 단추는 이 이슈의 댓글 기록을 조회해 보여 줍니다.
-    await counters.getByRole('button', { name: '이슈 댓글 4개' }).click();
+    const issueComments = counters.getByRole('button', { name: '이슈 댓글 4개' });
+    await issueComments.click();
+    await expect(issueComments).toHaveAttribute('aria-expanded', 'true');
     await expect(dialog.locator('.activity-entry')).toHaveCount(2);
-    await expect(
-      dialog.getByText('지도 개편 범위를 정리했습니다.'),
-    ).toBeVisible();
+    const issueComment = dialog.getByText('지도 개편 범위를 정리했습니다.');
+    await expect(issueComment).toBeVisible();
     await expect(dialog.getByText('시설 배치부터 진행합니다.')).toBeVisible();
 
-    // 공략 결과의 PR 활동은 그 PR 번호로 조회합니다.
-    await dialog.getByRole('button', { name: 'PR 활동 보기' }).click();
-    await dialog.getByRole('button', { name: '커밋 3개' }).click();
-    await expect(dialog.getByText('시설 배치 계산 추가')).toBeVisible();
+    const commits = counters.getByRole('button', { name: '고유 커밋 3개' });
+    const commitLink = dialog.getByRole('link', { name: 'a1b2c3d' });
+    await commits.click();
+    await expect(commits).toHaveAttribute('aria-expanded', 'true');
+    await expect(issueComments).toHaveAttribute('aria-expanded', 'false');
+    await expect(issueComment).toBeHidden();
+    await expect(commitLink).toBeVisible();
+    await commits.click();
+    await expect(commits).toHaveAttribute('aria-expanded', 'false');
+    await expect(commitLink).toBeHidden();
+    await commits.click();
+    await expect(commitLink).toBeVisible();
+
+    const reviews = counters.getByRole('button', { name: '리뷰 1개' });
+    await reviews.click();
+    await expect(reviews).toHaveAttribute('aria-expanded', 'true');
+    await expect(commits).toHaveAttribute('aria-expanded', 'false');
+    await expect(commitLink).toBeHidden();
+    await expect(dialog.getByText('배치 계산을 확인했습니다.')).toBeVisible();
 
     expect(github.queries('activity')).toEqual([
       { repo: alpha, activity: 'comments', number: '1', page: '1' },
       { repo: alpha, activity: 'commits', number: '11', page: '1' },
+      { repo: alpha, activity: 'reviews', number: '11', page: '1' },
     ]);
     // 집계가 응답에 다 있었으므로 창을 열 때 집계 요청은 없었습니다.
     expect(github.count('summary')).toBe(0);
 
     await dialog.getByRole('button', { name: '닫기' }).click();
     await expect(dialog).toBeHidden();
+  });
+
+  test('몬스터: PR별로 기록을 열고 근거와 실행 링크를 중복 표시하지 않는다', async ({
+    page,
+  }) => {
+    const github = await mockGitHub(page);
+    await seedSettings(page, [alpha]);
+    const report = structuredClone(alphaReport);
+    const issue = report.quests.find((item) => item.number === 1)!;
+    const failedIssue = report.quests.find((item) => item.number === 2)!;
+    const repoUrl = `https://github.com/${alpha}`;
+    const comment = {
+      title: '개입 근거 댓글',
+      body: 'PR #12에서 확인한 변경 사항입니다.',
+      url: `${repoUrl}/pull/12#issuecomment-120`,
+    };
+    issue.evidence = { title: comment.title, url: comment.url };
+    issue.pulls = [
+      { ...issue.pulls[0]!, activities: { comments: 1 } },
+      {
+        number: 12,
+        title: '후속 변경',
+        url: `${repoUrl}/pull/12`,
+        activities: { comments: 1 },
+      },
+    ];
+    issue.runs = [];
+
+    const failedRun = { title: '실패한 CI', url: `${repoUrl}/actions/runs/201` };
+    const previousRun = { title: '이전 CI', url: `${repoUrl}/actions/runs/200` };
+    failedIssue.evidence = failedRun;
+    failedIssue.runs = [failedRun, previousRun];
+
+    const sourceQueries: Record<string, string>[] = [];
+    await page.route('**/api/github?**', async (route) => {
+      const params = new URL(route.request().url()).searchParams;
+      if (params.has('branches')) {
+        await route.fulfill({ json: report });
+      } else if (
+        params.get('activity') === 'comments' &&
+        params.get('number') === '12'
+      ) {
+        sourceQueries.push(Object.fromEntries(params));
+        await route.fulfill({ json: { entries: [comment] } });
+      } else {
+        await route.fallback();
+      }
+    });
+    await page.goto('/');
+    await settled(page);
+
+    await page.getByRole('button', { name: /^이슈 #1 / }).click();
+    const dialog = page.getByRole('dialog', { name: '이슈 #1' });
+    const evidence = dialog.locator(`a[href="${comment.url}"]`);
+    await expect(evidence).toBeVisible();
+    await expect(dialog.getByText('GitHub Actions', { exact: true })).toHaveCount(
+      0,
+    );
+    await dialog.getByRole('button', { name: 'PR 댓글 2개' }).click();
+    await expect(dialog.getByText('PR #11 · 댓글', { exact: true })).toBeVisible();
+    const secondSource = dialog.getByText('PR #12 · 댓글', { exact: true });
+    await expect(secondSource).toBeVisible();
+    expect(github.count('activity')).toBe(0);
+    expect(sourceQueries).toEqual([]);
+
+    await secondSource.click();
+    const body = dialog.getByText(comment.body, { exact: true });
+    await expect(body).toBeVisible();
+    await expect(dialog.getByText('위에 표시된 근거 기록')).toBeVisible();
+    await expect(evidence).toHaveCount(1);
+    await secondSource.click();
+    await expect(body).toBeHidden();
+    await secondSource.click();
+    await expect(body).toBeVisible();
+    expect(github.count('activity')).toBe(0);
+    expect(sourceQueries).toEqual([
+      { repo: alpha, activity: 'comments', number: '12', page: '1' },
+    ]);
+    await dialog.getByRole('button', { name: '닫기' }).click();
+    await expect(dialog).toBeHidden();
+
+    await page.getByRole('button', { name: /^이슈 #2 / }).click();
+    const failed = page.getByRole('dialog', { name: '이슈 #2' });
+    await expect(failed.getByText('품질 시험이 실패했습니다.')).toBeVisible();
+    const failedLink = failed.locator(`a[href="${failedRun.url}"]`);
+    const previousLink = failed.getByRole('link', { name: previousRun.title });
+    const actions = failed.getByText('GitHub Actions', { exact: true });
+    await expect(failedLink).toBeVisible();
+    await expect(previousLink).toBeHidden();
+    await actions.click();
+    await expect(previousLink).toBeVisible();
+    await expect(previousLink).toHaveAttribute('href', previousRun.url);
+    await expect(failedLink).toHaveCount(1);
+    await actions.click();
+    await expect(previousLink).toBeHidden();
+    await expect(failedLink).toBeVisible();
   });
 
   test('몬스터: 실패한 이슈는 사유를 보여 주고, 없는 집계는 이슈로 조회한다', async ({

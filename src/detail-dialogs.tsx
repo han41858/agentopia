@@ -148,6 +148,7 @@ export function QuestDetail({
               token={token}
               pulls={quest.pulls}
               kind={kind}
+              linkedEvidenceUrl={evidence?.url}
             />
           )}
         </div>
