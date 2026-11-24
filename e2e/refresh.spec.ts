@@ -152,3 +152,28 @@ test('PR 리뷰가 재개되면 캐릭터도 다시 움직인다', async ({ page
       await expect(avatar).toHaveCSS('animation-iteration-count', 'infinite');
   }
 });
+
+test('PR 없는 이슈에도 다음 갱신에서 작업 중인 담당자가 나타난다', async ({
+  page,
+}) => {
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  await openWorld(page);
+  const marker = page.locator('[data-road-issue="3"]');
+  const avatar = marker.locator('.codex .adventurer-avatar');
+  await expect(marker).toBeVisible();
+  await expect(avatar).toHaveCount(0);
+  const report = structuredClone(alphaReport);
+  const issue = report.quests.find((item) => item.number === 3)!;
+  issue.stage = 'developing';
+  issue.adventurers = [
+    { agent: 'codex', roles: ['develop'], active: 'develop' },
+  ];
+  await page.route('**/api/github?**', (route) =>
+    new URL(route.request().url()).searchParams.has('refresh')
+      ? route.fulfill({ json: report })
+      : route.fallback(),
+  );
+  await page.getByRole('button', { name: '새로 고침' }).click();
+  await expect(avatar).toBeVisible();
+  await expect(avatar).toHaveCSS('animation-name', 'attack');
+});
