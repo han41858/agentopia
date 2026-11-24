@@ -23,6 +23,8 @@ for (const scenario of [
   'blocked-edit',
   'claude-label',
   'completion-dispatch',
+  'blocked-ci',
+  'blocked-ci-drift',
   'ci-repair',
   'ci-format-repair',
   'post-ci-review',
@@ -38,6 +40,8 @@ for (const scenario of [
   'restart-limit',
   'update-limit',
   'manual-head',
+  'upstream-head',
+  'upstream-extra',
   'interrupted-review',
   'interrupted-commit',
   'merge-conflict',
@@ -189,9 +193,12 @@ for (const scenario of [
           : [{ path: 'README.md', before: 'Test', after: 'Updated' }];
         if (
           commits &&
-          ['review-limit', 'review-revision', 'review-no-change'].includes(
-            scenario,
-          )
+          [
+            'review-limit',
+            'review-revision',
+            'review-no-change',
+            'blocked-ci-drift',
+          ].includes(scenario)
         ) {
           assert.match(JSON.parse(body.input[0].content).priorReview, /결함/);
           assert.equal(saved().recovery.reviewRevisions, commits);
@@ -268,6 +275,7 @@ for (const scenario of [
             (reviewCalls <= 2 ||
               reviewCalls === 4 ||
               (reviewCalls === 5 && scenario === 'post-ci-limit'))) ||
+          (scenario === 'blocked-ci-drift' && reviewCalls === 2) ||
           scenario === 'review-limit' ||
           (reviewCalls === 1 &&
             ['review-revision', 'review-no-change'].includes(scenario))
@@ -581,7 +589,11 @@ for (const scenario of [
       assert.equal(creations, 1);
       return;
     }
-    if (scenario === 'completion-dispatch') {
+    if (
+      ['completion-dispatch', 'blocked-ci', 'blocked-ci-drift'].includes(
+        scenario,
+      )
+    ) {
       const original = saved();
       process.env.GITHUB_RUN_ID = '2';
       writeFileSync(
@@ -589,11 +601,28 @@ for (const scenario of [
         JSON.stringify({
           repository: { full_name: repository },
           sender: { login: 'github-actions[bot]' },
-          inputs: { issue: '15', recovery_run: String(original.runId) },
+          inputs: {
+            issue: '15',
+            recovery_run: String(original.runId),
+            ci_blocker: scenario.startsWith('blocked-ci')
+              ? '실패한 자동화 검사 (CI 링크)'
+              : undefined,
+          },
         }),
       );
-      await import(runner + '?no-drift');
-      assert.deepEqual(saved(), original);
+      if (scenario === 'blocked-ci') {
+        const calls = { reviewCalls, developmentCalls, commits };
+        await import(runner + '?blocked');
+        assert.equal(saved().status, 'needs_human');
+        assert.equal(saved().reason, '실패한 자동화 검사 (CI 링크)');
+        await import(runner + '?duplicate');
+        assert.deepEqual({ reviewCalls, developmentCalls, commits }, calls);
+        return;
+      }
+      if (scenario !== 'blocked-ci-drift') {
+        await import(runner + '?no-drift');
+        assert.deepEqual(saved(), original);
+      }
       advance();
       await import(runner + '?from-completion');
       assert.equal(saved().recovery.updates, 1);
@@ -602,13 +631,41 @@ for (const scenario of [
       assert.equal(saved().reviews[0].head, saved().head);
       assert.equal(saved().status, 'ready');
       await import(runner + '?same-dispatch-again');
-      assert.equal(reviews, 2);
-      assert.equal(developmentCalls, 1);
-      assert.equal(commits, 1);
+      const revised = scenario === 'blocked-ci-drift';
+      assert.equal(reviews, revised ? 3 : 2);
+      assert.equal(developmentCalls, revised ? 2 : 1);
+      assert.equal(commits, revised ? 2 : 1);
       return;
     }
     if (['interrupted-review-record', 'interrupted-commit'].includes(scenario))
       process.env.GITHUB_RUN_ID = '2';
+    if (scenario.startsWith('upstream-')) {
+      const reviewed = saved().head;
+      advance();
+      git(remote, 'switch', branch);
+      git(remote, 'merge', '--no-edit', 'dev');
+      if (scenario === 'upstream-extra') {
+        writeFileSync(join(remote, 'extra'), 'manual');
+        git(remote, 'add', 'extra');
+        git(remote, 'commit', '-m', 'manual addition');
+      }
+      git(remote, 'switch', 'dev');
+      await import(runner + '?changed');
+      assert.equal(saved().status, 'needs_human');
+      process.env.GITHUB_RUN_ID = '2';
+      await import(runner + '?manual');
+      if (scenario === 'upstream-extra') {
+        assert.equal(saved().status, 'needs_human');
+        assert.equal(saved().recovery.head, reviewed);
+        assert.equal(reviews, 1);
+      } else {
+        assert.equal(saved().status, 'ready');
+        assert.notEqual(saved().head, reviewed);
+        assert.equal(saved().reviews[0].head, head);
+        assert.equal(reviews, 2);
+      }
+      return;
+    }
     if (scenario === 'manual-head') {
       git(remote, 'switch', branch);
       git(remote, 'commit', '--allow-empty', '-m', 'human change');

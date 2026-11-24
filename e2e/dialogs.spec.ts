@@ -14,7 +14,8 @@ test.describe('상세 창', () => {
       dialog.getByRole('heading', { name: '✨ 지도: 새 시설 추가' }),
     ).toBeVisible();
     await expect(dialog.getByText('제작 중')).toBeVisible();
-    await expect(dialog.getByText('작성 · Codex')).toBeVisible();
+    await expect(dialog.getByText('AI 리뷰 결과 pass')).toBeVisible();
+    await expect(dialog.getByText(/작성 ·|리뷰 기록 ·/)).toHaveCount(0);
     await expect(
       dialog.getByRole('button', { name: '커밋 3개' }),
     ).toBeVisible();
@@ -59,10 +60,42 @@ test.describe('상세 창', () => {
       dialog.getByRole('button', { name: '댓글 5개' }),
     ).toBeVisible();
     await expect(dialog.getByRole('img', { name: '실행 실패' })).toBeVisible();
-    await expect(dialog.getByRole('link', { name: /CI/ })).toBeVisible();
+    const runs = dialog.getByRole('list', { name: 'GitHub Actions 실행 목록' });
+    await expect(runs.getByRole('link', { name: 'CI' })).toBeVisible();
+    await expect(runs.locator('time')).toHaveText(/2026.*1.*15.*10:00 KST/);
+    await expect(runs.getByText('failure')).toBeVisible();
+    await expect(runs.getByRole('listitem')).toHaveCSS('font-size', '11px');
     expect(github.queries('summary')).toEqual([
       { repo: alpha, summary: 'pull', number: '12' },
     ]);
+  });
+
+  test('좁은 PR 팝업은 CI 상태와 실행 목록을 캐릭터 없이 표시한다', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 320, height: 720 });
+    const report = structuredClone(alphaReport);
+    const forge = report.forges!.find(({ number }) => number === 12)!;
+    forge.stage = 'ci';
+    forge.quality = 'ci';
+    forge.runs[0]!.status = 'in_progress';
+    await seedSettings(page, [alpha]);
+    await mockGitHub(page);
+    await page.route('**/api/github?**', (route) =>
+      new URL(route.request().url()).searchParams.has('branches')
+        ? route.fulfill({ json: report })
+        : route.fallback(),
+    );
+    await page.goto('/');
+    await page.getByRole('button', { name: /PR #12/ }).click();
+    const dialog = page.getByRole('dialog', { name: 'PR #12' });
+    await expect(dialog.getByText('품질 시험', { exact: true })).toBeVisible();
+    await expect(dialog.locator('.badge img')).toHaveCount(0);
+    const row = dialog.getByRole('listitem').filter({ hasText: 'in_progress' });
+    await expect(row.getByRole('link', { name: 'CI' })).toBeVisible();
+    expect(
+      await row.evaluate((node) => node.scrollWidth <= node.clientWidth),
+    ).toBe(true);
   });
 
   test('PR 시설에서 연결된 이슈로 넘어간다', async ({ page }) => {
@@ -315,7 +348,7 @@ test.describe('상세 창', () => {
     const startedAt = rows.first().locator('time');
     await expect(startedAt).toHaveAttribute('datetime', failedRun.startedAt);
     await expect(startedAt).toHaveText(/2026.*1.*15.*10:00 KST/);
-    const badges = list.locator('.issue-action-status');
+    const badges = list.locator('.workflow-run-status');
     await expect(badges).toHaveText([
       'failure',
       'success',
@@ -427,13 +460,13 @@ test.describe('상세 창', () => {
         name: new RegExp(`GitHub Actions 상태 기록.*${status}`),
       });
       await expect(evidence).toHaveAttribute('href', issue.evidence.url);
-      const stage = evidence.locator('.issue-action-status');
+      const stage = evidence.locator('.workflow-run-status');
       await expect(stage).toHaveText(status);
       await expect(stage).toHaveCSS('background-color', 'rgb(23, 57, 84)');
       await expect(stage).toHaveCSS('color', 'rgb(197, 231, 255)');
       const runStatus = dialog
         .getByRole('region', { name: 'GitHub Actions' })
-        .locator('.issue-action-status');
+        .locator('.workflow-run-status');
       await expect(runStatus).toHaveText('success');
       await expect(runStatus).toHaveCSS('background-color', 'rgb(26, 64, 43)');
 
@@ -527,6 +560,30 @@ test.describe('상세 창', () => {
       .toBeGreaterThan(0);
     await list.getByRole('button').last().click();
     await expect(page.getByRole('dialog', { name: 'PR #119' })).toBeVisible();
+  });
+
+  test('왕궁: 저장소 제목 링크에 키보드로 접근할 수 있다', async ({ page }) => {
+    await openWorld(page);
+    await page.getByTitle('왕궁 · main').click();
+    const dialog = page.getByRole('dialog', { name: alpha });
+    const heading = dialog.getByRole('heading', { name: alpha, exact: true });
+    const link = heading.getByRole('link', { name: alpha, exact: true });
+    const remove = dialog.getByRole('button', { name: '월드맵에서 제거' });
+    const close = dialog.getByRole('button', { name: '닫기' });
+
+    await expect(link).toHaveAttribute('href', `https://github.com/${alpha}`);
+    await expect(heading.locator('svg')).toHaveCount(0);
+    await expect(
+      dialog.getByLabel('저장소로 이동', { exact: true }),
+    ).toHaveCount(0);
+    await expect(remove).toBeVisible();
+    await expect(close).toBeVisible();
+
+    await expect(link).toBeFocused();
+    await page.keyboard.press('Tab');
+    await expect(remove).toBeFocused();
+    await page.keyboard.press('Shift+Tab');
+    await expect(link).toBeFocused();
   });
 
   test('왕궁: 배포 기록을 최신 순으로 10개씩 보여 준다', async ({ page }) => {
