@@ -685,7 +685,13 @@ API requests remaining, including this one: ${turnLimit - turn + 1}. Read tools 
             result?.status === 'needs_human' &&
             isCheckpoint(result.summary)
           ) {
-            if (resumedCheckpoint || finalTurn) return unexplainedStop;
+            if (finalTurn)
+              return {
+                ...unexplainedStop,
+                summary:
+                  '모델이 최종 판정을 요청받은 뒤에도 중간 점검 문구만 반환했습니다. 검토할 변경과 테스트를 확인한 뒤 다시 실행하세요.',
+              };
+            if (resumedCheckpoint) correction = 'checkpoint';
             resumedCheckpoint = true;
             input.push(
               ...(isCodex

@@ -1,8 +1,9 @@
-.issue-actions h4 {
+.dialog .workflow-runs h4 {
+  font-size: 0.8125rem;
   margin: 0 0 0.4rem;
 }
 
-.issue-dialog .issue-actions-list {
+.workflow-runs .workflow-runs-list {
   max-height: 8rem;
   overflow-y: auto;
   overscroll-behavior-y: contain;
@@ -11,7 +12,7 @@
   padding: 0.25rem;
 }
 
-.issue-action-row {
+.workflow-run-row {
   display: flex;
   align-items: center;
   gap: 0.25rem;
@@ -21,15 +22,15 @@
   white-space: nowrap;
 }
 
-.issue-action-row + .issue-action-row {
+.workflow-run-row + .workflow-run-row {
   border-top: 1px solid currentColor;
 }
 
-.issue-action-row > :not(a) {
+.workflow-run-row > :not(a) {
   flex: none;
 }
 
-.issue-action-status {
+.workflow-run-status {
   display: inline-block;
   justify-self: start;
   padding-inline: 0.25rem;
@@ -41,7 +42,7 @@
   line-height: 1rem;
 }
 
-.issue-action-status:is(
+.workflow-run-status:is(
   [data-run-status='queued'],
   [data-run-status='requested'],
   [data-run-status='waiting'],
@@ -54,7 +55,7 @@
   color: #ffe2a0;
 }
 
-.issue-action-status:is(
+.workflow-run-status:is(
   [data-run-status='in_progress'],
   [data-automation-status='developing'],
   [data-automation-status='reviewing'],
@@ -66,7 +67,7 @@
   color: #c5e7ff;
 }
 
-.issue-action-status:is(
+.workflow-run-status:is(
   [data-run-status='success'],
   [data-automation-status='ready'],
   [data-automation-status='merged']
@@ -75,7 +76,7 @@
   color: #c0f1d2;
 }
 
-.issue-action-status:is(
+.workflow-run-status:is(
   [data-run-status='failure'],
   [data-run-status='timed_out'],
   [data-run-status='startup_failure'],
@@ -86,34 +87,34 @@
   color: #ffced7;
 }
 
-.issue-action-status[data-run-status='cancelled'] {
+.workflow-run-status[data-run-status='cancelled'] {
   background: #423451;
   color: #ead8ff;
 }
 
-.issue-action-status[data-run-status='skipped'] {
+.workflow-run-status[data-run-status='skipped'] {
   background: #2d3b42;
   color: #d8e4e9;
 }
 
-.issue-action-row .issue-action-status {
+.workflow-run-row .workflow-run-status {
   box-sizing: border-box;
   max-width: 32%;
 }
 
-.issue-action-row a {
+.workflow-run-row a {
   display: inline-flex;
   align-items: center;
   gap: 0.25rem;
   min-width: 0;
 }
 
-.issue-action-row .issue-action-status,
-.issue-action-row a span {
+.workflow-run-row .workflow-run-status,
+.workflow-run-row a span {
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.issue-action-row a svg {
+.workflow-run-row a svg {
   flex: none;
 }

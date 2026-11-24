@@ -34,6 +34,7 @@ const alphaForges: PullQuest[] = [
     draft: false,
     stage: 'developing',
     author: 'codex',
+    review: 'pass',
     issues: [1],
     adventurers: [{ agent: 'codex', roles: ['develop'], active: 'develop' }],
     activity: {
@@ -57,7 +58,8 @@ const alphaForges: PullQuest[] = [
       {
         title: 'CI',
         url: `https://github.com/${alpha}/actions/runs/1`,
-        status: '실패',
+        status: 'failure',
+        startedAt: '2026-01-15T01:00:00Z',
       },
     ],
   },
