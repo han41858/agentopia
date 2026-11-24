@@ -1643,9 +1643,9 @@ svg {
     pointer-events: auto;
   }
   .header-bookmark-face {
-    /* Narrow only the visible face; the button keeps its full hit area. */
+    /* Keep the face at 75% in both states without shrinking the hit area. */
     position: absolute;
-    inset: 0 0 0 50%;
+    inset: 0 0 0 25%;
     pointer-events: none;
   }
   .header-bookmark-face > svg,
@@ -1668,8 +1668,7 @@ svg {
     visibility: visible;
     pointer-events: auto;
   }
-  .header-tools[data-open='true'] .header-bookmark,
-  .header-tools[data-open='true'] .header-bookmark-face {
+  .header-tools[data-open='true'] .header-bookmark {
     left: 0;
   }
   .header-tools[data-open='true'] .header-bookmark .refresh-fill {
@@ -1678,8 +1677,7 @@ svg {
 }
 
 @media (max-width: 640px) and (prefers-reduced-motion: no-preference) {
-  .header-bookmark,
-  .header-bookmark-face {
+  .header-bookmark {
     transition: left var(--header-tool-duration) ease-out;
   }
   .world-controls {
