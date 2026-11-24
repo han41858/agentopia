@@ -83,6 +83,38 @@ test.describe('갱신 요청 수', () => {
   });
 });
 
+test.describe('모바일 책갈피의 갱신', () => {
+  test.use({ viewport: { width: 320, height: 800 }, hasTouch: true });
+
+  test('개폐는 요청을 보내지 않고 새로 고침만 강제 갱신한다', async ({
+    page,
+  }) => {
+    const github = await openWorld(page, [empty]);
+    await settled(page);
+    const before = github.calls.length;
+    const open = page.getByRole('button', { name: '상단 도구 열기' });
+    const fill = page.locator('.header-bookmark .refresh-fill');
+    const refreshFill = page.locator('.refresh-button .refresh-fill');
+    await expect(fill).toHaveCSS('animation-duration', '60s');
+    const progress = await fill.elementHandle();
+
+    await open.tap();
+    await expect(refreshFill).toHaveCSS('animation-duration', '60s');
+    await page.getByRole('button', { name: '상단 도구 접기' }).tap();
+    await open.tap();
+    await settled(page);
+    expect(github.calls).toHaveLength(before);
+    expect(await progress?.evaluate((node) => node.isConnected)).toBe(true);
+
+    await page.getByRole('button', { name: '새로 고침' }).tap();
+    await expect.poll(() => github.calls.length).toBe(before + 1);
+    await settled(page);
+    const extra = github.calls.slice(before);
+    expect(summary(extra)).toEqual([`report ${empty}`]);
+    expect(extra[0].params.get('refresh')).toBe('1');
+  });
+});
+
 test('PR 리뷰가 재개되면 캐릭터도 다시 움직인다', async ({ page }) => {
   await page.emulateMedia({ reducedMotion: 'no-preference' });
   await openWorld(page);

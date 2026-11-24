@@ -6,7 +6,13 @@ import {
 import { WorldArt } from './world-art.tsx';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { Plus, RefreshCw, Ticket } from 'lucide-react';
+import {
+  ChevronLeft,
+  ChevronRight,
+  Plus,
+  RefreshCw,
+  Ticket,
+} from 'lucide-react';
 import { repositoryRegion } from '../server/model.ts';
 import type { PullQuest, Region, Report } from '../server/model.ts';
 import { AdventurerGlyph, PartyLeaderGlyph } from './characters.tsx';
@@ -83,6 +89,59 @@ function App() {
   const refreshJobs = useRef<RefreshJobs>({ token, jobs: new Map() });
   const [showConnect, setShowConnect] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
+  const [toolsOpen, setToolsOpen] = useState(false);
+  const headerTools = useRef<HTMLDivElement>(null);
+  const bookmark = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    if (!toolsOpen) return;
+    const narrow = window.matchMedia('(max-width: 640px)');
+
+    function dismissOutside(event: PointerEvent) {
+      if (
+        event.target instanceof Node &&
+        !headerTools.current?.contains(event.target)
+      ) {
+        setToolsOpen(false);
+      }
+    }
+
+    function dismissOnEscape(event: KeyboardEvent) {
+      if (
+        event.key !== 'Escape' ||
+        event.defaultPrevented ||
+        !narrow.matches ||
+        document.querySelector('dialog[open]')
+      )
+        return;
+      event.preventDefault();
+      setToolsOpen(false);
+      bookmark.current?.focus();
+    }
+
+    function resetOnWideScreen(event: MediaQueryListEvent) {
+      if (!event.matches) setToolsOpen(false);
+    }
+
+    document.addEventListener('pointerdown', dismissOutside);
+    document.addEventListener('keydown', dismissOnEscape);
+    narrow.addEventListener('change', resetOnWideScreen);
+    return () => {
+      document.removeEventListener('pointerdown', dismissOutside);
+      document.removeEventListener('keydown', dismissOnEscape);
+      narrow.removeEventListener('change', resetOnWideScreen);
+    };
+  }, [toolsOpen]);
+
+  function openSettings(kind: 'repository' | 'token') {
+    if (toolsOpen) {
+      // Leave a visible trigger for the dialog to restore focus to.
+      bookmark.current?.focus();
+      setToolsOpen(false);
+    }
+    if (kind === 'repository') setShowAdd(true);
+    else setShowConnect(true);
+  }
 
   useEffect(() => {
     try {
@@ -231,6 +290,16 @@ function App() {
     setSelectedQuest({ region, number: item.number, kind: 'pull' });
   }, []);
 
+  const toolsLabel = toolsOpen ? '상단 도구 접기' : '상단 도구 열기';
+  const refreshFill = !loading && (
+    <span
+      key={progress.key}
+      className="refresh-fill"
+      style={{ animationDuration: `${progress.duration}ms` }}
+      aria-hidden="true"
+    />
+  );
+
   return (
     <>
       <main className="world" aria-labelledby="world-title">
@@ -243,27 +312,25 @@ function App() {
               Agentopia
             </h1>
           </div>
-          <div className="world-controls">
-            <ModeSwitch />
+          <div ref={headerTools} className="header-tools" data-open={toolsOpen}>
             <button
-              className="connect add-repository-button"
-              aria-label="저장소 추가"
-              title="저장소 추가"
-              onClick={() => setShowAdd(true)}
+              ref={bookmark}
+              type="button"
+              className="header-bookmark"
+              aria-label={toolsLabel}
+              aria-expanded={toolsOpen}
+              aria-controls="world-controls"
+              title={toolsLabel}
+              onClick={() => setToolsOpen(!toolsOpen)}
             >
-              <Plus size={19} aria-hidden="true" />
+              {refreshFill}
+              {toolsOpen ? (
+                <ChevronRight size={20} aria-hidden="true" />
+              ) : (
+                <ChevronLeft size={20} aria-hidden="true" />
+              )}
             </button>
-            <button
-              className="connect ticket-button"
-              data-filled={Boolean(token)}
-              data-tone={token ? tokenStatus.tone : undefined}
-              aria-label={token ? tokenStatus.label : 'GitHub 연결'}
-              title={token ? tokenStatus.label : 'GitHub 연결'}
-              onClick={() => setShowConnect(true)}
-            >
-              <Ticket size={19} aria-hidden="true" />
-            </button>
-            <div className="refresh-control">
+            <div id="world-controls" className="world-controls">
               <button
                 className="refresh-button"
                 aria-label="새로 고침"
@@ -277,19 +344,31 @@ function App() {
                 disabled={!worldRegions.length}
                 onClick={() => refresh.current?.()}
               >
-                {!loading && (
-                  <span
-                    key={progress.key}
-                    className="refresh-fill"
-                    style={{ animationDuration: `${progress.duration}ms` }}
-                    aria-hidden="true"
-                  />
-                )}
+                {refreshFill}
                 <RefreshCw
                   size={16}
                   className={loading ? 'rotate' : ''}
                   aria-hidden="true"
                 />
+              </button>
+              <ModeSwitch />
+              <button
+                className="connect add-repository-button"
+                aria-label="저장소 추가"
+                title="저장소 추가"
+                onClick={() => openSettings('repository')}
+              >
+                <Plus size={19} aria-hidden="true" />
+              </button>
+              <button
+                className="connect ticket-button"
+                data-filled={Boolean(token)}
+                data-tone={token ? tokenStatus.tone : undefined}
+                aria-label={token ? tokenStatus.label : 'GitHub 연결'}
+                title={token ? tokenStatus.label : 'GitHub 연결'}
+                onClick={() => openSettings('token')}
+              >
+                <Ticket size={19} aria-hidden="true" />
               </button>
               <GitHubUsage
                 token={token}

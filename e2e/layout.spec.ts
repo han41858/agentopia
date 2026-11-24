@@ -98,7 +98,11 @@ for (const width of [1280, 390, 320]) {
       );
       expect(overflow).toBeLessThanOrEqual(0);
 
-      const controls = await boxes(page.locator('.world-controls button'));
+      const controls = await boxes(
+        page.locator(
+          '.header-bookmark:visible, .world-controls button:visible',
+        ),
+      );
       const palaces = await boxes(page.locator('.kingdom'));
       const facilities = await boxes(page.locator('.facility-marker'));
       const monsters = await boxes(page.locator('.monster-marker'));
@@ -168,7 +172,11 @@ for (const width of [1280, 390, 320]) {
         page,
       }) => {
         for (const mode of ['world', 'simple']) {
-          if (mode === 'simple') await page.locator('.mode-switch').tap();
+          if (mode === 'simple') {
+            await page.getByRole('button', { name: '상단 도구 열기' }).tap();
+            await page.locator('.mode-switch').tap();
+            await page.getByRole('button', { name: '상단 도구 접기' }).tap();
+          }
           await expect(page.locator('[data-display-mode]')).toHaveAttribute(
             'data-display-mode',
             mode,
@@ -198,36 +206,131 @@ for (const width of [1280, 390, 320]) {
         }
       });
 
-      test('두 모드에서 헤더 버튼이 로고 오른쪽 첫 줄에 정렬된다', async ({
+      test('두 모드에서 제목을 유지하고 지도 위에 도구를 펼친다', async ({
         page,
       }) => {
+        const title = page.getByRole('heading', { name: 'Agentopia' });
+        const open = page.getByRole('button', { name: '상단 도구 열기' });
+        const close = page.getByRole('button', { name: '상단 도구 접기' });
+        const controls = page.locator('.world-controls');
+        const map = page.locator('.map-viewport');
+
         for (const mode of ['world', 'simple']) {
-          if (mode === 'simple') await page.locator('.mode-switch').tap();
           await expect(page.locator('[data-display-mode]')).toHaveAttribute(
             'data-display-mode',
             mode,
           );
+          await expect(open).toHaveAttribute('aria-expanded', 'false');
+          await expect(controls).toBeHidden();
+          await expect(title).toBeInViewport({ ratio: 1 });
+          const [heading] = await boxes(title);
           const [crest] = await boxes(page.locator('.crest'));
-          const buttons = await boxes(
-            page.locator('.world-controls > button, .refresh-button'),
+          const [collapsed] = await boxes(open);
+          const [viewport] = await boxes(map);
+          expect(heading.y + heading.height / 2).toBeCloseTo(
+            crest.y + crest.height / 2,
+            0,
           );
-          expect(buttons).toHaveLength(4);
-          for (const button of buttons) {
-            expect(button.x).toBeGreaterThanOrEqual(crest.x + crest.width);
-            expect(button.y + button.height / 2).toBeCloseTo(
-              crest.y + crest.height / 2,
-              0,
+          expect(heading.x + heading.width).toBeLessThan(collapsed.x);
+          expect(collapsed.x + collapsed.width).toBe(width);
+
+          await open.tap();
+          await expect(close).toHaveAttribute('aria-expanded', 'true');
+          const buttons = page.locator(
+            '.header-bookmark, .world-controls > button',
+          );
+          await expect(buttons).toHaveCount(5);
+          for (const [index, name] of [
+            '상단 도구 접기',
+            '새로 고침',
+            '간단 모드',
+            '저장소 추가',
+            'GitHub 연결',
+          ].entries()) {
+            await expect(buttons.nth(index)).toHaveAccessibleName(name);
+          }
+          const row = await boxes(buttons);
+          for (const [index, button] of row.entries()) {
+            expect(button.x).toBeGreaterThanOrEqual(
+              index ? row[index - 1].x + row[index - 1].width : 0,
             );
-            expect(button.height).toBe(buttons[0].height);
+            expect(button.y).toBe(row[0].y);
+            expect(button.y).toBeGreaterThanOrEqual(viewport.y - 1);
             expect(button.x + button.width).toBeLessThanOrEqual(width);
+          }
+          expect(await boxes(title)).toEqual([heading]);
+          expect(await boxes(map)).toEqual([viewport]);
+          expect(
+            await page.evaluate(
+              () =>
+                document.documentElement.scrollWidth -
+                document.documentElement.clientWidth,
+            ),
+          ).toBe(0);
+
+          await title.tap();
+          await expect(controls).toBeHidden();
+          expect(await boxes(map)).toEqual([viewport]);
+          if (mode === 'world') {
+            await open.tap();
+            await page.locator('.mode-switch').tap();
+            await close.tap();
+            await expect(controls).toBeHidden();
           }
         }
       });
 
+      test('책갈피는 키보드로 열고 닫으며 설정 창은 한 번의 탭으로 열린다', async ({
+        page,
+      }) => {
+        const open = page.getByRole('button', { name: '상단 도구 열기' });
+        const close = page.getByRole('button', { name: '상단 도구 접기' });
+        const refresh = page.getByRole('button', { name: '새로 고침' });
+        const controls = page.locator('.world-controls');
+
+        await page.keyboard.press('Tab');
+        await expect(open).toBeFocused();
+        await page.keyboard.press('Tab');
+        expect(
+          await controls.evaluate((node) =>
+            node.contains(document.activeElement),
+          ),
+        ).toBe(false);
+        await open.focus();
+        await page.keyboard.press('Enter');
+        await expect(close).toBeFocused();
+        for (const name of [
+          '새로 고침',
+          '간단 모드',
+          '저장소 추가',
+          'GitHub 연결',
+        ]) {
+          await page.keyboard.press('Tab');
+          await expect(
+            page.getByRole('button', { name, exact: true }),
+          ).toBeFocused();
+        }
+        await page.keyboard.press('Escape');
+        await expect(open).toBeFocused();
+        await expect(refresh).toBeHidden();
+
+        for (const name of ['저장소 추가', 'GitHub 연결']) {
+          await open.tap();
+          await controls.getByRole('button', { name, exact: true }).tap();
+          const dialog = page.getByRole('dialog');
+          await expect(dialog).toBeVisible();
+          await expect(controls).toBeHidden();
+          await dialog.getByRole('button', { name: '닫기' }).tap();
+          await expect(dialog).toBeHidden();
+        }
+      });
+
       test('터치로 누르는 요소가 충분히 크다', async ({ page }) => {
+        const bookmark = page.locator('.header-bookmark');
+        await bookmark.tap();
         const targets = [
           ...(await boxes(
-            page.locator('.world-controls > button, .refresh-button'),
+            page.locator('.header-bookmark, .world-controls > button'),
           )),
           ...(await boxes(page.locator('.facility-marker'))),
           ...(await boxes(page.locator('.heritage-slot'))),
@@ -235,12 +338,13 @@ for (const width of [1280, 390, 320]) {
             page.locator('.branch-road-node[data-road-role="road"]'),
           )),
         ];
-        expect(targets).toHaveLength(4 + 4 + 3 + 4);
+        expect(targets).toHaveLength(5 + 4 + 3 + 4);
         for (const box of targets) {
           expect(Math.round(box.width)).toBeGreaterThanOrEqual(touchTarget);
           expect(Math.round(box.height)).toBeGreaterThanOrEqual(touchTarget);
         }
 
+        await bookmark.tap();
         await page.getByRole('button', { name: /PR #11/ }).tap();
         const counters = await boxes(
           page.getByRole('dialog').locator('.activity-counter'),
@@ -257,6 +361,18 @@ for (const width of [1280, 390, 320]) {
       }) => {
         const [option] = await boxes(page.locator('.mode-switch-option'));
         expect(option.height).toBeLessThan(touchTarget);
+        await expect(page.locator('.header-bookmark')).toBeHidden();
+        await expect(
+          page.getByRole('heading', { name: 'Agentopia' }),
+        ).toBeInViewport({ ratio: 1 });
+        await expect(
+          page.locator('.world-controls > button:visible'),
+        ).toHaveCount(4);
+        await page.getByRole('button', { name: '간단 모드' }).click();
+        await expect(page.locator('[data-display-mode]')).toHaveAttribute(
+          'data-display-mode',
+          'simple',
+        );
       });
     }
   });
