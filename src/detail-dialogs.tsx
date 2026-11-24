@@ -238,7 +238,6 @@ export function PullDetail({
       close={close}
     >
       <h3>{pull.title}</h3>
-      <PullStatus pull={pull} detail />
       {pull.review && (
         <p>
           AI 리뷰 결과 <strong>{pull.review}</strong>
@@ -275,22 +274,16 @@ export function PullDetail({
   );
 }
 
-export function PullStatus({
-  pull,
-  detail = false,
-}: {
-  pull: PullQuest;
-  detail?: boolean;
-}) {
+function PullStatus({ pull }: { pull: PullQuest }) {
   if (pull.cancelled)
     return (
       <span className="badge idle">
         <X size={14} aria-hidden="true" /> 작업 취소
       </span>
     );
-  if (pull.stage === 'idle' || (detail && pull.stage === 'failed')) return null;
+  if (pull.stage === 'idle') return null;
   return alerts.has(pull.stage) ||
-    (!detail && pull.stage === 'ci') ||
+    pull.stage === 'ci' ||
     pull.stage === 'complete' ? (
     <Badge stage={pull.stage} label={pullStatus(pull)} />
   ) : (
