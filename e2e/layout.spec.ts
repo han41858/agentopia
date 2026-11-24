@@ -175,7 +175,10 @@ for (const width of [1280, 390, 320]) {
           );
           await page.getByRole('button', { name: /^이슈 #1 / }).tap();
           const dialog = page.getByRole('dialog', { name: '이슈 #1' });
-          const title = dialog.getByRole('link', { name: '이슈 #1', exact: true });
+          const title = dialog.getByRole('link', {
+            name: '이슈 #1',
+            exact: true,
+          });
           await expect(title).toBeInViewport();
           await expect(title).toHaveAttribute('href', /issues\/1$/);
           await expect(title).toHaveAttribute('target', '_blank');

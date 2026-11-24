@@ -90,7 +90,12 @@ test.describe('상세 창', () => {
 
     await expect(dialog.getByText('모험가 전투')).toBeVisible();
     const counters = dialog.getByRole('group', { name: '이슈 활동' });
-    for (const name of ['고유 커밋 3개', '이슈 댓글 4개', 'PR 댓글 2개', '리뷰 1개']) {
+    for (const name of [
+      '고유 커밋 3개',
+      '이슈 댓글 4개',
+      'PR 댓글 2개',
+      '리뷰 1개',
+    ]) {
       const counter = counters.getByRole('button', { name, exact: true });
       await expect(counter).toBeVisible();
       await expect(counter).toHaveAttribute('aria-expanded', 'false');
@@ -105,7 +110,9 @@ test.describe('상세 창', () => {
     await expect(
       dialog.getByRole('link', { name: /PR #11 · ✨ 지도: 새 시설 추가/ }),
     ).toBeVisible();
-    const issueComments = counters.getByRole('button', { name: '이슈 댓글 4개' });
+    const issueComments = counters.getByRole('button', {
+      name: '이슈 댓글 4개',
+    });
     await issueComments.click();
     await expect(issueComments).toHaveAttribute('aria-expanded', 'true');
     await expect(dialog.locator('.activity-entry')).toHaveCount(2);
@@ -171,8 +178,14 @@ test.describe('상세 창', () => {
     ];
     issue.runs = [];
 
-    const failedRun = { title: '실패한 CI', url: `${repoUrl}/actions/runs/201` };
-    const previousRun = { title: '이전 CI', url: `${repoUrl}/actions/runs/200` };
+    const failedRun = {
+      title: '실패한 CI',
+      url: `${repoUrl}/actions/runs/201`,
+    };
+    const previousRun = {
+      title: '이전 CI',
+      url: `${repoUrl}/actions/runs/200`,
+    };
     failedIssue.evidence = failedRun;
     failedIssue.runs = [failedRun, previousRun];
 
@@ -198,11 +211,13 @@ test.describe('상세 창', () => {
     const dialog = page.getByRole('dialog', { name: '이슈 #1' });
     const evidence = dialog.locator(`a[href="${comment.url}"]`);
     await expect(evidence).toBeVisible();
-    await expect(dialog.getByText('GitHub Actions', { exact: true })).toHaveCount(
-      0,
-    );
+    await expect(
+      dialog.getByText('GitHub Actions', { exact: true }),
+    ).toHaveCount(0);
     await dialog.getByRole('button', { name: 'PR 댓글 2개' }).click();
-    await expect(dialog.getByText('PR #11 · 댓글', { exact: true })).toBeVisible();
+    await expect(
+      dialog.getByText('PR #11 · 댓글', { exact: true }),
+    ).toBeVisible();
     const secondSource = dialog.getByText('PR #12 · 댓글', { exact: true });
     await expect(secondSource).toBeVisible();
     expect(github.count('activity')).toBe(0);
