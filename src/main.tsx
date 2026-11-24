@@ -368,7 +368,11 @@ function App() {
                 <ChevronLeft size={20} aria-hidden="true" />
               )}
             </button>
-            <div id="world-controls" className="world-controls">
+            <div
+              id="world-controls"
+              className="world-controls"
+              inert={narrowHeader && !toolsOpen}
+            >
               {narrowHeader && refreshButton}
               <ModeSwitch />
               <button
