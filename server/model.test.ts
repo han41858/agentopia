@@ -110,27 +110,106 @@ test('issue and PR Actions use run start times and distinguish status from concl
   assert.deepEqual(
     quest.runs.map((item) => item.status),
     [
-      'queued',
       'in_progress',
       'success',
       'failure',
       'cancelled',
       'skipped',
+      'queued',
       'completed',
     ],
   );
   assert.deepEqual(
     quest.runs.map((item) => item.startedAt),
     [
+      startedAt,
+      startedAt,
+      startedAt,
+      startedAt,
+      startedAt,
       undefined,
-      startedAt,
-      startedAt,
-      startedAt,
-      startedAt,
-      startedAt,
       undefined,
     ],
   );
+});
+
+test('Actions history sorts mixed runs before limiting the issue and PR lists', () => {
+  const runUrl = (id: number) =>
+    `https://github.com/${commitTrail.slug}/actions/runs/${id}`;
+  const pullRequests = [{ number: pull.number }];
+  const olderAI = Array.from({ length: 8 }, (_, index) =>
+    run(2, {
+      id: 90 - index,
+      html_url: runUrl(90 - index),
+      status: 'completed',
+      conclusion: 'success',
+      pull_requests: pullRequests,
+      run_started_at: '2026-11-19T00:45:00Z',
+    }),
+  );
+  const ai = run(2, {
+    pull_requests: pullRequests,
+    run_started_at: '2026-11-19T01:01:00Z',
+  });
+  const ci = (id: number, time: string, overrides: Partial<Run> = {}) =>
+    run(2, {
+      id,
+      name: 'CI',
+      path: '.github/workflows/ci.yml',
+      html_url: runUrl(id),
+      status: 'completed',
+      conclusion: 'success',
+      pull_requests: pullRequests,
+      run_started_at: `2026-11-19T${time}Z`,
+      ...overrides,
+    });
+  const currentCI = ci(103, '01:23:05', { conclusion: 'failure' });
+  const laterInMinute = ci(104, '01:23:45', {
+    status: 'in_progress',
+    conclusion: null,
+  });
+  const previousHead = ci(105, '01:23:45', {
+    head_sha: mergeSha,
+    conclusion: 'cancelled',
+  });
+  const latest = ci(106, '01:30:00');
+  const runs = [...olderAI, ai, currentCI, laterInMinute, previousHead, latest];
+  const [quest] = makeQuests(
+    commitTrail,
+    [issue(2)],
+    [pull],
+    runs,
+    [comment(2, 'ready')],
+    new Map(),
+    [],
+  );
+  assert.equal(quest.stage, 'failed');
+  assert.equal(quest.evidence?.url, currentCI.html_url);
+  assert.equal(quest.workPull, pull.number);
+  assert.deepEqual(
+    quest.runs.map(({ url }) => url),
+    [
+      latest,
+      laterInMinute,
+      previousHead,
+      currentCI,
+      ai,
+      ...olderAI.slice(0, 3),
+    ].map(({ html_url }) => html_url),
+  );
+
+  const [forge] = makeForges(commitTrail, [pull], runs, new Map());
+  assert.equal(forge.stage, 'failed');
+  assert.deepEqual(
+    forge.runs.map(({ url }) => url),
+    [latest, laterInMinute, currentCI, ai, ...olderAI.slice(0, 4)].map(
+      ({ html_url }) => html_url,
+    ),
+  );
+  const [forgeWithWork] = makeForges(commitTrail, [pull], runs, new Map(), [
+    quest,
+  ]);
+  assert.deepEqual(forgeWithWork.runs, quest.runs);
 });
 
 test('GitHub workflow run metadata survives the issue report API', async (context) => {

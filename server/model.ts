@@ -453,6 +453,17 @@ function runSource(run: Run): WorkflowRunRecord {
   };
 }
 
+function latestWorkflowRuns(runs: WorkflowRunRecord[]): WorkflowRunRecord[] {
+  return runs
+    .map((run) => {
+      const start = Date.parse(run.startedAt ?? '');
+      return { run, start: Number.isNaN(start) ? -Infinity : start };
+    })
+    .sort((a, b) => (a.start === b.start ? 0 : b.start - a.start))
+    .slice(0, 8)
+    .map(({ run }) => run);
+}
+
 export function makeForges(
   region: Region,
   pulls: Pull[],
@@ -580,14 +591,14 @@ export function makeForges(
         author: pullActor(pull.user?.login, pull.user?.type),
         reviewer: review?.reviewer,
         review: review?.review,
-        runs: [
+        runs: latestWorkflowRuns([
           ...new Map(
             [
               ...relatedWork.flatMap((quest) => quest.runs),
               ...relatedRuns.map(runSource),
             ].map((run) => [run.url, run]),
           ).values(),
-        ].slice(0, 8),
+        ]),
       };
     });
 }
@@ -970,9 +981,9 @@ export function makeQuests(
             ? 'draft'
             : item.state,
       })),
-      runs: [...automation, ...(ci ? [ci] : []), ...earlierCI]
-        .slice(0, 8)
-        .map(runSource),
+      runs: latestWorkflowRuns(
+        [...automation, ...(ci ? [ci] : []), ...earlierCI].map(runSource),
+      ),
     };
     return withPublishedRelease(quest, releases);
   });
