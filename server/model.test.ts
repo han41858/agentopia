@@ -80,7 +80,7 @@ const comment = (
   updated_at: stamp,
 });
 
-test('issue Actions use run start times and distinguish status from conclusion', () => {
+test('issue and PR Actions use run start times and distinguish status from conclusion', () => {
   const startedAt = '2026-11-19T10:05:00Z';
   const runs = [
     run(1, { status: 'queued', run_started_at: null }),
@@ -92,6 +92,7 @@ test('issue Actions use run start times and distinguish status from conclusion',
   ].map((item, index) => ({
     ...item,
     id: 200 - index,
+    pull_requests: [{ number: pull.number }],
     html_url: `https://github.com/${commitTrail.slug}/actions/runs/${200 - index}`,
   }));
   const [quest] = makeQuests(
@@ -104,6 +105,8 @@ test('issue Actions use run start times and distinguish status from conclusion',
     [],
   );
 
+  const [forge] = makeForges(commitTrail, [pull], runs, new Map());
+  assert.deepEqual(forge.runs, quest.runs);
   assert.deepEqual(
     quest.runs.map((item) => item.status),
     [
