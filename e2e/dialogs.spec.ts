@@ -88,9 +88,6 @@ test.describe('상세 창', () => {
     await page.getByRole('button', { name: /^이슈 #1 / }).click();
     const dialog = page.getByRole('dialog', { name: '이슈 #1' });
 
-    await expect(
-      dialog.getByText(/모험가 전투|모험가 검토|출정 준비|재전투/),
-    ).toHaveCount(0);
     const counters = dialog.getByRole('group', { name: '이슈 활동' });
     for (const name of [
       '고유 커밋 3개',
@@ -169,6 +166,10 @@ test.describe('상세 창', () => {
       url: `${repoUrl}/pull/12#issuecomment-120`,
     };
     issue.evidence = { title: comment.title, url: comment.url };
+    issue.adventurers = [
+      { agent: 'codex', roles: ['develop'], active: 'develop' },
+      { agent: 'claude', roles: ['review'] },
+    ];
     issue.pulls = [
       { ...issue.pulls[0]!, activities: { comments: 1 } },
       {
@@ -229,6 +230,16 @@ test.describe('상세 창', () => {
 
     await page.getByRole('button', { name: /^이슈 #1 / }).click();
     const dialog = page.getByRole('dialog', { name: '이슈 #1' });
+    const rpgStatus = /모험가 전투|모험가 검토|출정 준비|재전투/;
+    await expect(dialog.getByText(rpgStatus)).toHaveCount(0);
+    await expect(dialog.getByTitle(rpgStatus)).toHaveCount(0);
+    await expect(dialog.getByRole('img', { name: rpgStatus })).toHaveCount(0);
+    for (const name of ['Codex', 'Claude']) {
+      const adventurer = dialog.getByRole('img', { name, exact: true });
+      await expect(adventurer).toBeVisible();
+      await expect(adventurer).toHaveAttribute('title', name);
+    }
+
     const evidence = dialog.locator(`a[href="${comment.url}"]`);
     await expect(evidence).toBeVisible();
     await expect(
@@ -300,14 +311,21 @@ test.describe('상세 창', () => {
     expect(await list.evaluate((node) => node.scrollWidth)).toBe(
       await list.evaluate((node) => node.clientWidth),
     );
-    const lastLink = list.getByRole('link', { name: '실행 6', exact: true });
+    const lastRow = rows.last();
+    const lastLink = lastRow.getByRole('link', { name: '실행 6', exact: true });
     await expect(lastLink).not.toBeInViewport();
     await list.hover();
     await page.mouse.wheel(0, 800);
     await expect
       .poll(() => list.evaluate((node) => node.scrollTop))
       .toBeGreaterThan(0);
-    await expect(lastLink).toBeInViewport();
+    await expect(lastLink).toBeInViewport({ ratio: 1 });
+    await expect(lastRow.getByText('—', { exact: true })).toBeInViewport({
+      ratio: 1,
+    });
+    await expect(lastRow.getByText('success', { exact: true })).toBeInViewport({
+      ratio: 1,
+    });
     await expect(lastLink).toHaveAttribute(
       'href',
       `${repoUrl}/actions/runs/194`,
@@ -322,7 +340,7 @@ test.describe('상세 창', () => {
     const dialog = page.getByRole('dialog', { name: '이슈 #2' });
 
     await expect(dialog.getByText('품질 시험이 실패했습니다.')).toBeVisible();
-    await expect(dialog.getByText('실행 실패', { exact: true })).toBeVisible();
+    await expect(dialog.getByRole('img', { name: '실행 실패' })).toBeVisible();
     // 이슈 집계(댓글 6개)가 활동량에 반영됩니다. PR 집계 값(5)이면 실패합니다.
     await expect(
       dialog
