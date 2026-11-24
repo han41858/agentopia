@@ -581,12 +581,18 @@ Write summaries in Korean. Follow these repository rules:\n${snapshot(baseSha, b
           repairingCI
         ) {
           await checkBase(baseSha);
-          if (repairingCI) {
+          const formattingOnly =
+            repairingCI && ciFeedback === 'npm run format:check';
+          if (formattingOnly) {
+            if (recovery.formatRepair)
+              throw new Stop('포맷 자동 수정 한도(1회)에 도달했습니다.');
+            recovery.formatRepair = true;
+          } else if (repairingCI) {
             if (recovery.ciRepairs)
               throw new Stop('CI 자동 수정 한도(1회)에 도달했습니다.');
             recovery.ciRepairs = 1;
-            delete state.reviews;
           }
+          if (repairingCI) delete state.reviews;
           if (requested || priorReview) {
             if ((recovery.reviewRevisions ?? 0) >= maxReviewRevisions)
               throw new Stop(
@@ -595,15 +601,15 @@ Write summaries in Korean. Follow these repository rules:\n${snapshot(baseSha, b
             recovery.reviewRevisions = (recovery.reviewRevisions ?? 0) + 1;
           }
           await reserve(
-            'development',
+            formattingOnly ? 'format' : 'development',
             head === baseSha ? 'developing' : 'revising',
-            `${names[developer]} 개발자가 이슈와 변경 범위를 확인하는 중입니다.`,
+            formattingOnly
+              ? 'PR 변경 파일에 Prettier를 적용합니다.'
+              : `${names[developer]} 개발자가 이슈와 변경 범위를 확인하는 중입니다.`,
           );
           await checkBase(baseSha);
           const work = snapshot(baseSha, head);
-          phase = `${names[developer]} 개발`;
-          const formattingOnly =
-            repairingCI && ciFeedback === 'npm run format:check';
+          phase = formattingOnly ? 'PR 포맷 수정' : `${names[developer]} 개발`;
           const plan = formattingOnly
             ? {
                 status: 'completed',
