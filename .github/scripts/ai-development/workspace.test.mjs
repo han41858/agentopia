@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { resolveEdits } from './workspace.mjs';
+import { resolveEdits, snapshot as gitSnapshot } from './workspace.mjs';
 
 const source = 'export const value = 1;\n';
 const snapshot = {
@@ -78,4 +78,32 @@ test('blocks JSON configuration and limits API changes to existing file contents
     resolveEdits([{ path: api, before: '1', after: '2' }], work)[0].text,
     'export const value = 2;\n',
   );
+});
+
+test('updates existing UI specs without granting access to fixtures or configuration', () => {
+  const path = 'e2e/dialogs.spec.ts';
+  const work = { ...snapshot, files: new Map([[path, '100644']]) };
+  const edit = { path, before: 'value = 1', after: 'value = 2' };
+  assert.equal(resolveEdits([edit], work)[0].path, path);
+  for (const denied of [
+    { ...edit, path: 'e2e/fixtures.ts' },
+    { ...edit, path: 'playwright.config.ts' },
+    { ...edit, path: 'e2e/new.spec.ts', before: null },
+    { ...edit, before: source, after: null },
+  ]) {
+    assert.throws(() => resolveEdits([denied], work));
+  }
+});
+
+test('UI checks require an actual spec page independently in development and review', () => {
+  const work = gitSnapshot('HEAD', 'HEAD');
+  const review = gitSnapshot('HEAD', 'HEAD');
+  const paths = ['src/detail-dialogs.tsx'];
+  assert.equal(work.needsUiSpec(['docs/development.md']), false);
+  work.inspect('list_files', { query: 'dialogs', offset: 0 });
+  work.inspect('read_file', { path: 'e2e/dialogs.spec.ts', line: 100000 });
+  assert.equal(work.needsUiSpec(paths), true);
+  work.inspect('read_file', { path: 'e2e/dialogs.spec.ts', line: 80 });
+  assert.equal(work.needsUiSpec(paths), false);
+  assert.equal(review.needsUiSpec(paths), true);
 });

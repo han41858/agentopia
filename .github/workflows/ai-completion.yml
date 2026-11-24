@@ -30,6 +30,7 @@ jobs:
     permissions:
       contents: read
       actions: write # Dispatch development when the reviewed base advances.
+      checks: read # Read source annotations from the failed CI attempt.
       issues: write
       pull-requests: read
     steps:

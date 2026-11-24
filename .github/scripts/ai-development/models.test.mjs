@@ -470,3 +470,55 @@ for (const correctedVerdict of ['pass', 'changes_requested']) {
     assert.equal(calls, 3);
   });
 }
+
+for (const [agent, mode] of [
+  ['codex', 'development'],
+  ['claude', 'review'],
+]) {
+  test(`${agent} cannot finish UI changes after ignoring the spec read reminder`, async () => {
+    let calls = 0;
+    const models = createModels({
+      keys: { [agent]: 'mock' },
+      modelNames: { [agent]: 'mock' },
+      log: () => {},
+      request: async (_, options) => {
+        calls++;
+        const body = JSON.parse(options.body);
+        if (calls === 2)
+          assert.match(
+            (body.input ?? body.messages).at(-1).content,
+            /read_file/,
+          );
+        const text = JSON.stringify(
+          mode === 'review'
+            ? { status: 'pass', summary: '검토 완료', findings: [] }
+            : {
+                status: 'completed',
+                summary: '화면 수정',
+                title: '🐛 화면: 표시 수정',
+                edits: [{ path: 'src/view.ts', before: 'a', after: 'b' }],
+              },
+        );
+        return Response.json(
+          agent === 'codex'
+            ? {
+                status: 'completed',
+                output: [
+                  { type: 'message', content: [{ type: 'output_text', text }] },
+                ],
+              }
+            : { stop_reason: 'end_turn', content: [{ type: 'text', text }] },
+        );
+      },
+    });
+    const result = await models.run({
+      agent,
+      mode,
+      instructions: 'Check',
+      context: 'Test',
+      needsUiSpec: () => true,
+    });
+    assert.equal(result.status, 'needs_human');
+    assert.equal(calls, 2);
+  });
+}
