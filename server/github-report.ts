@@ -7,6 +7,8 @@ import {
   makeQuests,
   readState,
   runIssue,
+  selectIssueAutomation,
+  stateMatchesRun,
 } from './model.ts';
 import type {
   Comment,
@@ -256,28 +258,17 @@ export async function getReport(
     commentsTask,
   ]);
   // The repository-wide comment window can miss an active issue's checkpoint.
-  const observed = new Set(
-    comments.flatMap((comment) => {
-      const state = readState(comment, region);
-      return state
-        ? [`${state.issue}/${state.runId}/${state.attempt ?? 1}`]
-        : [];
-    }),
-  );
-  const seenIssues = new Set<number>();
-  const missingCheckpoints = runs.filter((run) => {
-    const number = runIssue(run);
-    if (!number || seenIssues.has(number)) return false;
-    seenIssues.add(number);
-    return (
-      run.status === 'in_progress' &&
+  const automation = selectIssueAutomation(region, runs, comments);
+  const missingCheckpoints = [...automation].flatMap(
+    ([number, { run, record }]) =>
+      run?.status === 'in_progress' &&
       issues.get(number)?.state === 'open' &&
-      !observed.has(`${number}/${run.id}/${run.run_attempt}`)
-    );
-  });
+      !record
+        ? [{ number, run }]
+        : [],
+  );
   const targeted = await Promise.all(
-    missingCheckpoints.slice(0, 8).map(async (run) => {
-      const number = runIssue(run);
+    missingCheckpoints.slice(0, 8).map(async ({ number, run }) => {
       const recent = await optional(
         'AI 상태 기록',
         get<Comment[]>(
@@ -287,12 +278,7 @@ export async function getReport(
       );
       return recent.filter((entry) => {
         const state = readState(entry, region);
-        return (
-          state &&
-          state.issue === number &&
-          state.runId === run.id &&
-          (state.attempt ?? 1) === run.run_attempt
-        );
+        return state && state.issue === number && stateMatchesRun(state, run);
       });
     }),
   );
