@@ -1594,43 +1594,68 @@ svg {
     padding-bottom: 0;
   }
   .header-tools {
+    --header-tool-gap: 4px;
+    --header-tool-duration: 160ms;
     position: absolute;
-    top: 0;
+    top: 50%;
     right: calc(-1 * clamp(12px, 3vw, 32px));
+    transform: translateY(-50%);
     pointer-events: none;
   }
   .header-tools,
   .world-controls {
-    gap: 4px;
+    gap: var(--header-tool-gap);
   }
   .world-controls {
+    --tools-reveal-edge: 100%;
     grid-template-areas: 'refresh mode add token';
+    isolation: isolate;
+    visibility: hidden;
+    /* Reveal the button row behind the bookmark without clipping usage below it. */
+    clip-path: polygon(
+      var(--tools-reveal-edge) 0,
+      100% 0,
+      100% calc(100% + 100vh),
+      -100vw calc(100% + 100vh),
+      -100vw 100%,
+      var(--tools-reveal-edge) 100%
+    );
+  }
+  .world-controls::before {
+    content: '';
+    position: absolute;
+    z-index: -1;
+    inset: 0 0 0 calc(-1 * var(--header-tool-gap));
+    background: #15212f;
+    pointer-events: none;
   }
   .refresh-usage .github-usage-tooltip {
     /* Let the tooltip extend under the three tools to the right of refresh. */
-    right: calc(-3 * (var(--header-button-size) + 4px));
+    right: calc(-3 * (var(--header-button-size) + var(--header-tool-gap)));
   }
   .header-bookmark {
-    top: 0;
-    right: 0;
+    position: relative;
+    z-index: 1;
+    left: calc(100% - var(--header-button-size));
     visibility: visible;
     pointer-events: auto;
-    border-radius: 7px 0 0 7px;
   }
-  .header-bookmark:focus-visible {
+  .header-bookmark > svg,
+  .world-controls > button:not(.mode-switch) > svg {
+    width: 20px;
+    height: 20px;
+  }
+  .header-bookmark:focus-visible,
+  .world-controls > button:focus-visible {
     outline-offset: -4px;
   }
-  .header-tools[data-open='false'] .world-controls {
-    visibility: hidden;
-  }
-  .header-tools[data-open='true'] {
-    top: calc(100% + clamp(12px, 3vw, 32px));
-    right: 0;
+  .header-tools[data-open='true'] .world-controls {
+    --tools-reveal-edge: calc(-1 * var(--header-tool-gap));
+    visibility: visible;
     pointer-events: auto;
   }
   .header-tools[data-open='true'] .header-bookmark {
-    position: relative;
-    border-radius: 7px;
+    left: 0;
   }
   .header-tools[data-open='true'] .header-bookmark .refresh-fill {
     visibility: hidden;
@@ -1638,14 +1663,13 @@ svg {
 }
 
 @media (max-width: 640px) and (prefers-reduced-motion: no-preference) {
-  .header-tools[data-open='true'] {
-    animation: reveal-header-tools 160ms ease-out;
+  .header-bookmark {
+    transition: left var(--header-tool-duration) ease-out;
   }
-  @keyframes reveal-header-tools {
-    from {
-      opacity: 0;
-      transform: translateX(8px);
-    }
+  .world-controls {
+    transition:
+      clip-path var(--header-tool-duration) ease-out,
+      visibility var(--header-tool-duration);
   }
 }
 

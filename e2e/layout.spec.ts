@@ -224,7 +224,7 @@ for (const width of [1280, 390, 320]) {
         }
       });
 
-      test('두 모드에서 제목을 유지하고 지도 위에 도구를 펼친다', async ({
+      test('두 모드에서 제목과 지도를 고정하고 같은 줄에 도구를 펼친다', async ({
         page,
       }) => {
         const title = page.getByRole('heading', { name: 'Agentopia' });
@@ -244,13 +244,18 @@ for (const width of [1280, 390, 320]) {
           const [heading] = await boxes(title);
           const [crest] = await boxes(page.locator('.crest'));
           const [collapsed] = await boxes(open);
+          const [collapsedIcon] = await boxes(open.locator('svg'));
           const [viewport] = await boxes(map);
+          const centerY = collapsed.y + collapsed.height / 2;
           expect(heading.y + heading.height / 2).toBeCloseTo(
             crest.y + crest.height / 2,
             0,
           );
+          expect(centerY).toBeCloseTo(crest.y + crest.height / 2, 1);
           expect(heading.x + heading.width).toBeLessThan(collapsed.x);
           expect(collapsed.x + collapsed.width).toBe(width);
+          expect(collapsed.width).toBeGreaterThanOrEqual(touchTarget);
+          expect(collapsed.height).toBeGreaterThanOrEqual(touchTarget);
 
           await open.tap();
           await expect(close).toHaveAttribute('aria-expanded', 'true');
@@ -268,13 +273,33 @@ for (const width of [1280, 390, 320]) {
             await expect(buttons.nth(index)).toHaveAccessibleName(name);
           }
           const row = await boxes(buttons);
+          expect(row[0].x).toBeLessThan(collapsed.x);
+          expect(row[4].x + row[4].width).toBe(width);
           for (const [index, button] of row.entries()) {
             expect(button.x).toBeGreaterThanOrEqual(
               index ? row[index - 1].x + row[index - 1].width : 0,
             );
-            expect(button.y).toBe(row[0].y);
-            expect(button.y).toBeGreaterThanOrEqual(viewport.y - 1);
+            expect(button.y + button.height / 2).toBeCloseTo(centerY, 1);
             expect(button.x + button.width).toBeLessThanOrEqual(width);
+          }
+
+          const singles = page.locator(
+            '.header-bookmark, .world-controls > button:not(.mode-switch)',
+          );
+          for (const [index, button] of (await boxes(singles)).entries()) {
+            expect(button.width).toBe(collapsed.width);
+            expect(button.height).toBe(collapsed.height);
+            const single = singles.nth(index);
+            await expect(single).toHaveCSS('padding', '0px');
+            await expect(single).toHaveCSS('border-width', '1px');
+            const [icon] = await boxes(single.locator('svg'));
+            expect(icon.width).toBe(collapsedIcon.width);
+            expect(icon.height).toBe(collapsedIcon.height);
+            expect(icon.x + icon.width / 2).toBeCloseTo(
+              button.x + button.width / 2,
+              1,
+            );
+            expect(icon.y + icon.height / 2).toBeCloseTo(centerY, 1);
           }
           await expectUsageBelowRefresh(page);
           expect(await boxes(title)).toEqual([heading]);
@@ -287,8 +312,16 @@ for (const width of [1280, 390, 320]) {
             ),
           ).toBe(0);
 
-          await title.tap();
+          await close.tap();
           await expect(controls).toBeHidden();
+          expect(await boxes(open)).toEqual([collapsed]);
+
+          await open.tap();
+          await expect(controls).toBeVisible();
+          await page.touchscreen.tap(1, Math.round(centerY));
+          await expect(controls).toBeHidden();
+          expect(await boxes(open)).toEqual([collapsed]);
+          expect(await boxes(title)).toEqual([heading]);
           expect(await boxes(map)).toEqual([viewport]);
           if (mode === 'world') {
             await open.tap();
