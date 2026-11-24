@@ -3,7 +3,7 @@
 }
 
 .issue-dialog .issue-actions-list {
-  max-height: 14rem;
+  max-height: 8rem;
   overflow-y: auto;
   overscroll-behavior-y: contain;
   list-style: none;
@@ -12,34 +12,106 @@
 }
 
 .issue-action-row {
-  padding: 0.5rem;
-  overflow-wrap: anywhere;
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding-block: 2px;
+  font-size: 0.6875rem;
+  line-height: 1rem;
+  white-space: nowrap;
 }
 
 .issue-action-row + .issue-action-row {
   border-top: 1px solid currentColor;
 }
 
-.issue-action-meta {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 0.25rem 0.5rem;
-  margin-bottom: 0.25rem;
-  font-size: 0.875rem;
+.issue-action-row > :not(a) {
+  flex: none;
 }
 
 .issue-action-status {
-  padding: 0.1rem 0.4rem;
+  display: inline-block;
+  justify-self: start;
+  padding-inline: 0.25rem;
   border: 1px solid currentColor;
   border-radius: 0.4rem;
+  background: #363241;
+  color: #ece6f4;
+  font-size: 0.6875rem;
+  line-height: 1rem;
+}
+
+.issue-action-status:is(
+  [data-run-status='queued'],
+  [data-run-status='requested'],
+  [data-run-status='waiting'],
+  [data-run-status='pending'],
+  [data-run-status='action_required'],
+  [data-automation-status='queued'],
+  [data-automation-status='needs_human']
+) {
+  background: #4b3812;
+  color: #ffe2a0;
+}
+
+.issue-action-status:is(
+  [data-run-status='in_progress'],
+  [data-automation-status='developing'],
+  [data-automation-status='reviewing'],
+  [data-automation-status='revising'],
+  [data-automation-status='recovering'],
+  [data-automation-status='merging']
+) {
+  background: #173954;
+  color: #c5e7ff;
+}
+
+.issue-action-status:is(
+  [data-run-status='success'],
+  [data-automation-status='ready'],
+  [data-automation-status='merged']
+) {
+  background: #1a402b;
+  color: #c0f1d2;
+}
+
+.issue-action-status:is(
+  [data-run-status='failure'],
+  [data-run-status='timed_out'],
+  [data-run-status='startup_failure'],
+  [data-run-status='stale'],
+  [data-automation-status='failed']
+) {
+  background: #502635;
+  color: #ffced7;
+}
+
+.issue-action-status[data-run-status='cancelled'] {
+  background: #423451;
+  color: #ead8ff;
+}
+
+.issue-action-status[data-run-status='skipped'] {
+  background: #2d3b42;
+  color: #d8e4e9;
+}
+
+.issue-action-row .issue-action-status {
+  box-sizing: border-box;
+  max-width: 32%;
 }
 
 .issue-action-row a {
   display: inline-flex;
-  align-items: baseline;
-  gap: 0.35rem;
-  max-width: 100%;
+  align-items: center;
+  gap: 0.25rem;
+  min-width: 0;
+}
+
+.issue-action-row .issue-action-status,
+.issue-action-row a span {
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .issue-action-row a svg {
