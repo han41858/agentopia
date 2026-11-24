@@ -260,6 +260,100 @@ for (const width of [1280, 390, 320]) {
       ).toBe(touch);
     });
 
+    test('긴 저장소 이름 위아래의 그림 여백을 겹침 없이 줄인다', async ({
+      page,
+    }) => {
+      const area = page.locator('.kingdom-area:has(.branch-bridge)');
+      const withoutBridge = page.locator(
+        '.kingdom-area:not(:has(.branch-bridge))',
+      );
+      await expect(area).toHaveCount(1);
+      await expect(withoutBridge).toHaveCount(1);
+      await area.locator('.kingdom-label strong').evaluate((node) => {
+        node.textContent = 'longrepositoryname'.repeat(7);
+      });
+
+      const measure = () =>
+        area.evaluate(async (node) => {
+          const palace = node.querySelector<HTMLImageElement>('.kingdom-crest');
+          const bridge = node.querySelector<HTMLImageElement>('.branch-bridge');
+          const plaza = node.querySelector<HTMLImageElement>(
+            '[data-road-role="plaza"] img',
+          );
+          const button = node.querySelector('.kingdom');
+          const name = node.querySelector('.kingdom-label strong');
+          if (!palace || !bridge || !plaza || !button || !name)
+            throw new Error(
+              '왕궁, 저장소 이름, 다리 또는 개발 광장을 찾지 못했습니다.',
+            );
+          await Promise.all(
+            [palace, bridge, plaza].map((image) => image.decode()),
+          );
+
+          function paintedBounds(image: HTMLImageElement) {
+            const rect = image.getBoundingClientRect();
+            const canvas = document.createElement('canvas');
+            const width = (canvas.width = Math.ceil(rect.width));
+            const height = (canvas.height = Math.ceil(rect.height));
+            const context = canvas.getContext('2d');
+            if (!context)
+              throw new Error('그림의 투명 영역을 측정할 수 없습니다.');
+            context.drawImage(image, 0, 0, width, height);
+            const { data } = context.getImageData(0, 0, width, height);
+            let top = height;
+            let bottom = 0;
+            for (let y = 0; y < height; y++) {
+              for (let x = 0; x < width; x++) {
+                if (data[(y * width + x) * 4 + 3] < 16) continue;
+                top = Math.min(top, y);
+                bottom = y + 1;
+                break;
+              }
+            }
+            if (!bottom)
+              throw new Error('그림의 보이는 영역을 찾지 못했습니다.');
+            return {
+              top: rect.top + (top * rect.height) / height,
+              bottom: rect.top + (bottom * rect.height) / height,
+              size: [rect.width, rect.height],
+            };
+          }
+
+          const palaceArt = paintedBounds(palace);
+          const bridgeArt = paintedBounds(bridge);
+          const plazaArt = paintedBounds(plaza);
+          const label = name.getBoundingClientRect();
+          const hit = button.getBoundingClientRect();
+          return {
+            above: label.top - palaceArt.bottom,
+            below: bridgeArt.top - label.bottom,
+            plazaGap: plazaArt.top - bridgeArt.bottom,
+            lines: name.getClientRects().length,
+            sizes: [palaceArt.size, bridgeArt.size, [hit.width, hit.height]],
+          };
+        });
+
+      const current = await measure();
+      const [currentWithoutBridge] = await boxes(withoutBridge);
+      await page.addStyleTag({
+        content: `
+          .kingdom-label { inset-block-start: auto; }
+          .branch-roads:has(.branch-bridge) { margin-block-start: 3px; }
+        `,
+      });
+      const previous = await measure();
+      const [previousWithoutBridge] = await boxes(withoutBridge);
+
+      expect(current.lines).toBeGreaterThan(1);
+      expect(current.above).toBeGreaterThan(0);
+      expect(current.below).toBeGreaterThan(0);
+      expect(previous.above - current.above).toBeCloseTo(2, 1);
+      expect(previous.below - current.below).toBeCloseTo(3, 1);
+      expect(current.plazaGap).toBeCloseTo(previous.plazaGap, 1);
+      expect(current.sizes).toEqual(previous.sizes);
+      expect(currentWithoutBridge.height).toBe(previousWithoutBridge.height);
+    });
+
     test('요소가 화면 밖으로 나가거나 서로 겹치지 않는다', async ({ page }) => {
       // 가로 스크롤이 생기지 않습니다.
       const overflow = await page.evaluate(

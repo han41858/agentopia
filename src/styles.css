@@ -287,6 +287,9 @@ svg {
   text-align: center;
 }
 .kingdom-label {
+  /* Use the palace sprite's transparent foot without shrinking the button. */
+  position: relative;
+  inset-block-start: -2px;
   min-width: 0;
   overflow-wrap: anywhere;
 }
@@ -1308,6 +1311,10 @@ svg {
 }
 .branch-roads:empty {
   margin: 0;
+}
+.branch-roads:has(.branch-bridge) {
+  /* Use the transparent space above the bridge; keep it joined to the plaza. */
+  margin-block-start: -2px;
 }
 .branch-plaza,
 .branch-road-tiers {
