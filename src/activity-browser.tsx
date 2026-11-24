@@ -10,7 +10,6 @@ import type {
   ActivityKind,
   ActivityPage,
   Quest,
-  Source,
 } from '../server/model.ts';
 import { summarizeActivity } from '../server/activity.ts';
 import type {
@@ -104,14 +103,14 @@ export function ActivityEntries({
   number,
   kind,
   token,
-  evidence,
+  linkedEvidenceUrl,
   compact = false,
 }: {
   region: string;
   number: number;
   kind: ActivityKind;
   token: string;
-  evidence?: Source;
+  linkedEvidenceUrl?: string;
   compact?: boolean;
 }) {
   const [page, setPage] = useState(1);
@@ -146,28 +145,21 @@ export function ActivityEntries({
     );
     return () => controller.abort();
   }, [region, number, kind, page, token]);
-  const evidenceLink = evidence && <OutLink item={evidence} />;
-  if (error || !result)
-    return (
-      <>
-        {evidenceLink}
-        {error ? (
-          <p className="fetch-error">{error}</p>
-        ) : (
-          <p role="status">GitHub 기록 조회 중…</p>
-        )}
-      </>
-    );
+  if (error) return <p className="fetch-error">{error}</p>;
+  if (!result) return <p role="status">GitHub 기록 조회 중…</p>;
   return (
     <div className="activity-entries">
-      {!result.entries.some((item) => item.url === evidence?.url) && evidenceLink}
-      {!result.entries.length && !evidence && <p>GitHub 기록이 없습니다.</p>}
+      {!result.entries.length && <p>GitHub 기록이 없습니다.</p>}
       {result.entries.map((item) =>
         compact ? (
           <ResultLink key={item.url} item={item} />
         ) : (
           <div className="activity-entry" key={item.url}>
-            <OutLink item={evidence?.url === item.url ? evidence : item} />
+            {item.url === linkedEvidenceUrl ? (
+              <strong>위에 표시된 근거 댓글</strong>
+            ) : (
+              <OutLink item={item} />
+            )}
             {(item.author || item.at) && (
               <small>
                 {[
@@ -331,7 +323,6 @@ export function useActivitySummary({
 export function IssueActivityCounters(
   props: ActivitySummaryProps & {
     fallbackComments?: number;
-    hasCommentEvidence: boolean;
     selected?: IssueActivityKind;
     toggle: (kind: IssueActivityKind) => void;
   },
@@ -375,7 +366,7 @@ export function IssueActivityCounters(
         const canExpand =
           expanded ||
           (kind === 'issueComments'
-            ? count !== 0 || props.hasCommentEvidence
+            ? count !== 0
             : Boolean(props.pulls) && (count !== 0 || partial));
         return canExpand ? (
           <button

@@ -48,16 +48,11 @@ export function QuestDetail({
   const [selected, setSelected] = useState<IssueActivityKind>();
   const [visited, setVisited] = useState<IssueActivityKind[]>([]);
   const evidence = quest.evidence;
-  const commentEvidence = evidence?.url.startsWith(`${quest.url}#issuecomment-`)
-    ? evidence
-    : undefined;
-  const runs = [...new Map(quest.runs.map((run) => [run.url, run])).values()];
-  const standaloneEvidence =
-    evidence &&
-    !commentEvidence &&
-    evidence.url !== quest.commit?.url &&
-    !quest.pulls.some((pull) => pull.url === evidence.url) &&
-    !runs.some((run) => run.url === evidence.url);
+  const runsByUrl = new Map(quest.runs.map((run) => [run.url, run]));
+  const evidenceStatus =
+    evidence && (evidence.status ?? runsByUrl.get(evidence.url)?.status);
+  if (evidence) runsByUrl.delete(evidence.url);
+  const runs = [...runsByUrl.values()];
   return (
     <Dialog
       className="issue-dialog"
@@ -73,7 +68,6 @@ export function QuestDetail({
           pulls={quest.pulls.map(({ number }) => number).join(',')}
           initial={quest.activity}
           fallbackComments={quest.issueComments}
-          hasCommentEvidence={Boolean(commentEvidence)}
           selected={selected}
           toggle={(kind) => {
             setVisited((previous) =>
@@ -97,6 +91,7 @@ export function QuestDetail({
           {quest.detail && <p>{quest.detail}</p>}
         </div>
       )}
+      {evidence && <OutLink item={{ ...evidence, status: evidenceStatus }} />}
       {quest.review && (
         <p>
           현재 커밋의 AI 리뷰 결과 <strong>{quest.review}</strong>
@@ -145,7 +140,7 @@ export function QuestDetail({
               number={quest.number}
               token={token}
               kind="comments"
-              evidence={commentEvidence}
+              linkedEvidenceUrl={evidence?.url}
             />
           ) : (
             <IssuePullEntries
@@ -157,14 +152,17 @@ export function QuestDetail({
           )}
         </div>
       ))}
-      {quest.commit && <ResultLink item={quest.commit} />}
-      {quest.pulls.map((item) => (
-        <ResultLink
-          key={item.number}
-          item={{ ...item, title: `PR #${item.number} · ${item.title}` }}
-        />
-      ))}
-      {standaloneEvidence && <OutLink item={evidence} />}
+      {quest.commit && quest.commit.url !== evidence?.url && (
+        <ResultLink item={quest.commit} />
+      )}
+      {quest.pulls
+        .filter((item) => item.url !== evidence?.url)
+        .map((item) => (
+          <ResultLink
+            key={item.number}
+            item={{ ...item, title: `PR #${item.number} · ${item.title}` }}
+          />
+        ))}
       {runs.length > 0 && (
         <details className="issue-history">
           <summary>GitHub Actions</summary>
