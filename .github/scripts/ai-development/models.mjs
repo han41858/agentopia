@@ -1,4 +1,5 @@
 import { setTimeout as wait } from 'node:timers/promises';
+import { EditConflict } from './workspace.mjs';
 import { agents, config } from './config.mjs';
 
 // Only messages composed here from fixed labels may be published to the issue.
@@ -177,50 +178,86 @@ function claudeAssistantContent(blocks) {
   });
 }
 
+// A standalone progress note carries no request for a human decision.
+function isCheckpoint(summary) {
+  return (
+    typeof summary === 'string' &&
+    /^[\s(]*(?:중간\s*)?(?:확인|점검)\s*(?:단계|중(?:입니다)?)[)\s.!…]*$/u.test(
+      summary,
+    )
+  );
+}
+
 export function validateReview(value) {
   validate(value, reviewSchema, 'review');
-  if (
-    !value.summary.trim() ||
-    value.summary.length > 900 ||
-    value.findings.length > 6 ||
-    (value.status === 'pass' && value.findings.length) ||
-    (value.status === 'changes_requested' && !value.findings.length)
-  ) {
+  if (!value.summary.trim()) throw new ModelError('리뷰 요약이 비어 있습니다.');
+  if (value.summary.length > 900)
+    throw new ModelError(`리뷰 요약 길이 초과 (${value.summary.length}/900).`);
+  if (value.findings.length > 6)
+    throw new ModelError(`리뷰 지적 개수 초과 (${value.findings.length}/6).`);
+  if (value.status === 'pass' && value.findings.length)
     throw new ModelError(
-      '리뷰 상태와 지적 사항이 일치하지 않거나 결과가 너무 깁니다.',
+      'pass에 지적 사항이 있습니다. 지적을 보존하고 판정을 확인하세요.',
     );
-  }
-  for (const { line, ...fields } of value.findings) {
-    if (
-      line < 1 ||
-      Object.values(fields).some((field) => !field.trim() || field.length > 350)
-    )
+  if (value.status === 'changes_requested' && !value.findings.length)
+    throw new ModelError(
+      'changes_requested에는 근거가 있는 지적 사항이 필요합니다.',
+    );
+  for (const [index, { line, ...fields }] of value.findings.entries()) {
+    if (line < 1)
       throw new ModelError(
-        '리뷰 지적에 유효한 파일·줄·결함·영향·근거·수정 방향이 필요합니다.',
+        `리뷰 지적 ${index + 1}의 line은 1 이상이어야 합니다.`,
       );
+    for (const [name, field] of Object.entries(fields)) {
+      if (!field.trim())
+        throw new ModelError(
+          `리뷰 지적 ${index + 1}의 ${name}이 비어 있습니다.`,
+        );
+      if (field.length > 350)
+        throw new ModelError(
+          `리뷰 지적 ${index + 1}의 ${name} 길이 초과 (${field.length}/350).`,
+        );
+    }
   }
   return value;
 }
 
-export function validateDevelopment(value, maxEdits = config.limits.edits) {
+const developmentSummaryLimit = 1200;
+
+function titleProblem(title) {
+  if (title.length > 100) return `제목 길이 초과 (${title.length}/100).`;
+  if (/[\r\n<>@\u202a-\u202e]/.test(title))
+    return '제목에 줄바꿈 또는 허용되지 않는 문자가 있습니다.';
+  if (!/^\p{Extended_Pictographic}/u.test(title))
+    return '제목 첫 글자에 실제 GitMoji 이모지가 필요합니다.';
+  if (!/^\p{Extended_Pictographic}.*? [^\n:]+: .*[가-힣]/u.test(title))
+    return '제목을 “🎨 화면: 팝업 수정”처럼 영역과 한국어 요약으로 작성하세요.';
+}
+
+export function validateDevelopment(
+  value,
+  maxEdits = config.limits.edits,
+  issueTitle,
+) {
   validate(value, developmentSchema, 'development');
-  if (
-    !value.summary.trim() ||
-    value.summary.length > 1200 ||
-    value.edits.length > maxEdits
-  )
+  if (!value.summary.trim())
+    throw new ModelError('개발 결과의 요약이 비어 있습니다.');
+  if (value.summary.length > developmentSummaryLimit)
     throw new ModelError(
-      '개발 결과의 요약 또는 변경 수가 허용 범위를 벗어났습니다.',
+      `개발 요약 길이 초과 (${value.summary.length}/${developmentSummaryLimit}).`,
     );
-  if (
-    value.status === 'completed' &&
-    (value.title.length > 100 ||
-      /[\r\n<>@\u202a-\u202e]/.test(value.title) ||
-      !/^\p{Extended_Pictographic}.*? [^\n:]+: .*[가-힣]/u.test(value.title))
-  )
+  if (value.edits.length > maxEdits)
     throw new ModelError(
-      '개발 결과의 제목은 GitMoji와 한국어를 포함한 저장소 형식이어야 합니다.',
+      `개발 편집 개수 초과 (${value.edits.length}/${maxEdits}).`,
     );
+  if (value.status === 'completed') {
+    const problem = titleProblem(value.title);
+    if (problem) {
+      if (typeof issueTitle === 'string' && !titleProblem(issueTitle))
+        return { ...value, title: issueTitle };
+      throw new ModelError(`개발 결과: ${problem}`);
+    }
+  }
   return value;
 }
 
@@ -418,11 +455,19 @@ export function createModels({
 
   return {
     verify,
-    async run({ agent, mode, instructions, context, inspect }) {
+    async run({
+      agent,
+      mode,
+      instructions,
+      context,
+      inspect,
+      issueTitle,
+      prepareChanges,
+    }) {
       const schema = mode === 'development' ? developmentSchema : reviewSchema;
       const verifyResult =
         mode === 'development'
-          ? (value) => validateDevelopment(value, limits.edits)
+          ? (value) => validateDevelopment(value, limits.edits, issueTitle)
           : validateReview;
       const input = [{ role: 'user', content: context }];
       const isCodex = agent === 'codex';
@@ -431,9 +476,14 @@ export function createModels({
         mode === 'review' ? (limits.reviewTurns ?? limits.turns) : limits.turns;
       const reviewFormat =
         'Keep the Korean summary under 400 characters. Use at most 6 findings, with each string under 250 characters and a positive line number. pass requires zero findings; changes_requested requires at least one. For needs_human, identify the concrete blocker.';
+      const developmentFormat = `Return a nonempty Korean summary of at most ${developmentSummaryLimit} UTF-16 code units and at most ${limits.edits} exact edits. Use a single-line GitMoji Korean title of at most 100 UTF-16 code units. Use the read tools for intermediate checks. Reserve needs_human for a blocker that requires a decision or information from the user. If the full change cannot fit safely, return needs_human with a concrete reason and no edits.`;
       const taskInstructions =
-        mode === 'review' ? instructions + '\n' + reviewFormat : instructions;
+        instructions +
+        '\n' +
+        (mode === 'review' ? reviewFormat : developmentFormat);
       let correction;
+      let resumedCheckpoint = false;
+      let reviewCanPass = true;
       const missingBlocker =
         '자동화가 사람 확인을 요청했지만 구체적인 중단 사유를 제공하지 않았습니다.';
       const unexplainedStop = {
@@ -455,8 +505,12 @@ export function createModels({
 
       for (let turn = 1; turn <= turnLimit; turn++) {
         const started = performance.now();
-        const finalTurn = turn === turnLimit || Boolean(correction);
-        const turnInstructions = finalTurn
+        const finalTurn =
+          turn === turnLimit || (Boolean(correction) && correction !== 'edits');
+        // Reserve the last review request for repairing an invalid verdict.
+        const requireResult =
+          finalTurn || (mode === 'review' && turn === turnLimit - 1);
+        const turnInstructions = requireResult
           ? `${taskInstructions}
 Return the final structured result now. If evidence is insufficient, return needs_human with the specific blocker.`
           : `${taskInstructions}
@@ -480,7 +534,7 @@ API requests remaining, including this one: ${turnLimit - turn + 1}. Read tools 
                     strict: true,
                   },
                 },
-                ...(finalTurn ? { tool_choice: 'none' } : {}),
+                ...(requireResult ? { tool_choice: 'none' } : {}),
                 tools: Object.entries(tools).map(
                   ([name, { description, input }]) => ({
                     type: 'function',
@@ -497,7 +551,7 @@ API requests remaining, including this one: ${turnLimit - turn + 1}. Read tools 
                 messages: input,
                 max_tokens: limits.outputTokens,
                 output_config: { format: { type: 'json_schema', schema } },
-                ...(finalTurn ? { tool_choice: { type: 'none' } } : {}),
+                ...(requireResult ? { tool_choice: { type: 'none' } } : {}),
                 tools: Object.entries(tools).map(
                   ([name, { description, input }]) => ({
                     name,
@@ -566,6 +620,8 @@ API requests remaining, including this one: ${turnLimit - turn + 1}. Read tools 
             throw new ModelError('Codex 응답이 완료되지 않았습니다.');
           const calls = output.filter(({ type }) => type === 'function_call');
           if (calls.length) {
+            if (correction && correction !== 'edits')
+              throw new ModelError('결과 교정 중 도구 호출이 반환되었습니다.');
             reserveTools(calls.length);
             input.push(
               ...output,
@@ -584,6 +640,8 @@ API requests remaining, including this one: ${turnLimit - turn + 1}. Read tools 
             .join('');
         } else {
           if (data.stop_reason === 'tool_use') {
+            if (correction && correction !== 'edits')
+              throw new ModelError('결과 교정 중 도구 호출이 반환되었습니다.');
             const calls = output.filter(({ type }) => type === 'tool_use');
             if (!calls.length)
               throw new ModelError(
@@ -608,10 +666,34 @@ API requests remaining, including this one: ${turnLimit - turn + 1}. Read tools 
             .map((block) => block.text)
             .join('');
         }
+        let result;
         try {
-          const result = parseJSON(text);
+          result = parseJSON(text);
           if (correction === 'blocker' && result?.status !== 'needs_human')
             return unexplainedStop;
+          if (
+            result?.status === 'needs_human' &&
+            isCheckpoint(result.summary)
+          ) {
+            if (resumedCheckpoint || finalTurn) return unexplainedStop;
+            resumedCheckpoint = true;
+            input.push(
+              ...(isCodex
+                ? output
+                : [
+                    {
+                      role: 'assistant',
+                      content: claudeAssistantContent(output),
+                    },
+                  ]),
+              {
+                role: 'user',
+                content:
+                  'Continue from this intermediate checkpoint. Use the remaining read tools when available, or provide the final result. If you need a human decision, describe the concrete blocker.',
+              },
+            );
+            continue;
+          }
           if (
             result?.status === 'needs_human' &&
             (typeof result.summary !== 'string' ||
@@ -621,7 +703,18 @@ API requests remaining, including this one: ${turnLimit - turn + 1}. Read tools 
             correction = 'blocker';
             throw new ModelError(missingBlocker);
           }
-          return verifyResult(result);
+          if (mode === 'review' && result?.status === 'pass' && !reviewCanPass)
+            throw new ModelError(
+              '교정 과정에서 기존 수정 요청이나 지적을 승인으로 변경할 수 없습니다.',
+            );
+          const verified = verifyResult(result);
+          if (
+            mode === 'development' &&
+            verified.status === 'completed' &&
+            prepareChanges
+          )
+            return { ...verified, changes: prepareChanges(verified.edits) };
+          return verified;
         } catch (error) {
           if (
             correction === 'blocker' &&
@@ -630,12 +723,22 @@ API requests remaining, including this one: ${turnLimit - turn + 1}. Read tools 
           )
             return unexplainedStop;
           if (
-            (mode !== 'review' && correction !== 'blocker') ||
+            (mode !== 'review' &&
+              correction !== 'blocker' &&
+              result?.status !== 'completed') ||
             finalTurn ||
-            !(error instanceof ModelError)
+            correction === 'edits' ||
+            !(error instanceof ModelError || error instanceof EditConflict)
           )
             throw error;
-          correction ??= 'review';
+          if (
+            mode === 'review' &&
+            (result?.status === 'changes_requested' ||
+              result?.status === 'needs_human' ||
+              (Array.isArray(result?.findings) && result.findings.length))
+          )
+            reviewCanPass = false;
+          correction ??= error instanceof EditConflict ? 'edits' : mode;
           const responseItems = isCodex
             ? output
             : [{ role: 'assistant', content: claudeAssistantContent(output) }];
@@ -644,7 +747,11 @@ API requests remaining, including this one: ${turnLimit - turn + 1}. Read tools 
             content:
               correction === 'blocker'
                 ? 'Keep the needs_human decision. Explain in Korean the specific blocker and what information the user must provide. Use the evidence already collected.'
-                : `Return the corrected review JSON using the same evidence and verdict. Validation: ${error.message}. ${reviewFormat}`,
+                : correction === 'edits'
+                  ? `The proposed edits could not be applied: ${error.message}. Read the affected source if necessary and return the complete corrected plan against the same HEAD. Earlier edits in the plan apply in order. Preserve all requested changes; if blocked, explain why. ${developmentFormat}`
+                  : correction === 'development'
+                    ? `Correct the development JSON using the same evidence and preserve the full requested behavior. Do not discard necessary edits to fit. Validation: ${error.message}. ${developmentFormat}`
+                    : `Return the corrected review JSON using the same evidence and verdict. Preserve substantive findings. If pass conflicts with findings, report changes_requested with evidence or needs_human if unresolved. Never invent findings. Validation: ${error.message}. ${reviewFormat}`,
           });
         }
       }

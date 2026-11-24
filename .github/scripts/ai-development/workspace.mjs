@@ -36,9 +36,17 @@ function isEditable(path) {
   );
 }
 
-class EditConflict extends Error {
+class WorkspaceError extends Error {
+  constructor(message) {
+    super(message);
+    this.diagnostic = message;
+  }
+}
+
+export class EditConflict extends Error {
   constructor(path, index, reason) {
     super(`${path} (${index + 1}번째 편집): ${reason}`);
+    this.diagnostic = `${index + 1}번째 편집: ${reason}`;
     this.path = path;
     this.index = index;
     this.reason = reason;
@@ -49,16 +57,12 @@ export function resolveEdits(edits, { files, read }) {
   const updated = new Map();
   for (const [index, { path, before, after }] of edits.entries()) {
     if (!isEditable(path))
-      throw new Error(
+      throw new WorkspaceError(
         '허용 범위 밖의 파일을 편집하려 했습니다. 수동 검토가 필요합니다.',
       );
     const mode = files.get(path);
     if (path.startsWith('api/') && (!mode || before === null || after === null))
-      throw new EditConflict(
-        path,
-        index,
-        '기존 API 파일의 내용만 수정할 수 있습니다.',
-      );
+      throw new WorkspaceError('기존 API 파일의 내용만 수정할 수 있습니다.');
 
     const ancestors = path.split('/').slice(0, -1);
     if (
@@ -68,7 +72,7 @@ export function resolveEdits(edits, { files, read }) {
       ) ||
       [...files.keys()].some((file) => file.startsWith(`${path}/`))
     ) {
-      throw new Error(
+      throw new WorkspaceError(
         '일반 파일 이외의 경로 또는 기존 폴더를 변경하려 했습니다. 수동 검토가 필요합니다.',
       );
     }
@@ -117,7 +121,7 @@ export function resolveEdits(edits, { files, read }) {
       content !== null &&
       (content.includes('\0') || Buffer.byteLength(content) > maxFileBytes)
     )
-      throw new Error(
+      throw new WorkspaceError(
         '편집 결과가 일반 텍스트 파일의 크기 제한을 벗어났습니다.',
       );
   }
@@ -136,7 +140,7 @@ export function resolveEdits(edits, { files, read }) {
         .slice(0, -1)
         .some((_, i) => finalFiles.has(pieces.slice(0, i + 1).join('/')))
     )
-      throw new Error(
+      throw new WorkspaceError(
         '여러 편집이 같은 파일과 폴더 경로를 사용합니다. 수동으로 검토하세요.',
       );
   }
@@ -157,10 +161,10 @@ export function snapshot(base, head) {
   );
   const read = (path) => {
     if (files.get(path) !== '100644')
-      throw new Error('일반 파일을 찾을 수 없습니다.');
+      throw new WorkspaceError('일반 파일을 찾을 수 없습니다.');
     const text = git('show', `${head}:${path}`);
     if (text.includes('\0') || Buffer.byteLength(text) > maxFileBytes)
-      throw new Error('텍스트를 읽을 수 없습니다.');
+      throw new WorkspaceError('텍스트를 읽을 수 없습니다.');
     return text;
   };
   const diff = () =>

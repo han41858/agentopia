@@ -11,9 +11,7 @@ import {
 } from 'lucide-react';
 import type { PullQuest, Quest, Region } from '../server/model.ts';
 import {
-  PortalKeeperGlyph,
   AdventurerGlyph,
-  AdventurerParty,
   agentNames,
   MonsterGlyph,
   partyLabel,
@@ -29,7 +27,6 @@ import {
   monsterRest,
   MonsterStatusIcons,
   pullStatus,
-  partyLeaderState,
   Badge,
   IssueBadge,
 } from './map-markers.tsx';
@@ -37,8 +34,9 @@ import { releaseTime, OutLink, ResultLink, Dialog } from './dialog.tsx';
 import {
   useActivityBrowser,
   ActivityBrowser,
+  ActivityEntries,
   useActivitySummary,
-  ActivityTotals,
+  IssueActivityCounters,
 } from './activity-browser.tsx';
 
 export function QuestDetail({
@@ -52,10 +50,34 @@ export function QuestDetail({
   token: string;
   close: () => void;
 }) {
+  const [comments, setComments] = useState<'unopened' | 'open' | 'closed'>(
+    'unopened',
+  );
   const [activityPull, setActivityPull] = useState<number>();
   const [visitedPulls, setVisitedPulls] = useState<number[]>([]);
   return (
-    <Dialog title={`이슈 #${quest.number}`} titleHref={quest.url} close={close}>
+    <Dialog
+      className="issue-dialog"
+      title={`이슈 #${quest.number}`}
+      titleHref={quest.url}
+      showLinkIcon={false}
+      headingActions={
+        <IssueActivityCounters
+          key={`${region.slug}:${quest.number}:${quest.pulls.map(({ number }) => number).join(',')}`}
+          region={region.slug}
+          token={token}
+          issue={quest.number}
+          pulls={quest.pulls.map(({ number }) => number).join(',')}
+          initial={quest.activity}
+          fallbackComments={quest.issueComments}
+          commentsOpen={comments === 'open'}
+          toggleComments={() =>
+            setComments(comments === 'open' ? 'closed' : 'open')
+          }
+        />
+      }
+      close={close}
+    >
       <h3>{quest.title}</h3>
       <div className="battle-scene">
         {(['codex', 'claude'] as const).map((agent) => {
@@ -92,14 +114,6 @@ export function QuestDetail({
           <MonsterStatusIcons quest={quest} />
         </div>
       </div>
-      <ActivityTotals
-        key={`${region.slug}:${quest.number}:${quest.pulls.map(({ number }) => number).join(',')}`}
-        region={region.slug}
-        token={token}
-        issue={quest.number}
-        pulls={quest.pulls.map(({ number }) => number).join(',')}
-        initial={quest.activity}
-      />
       <IssueBadge quest={quest} />
       {quest.stateReason === 'not_planned' && (
         <p>GitHub 종료 사유 · 작업하지 않기로 함</p>
@@ -112,28 +126,21 @@ export function QuestDetail({
         </div>
       )}
       {quest.evidence && <OutLink item={quest.evidence} />}
-      {Boolean(quest.adventurers?.length) && (
-        <>
-          <h4>모험가 파티</h4>
-          <AdventurerParty
-            members={quest.adventurers ?? []}
-            resting={monsterRest(quest)}
-            detailed
-          />
-        </>
-      )}
       {quest.review && (
         <p>
           현재 커밋의 AI 리뷰 결과 <strong>{quest.review}</strong>
         </p>
       )}
-      <ActivityBrowser
-        region={region.slug}
-        number={quest.number}
-        token={token}
-        kinds={['comments']}
-        counts={{ comments: quest.issueComments }}
-      />
+      {comments !== 'unopened' && (
+        <div hidden={comments !== 'open'}>
+          <ActivityEntries
+            region={region.slug}
+            number={quest.number}
+            token={token}
+            kind="comments"
+          />
+        </div>
+      )}
       {(quest.pulls.length > 0 || quest.commit) && <h4>공략 결과</h4>}
       {quest.commit && <ResultLink item={quest.commit} />}
       {quest.pulls.map((item) => (
@@ -239,13 +246,6 @@ export function PullDetail({
       <PullStatus pull={pull} />
       {status && <small role="status">{status}</small>}
       {entries}
-      <AdventurerParty
-        members={pull.adventurers ?? []}
-        leader={partyLeaderState(pull)}
-        resting="대기"
-        detailed
-        forge
-      />
       {!!pull.issues?.length && (
         <ul className="facility-issues" aria-label="연결된 이슈">
           {pull.issues.map((number) => (
@@ -482,9 +482,6 @@ export function RegionDetail({
       {history.length > 0 && (
         <>
           <h4>
-            {!!report?.releases.length && (
-              <PortalKeeperGlyph className="release-keeper" />
-            )}{' '}
             왕국 배포 기록 <small>(KST)</small>
           </h4>
           <div className="release-history">

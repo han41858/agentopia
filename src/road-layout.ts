@@ -10,13 +10,13 @@ export type Path = {
   issue?: number;
   secondary?: boolean;
   merged?: boolean;
+  guide?: boolean;
   d: string;
 };
 export type Layout = {
   width: number;
   height: number;
   paths: Path[];
-  roadTop: number;
   artwork: {
     sprite: WorldSprite;
     x: number;
@@ -103,11 +103,12 @@ export function measureRoadLayout(
     }),
   );
   const paths: Path[] = [];
+  const hub = plaza ?? palace;
   for (const road of palaceRoad ? [palaceRoad, ...visible] : visible) {
     const start = nodes.get(road.name);
     if (!start) continue;
     const parent = road.parent ? nodes.get(road.parent) : undefined;
-    if (parent && !(bridge && road.name === plaza && road.parent === palace))
+    if (parent && !(bridge && road.name === plaza && road.parent === palace)) {
       paths.push({
         key: road.name,
         from: road.name,
@@ -115,6 +116,17 @@ export function measureRoadLayout(
           road.pulls.length > 0 && road.pulls.every((pull) => pull.merged),
         d: roadPath(parent, start),
       });
+    } else if (!parent && road.role === 'road' && hub) {
+      // A map guide keeps the junction reachable without assigning a parent.
+      const origin = nodes.get(hub);
+      if (origin)
+        paths.push({
+          key: road.name,
+          from: road.name,
+          guide: true,
+          d: roadPath(origin, start),
+        });
+    }
     for (const pull of road.pulls) {
       const endpoint = !pull.merged && facilities.get(pull.number);
       if (endpoint)
@@ -181,10 +193,9 @@ export function measureRoadLayout(
     width: bounds.width,
     height: bounds.height,
     paths,
-    roadTop: bridge && plazaArt ? middle(plazaArt).top : 0,
     artwork: [
       ...area.querySelectorAll<HTMLImageElement>(
-        '[data-road-role="plaza"] img, .facility-core img',
+        '.branch-bridge, [data-road-role="plaza"] img, .facility-core img',
       ),
     ].map((img) => ({
       sprite: img.dataset.sprite as WorldSprite,

@@ -7,6 +7,14 @@ import { test } from 'node:test';
 
 for (const scenario of [
   'duplicate',
+  'review-revision',
+  'review-limit',
+  'review-no-change',
+  'review-human',
+  'issue-title-fallback',
+  'stale-edit',
+  'repeated-stale-edit',
+  'blocked-edit',
   'claude-label',
   'completion-dispatch',
   'interrupted-development',
@@ -166,9 +174,39 @@ for (const scenario of [
         const edits = commits
           ? []
           : [{ path: 'README.md', before: 'Test', after: 'Updated' }];
+        if (
+          commits &&
+          ['review-limit', 'review-revision', 'review-no-change'].includes(
+            scenario,
+          )
+        ) {
+          assert.match(JSON.parse(body.input[0].content).priorReview, /결함/);
+          assert.equal(saved().recovery.reviewRevisions, commits);
+          if (scenario !== 'review-no-change')
+            edits.push({
+              path: 'README.md',
+              before: commits === 1 ? 'Updated' : 'Revision1',
+              after: 'Revision' + commits,
+            });
+        }
+        if (scenario === 'blocked-edit')
+          edits[0].path = '.github/workflows/ci.yml';
+        if (
+          (scenario === 'stale-edit' && developmentCalls === 1) ||
+          scenario === 'repeated-stale-edit'
+        )
+          edits[0].before = 'absent source';
+        if (scenario.includes('stale-edit') && developmentCalls === 2) {
+          assert.match(body.input.at(-1).content, /README.md.*원문/);
+          assert.equal(commits, 0);
+          assert.equal(creations, 0);
+        }
         return modelResponse({
           status: 'completed',
-          title: '📝 문서: 예제 수정',
+          title:
+            scenario === 'issue-title-fallback'
+              ? ':art: 팝업 수정'
+              : '📝 문서: 예제 수정',
           summary: '문서를 수정했습니다.',
           edits,
         });
@@ -182,6 +220,31 @@ for (const scenario of [
           (scenario === 'update-limit' && !resumed)
         )
           advance();
+        if (scenario === 'review-human')
+          return modelResponse({
+            status: 'needs_human',
+            summary: '기준을 확인해 주세요.',
+            findings: [],
+          });
+        if (
+          scenario === 'review-limit' ||
+          (reviewCalls === 1 &&
+            ['review-revision', 'review-no-change'].includes(scenario))
+        )
+          return modelResponse({
+            status: 'changes_requested',
+            summary: '수정 요청',
+            findings: [
+              {
+                path: 'README.md',
+                line: 1,
+                defect: '결함',
+                impact: '표시 오류',
+                evidence: '본문',
+                fix: '수정',
+              },
+            ],
+          });
         return modelResponse({
           status: 'pass',
           summary: '수정 사항을 확인했습니다.',
@@ -192,6 +255,11 @@ for (const scenario of [
       if (pathname === '/graphql') {
         assert.equal(options.headers.authorization, 'Bearer mock-publisher');
         const input = body.variables.input;
+        if (scenario === 'issue-title-fallback')
+          assert.equal(
+            input.message.headline,
+            '🎨 이슈 팝업: 제목 옆에 활동량 표시하고 파티 목록 정리',
+          );
         assert.equal(input.expectedHeadOid, head);
         assert.equal(input.branch.branchName, branch);
         assert.equal(
@@ -199,10 +267,13 @@ for (const scenario of [
             input.fileChanges.additions[0].contents,
             'base64',
           ).toString(),
-          '# Updated\n',
+          commits ? '# Revision' + commits + '\n' : '# Updated\n',
         );
         git(remote, 'switch', branch);
-        writeFileSync(join(remote, 'README.md'), '# Updated\n');
+        writeFileSync(
+          join(remote, 'README.md'),
+          commits ? '# Revision' + commits + '\n' : '# Updated\n',
+        );
         git(remote, 'add', 'README.md');
         git(
           remote,
@@ -230,7 +301,10 @@ for (const scenario of [
         throw Error('initial network failure');
       if (path === '/issues/15')
         return Response.json({
-          title: 'Test issue',
+          title:
+            scenario === 'issue-title-fallback'
+              ? '🎨 이슈 팝업: 제목 옆에 활동량 표시하고 파티 목록 정리'
+              : 'Test issue',
           body: issueBody,
           state: 'open',
           labels: [
@@ -270,6 +344,11 @@ for (const scenario of [
             pr && searchParams.get('state') === 'open' ? [pr] : [],
           );
         assert.equal(options.headers.authorization, 'Bearer mock-publisher');
+        if (scenario === 'issue-title-fallback')
+          assert.equal(
+            body.title,
+            '🎨 이슈 팝업: 제목 옆에 활동량 표시하고 파티 목록 정리',
+          );
         assert.equal(body.draft, true);
         assert.equal(body.base, 'dev');
         assert.equal(body.head, branch);
@@ -317,6 +396,18 @@ for (const scenario of [
     });
 
     const runner = new URL('./run.mjs?case=' + scenario, import.meta.url);
+    if (scenario === 'repeated-stale-edit' || scenario === 'blocked-edit') {
+      await assert.rejects(import(runner + '?first'));
+      assert.equal(saved().status, 'failed');
+      assert.match(
+        saved().reason,
+        scenario === 'blocked-edit' ? /허용 범위/ : /1번째 편집.*원문/,
+      );
+      assert.equal(developmentCalls, scenario === 'blocked-edit' ? 1 : 2);
+      assert.equal(commits, 0);
+      assert.equal(creations, 0);
+      return;
+    }
     const uncertain = scenario.startsWith('interrupted');
     if (
       uncertain ||
@@ -325,6 +416,26 @@ for (const scenario of [
     )
       await assert.rejects(import(runner + '?first'));
     else await import(runner + '?first');
+    if (scenario.startsWith('review-')) {
+      const ready = scenario === 'review-revision';
+      assert.equal(saved().status, ready ? 'ready' : 'needs_human');
+      assert.equal(saved().reviews[0].head, head);
+      assert.equal(creations, 1);
+      assert.equal(commits, ready ? 2 : scenario === 'review-limit' ? 3 : 1);
+      assert.equal(reviewCalls, commits);
+      assert.equal(
+        developmentCalls,
+        commits + Number(scenario === 'review-no-change'),
+      );
+      if (scenario === 'review-limit')
+        assert.match(saved().reason, /수정 한도/);
+      if (scenario === 'review-no-change')
+        assert.match(saved().reason, /적용할 변경/);
+      const calls = developmentCalls + reviewCalls;
+      await import(runner + '?duplicate');
+      assert.equal(developmentCalls + reviewCalls, calls);
+      return;
+    }
     async function manualResume() {
       process.env.GITHUB_RUN_ID = '2';
       resumed = true;
@@ -432,7 +543,10 @@ for (const scenario of [
     assert.equal(saved().head, git(remote, 'rev-parse', branch));
     assert.equal(saved().base, base);
     assert.equal(saved().reviews[0].head, saved().head);
-    assert.equal(developmentCalls, scenario === 'before' ? 2 : 1);
+    assert.equal(
+      developmentCalls,
+      ['before', 'stale-edit'].includes(scenario) ? 2 : 1,
+    );
     assert.equal(commits, 1);
     assert.equal(creations, 1);
     assert.equal(reviews, 1);

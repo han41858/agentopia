@@ -15,7 +15,6 @@ import type { PullQuest, Quest, Region, Stage } from '../server/model.ts';
 import {
   AdventurerParty,
   PartyLeaderGlyph,
-  PortalKeeperGlyph,
   agentNames,
   MonsterGlyph,
   partyLabel,
@@ -42,7 +41,7 @@ export const glyph = {
   revising: RotateCcw,
   reviewing: ScrollText,
   ci: PartyLeaderGlyph,
-  deploying: PortalKeeperGlyph,
+  deploying: null,
   merging: GitPullRequest,
   complete: Trophy,
   returned: null,
@@ -126,7 +125,6 @@ export function MonsterMarker({
         members={members}
         resting={resting}
         leader={quest.stage === 'ci' ? 'active' : undefined}
-        released={quest.released}
       />
     </button>
   );

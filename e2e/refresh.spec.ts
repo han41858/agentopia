@@ -1,4 +1,4 @@
-import { alpha, empty, noPlaza } from './fixtures.ts';
+import { alpha, alphaReport, empty, noPlaza } from './fixtures.ts';
 import { mockGitHub, openWorld, seedSettings, settled } from './github.ts';
 import type { Call } from './github.ts';
 import { expect, test } from './test.ts';
@@ -81,4 +81,35 @@ test.describe('갱신 요청 수', () => {
     );
     expect(github.count('heritage')).toBe(1);
   });
+});
+
+test('PR 리뷰가 재개되면 캐릭터도 다시 움직인다', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  await openWorld(page);
+  const report = structuredClone(alphaReport);
+  const pull = report.forges!.find((item) => item.number === 11)!;
+  await page.route('**/api/github?**', async (route) => {
+    if (new URL(route.request().url()).searchParams.has('refresh'))
+      await route.fulfill({ json: report });
+    else await route.fallback();
+  });
+  const marker = page.getByRole('button', { name: /PR #11/ });
+  const avatar = marker.locator('.claude .adventurer-avatar');
+  for (const reviewing of [true, false, true]) {
+    pull.stage = reviewing ? 'reviewing' : 'idle';
+    pull.adventurers = [
+      {
+        agent: 'claude',
+        roles: ['review'],
+        active: reviewing ? 'review' : undefined,
+      },
+    ];
+    await page.getByRole('button', { name: '새로 고침' }).click();
+    await expect(avatar).toHaveCSS(
+      'animation-name',
+      reviewing ? 'review-nod' : 'none',
+    );
+    if (reviewing)
+      await expect(avatar).toHaveCSS('animation-iteration-count', 'infinite');
+  }
 });

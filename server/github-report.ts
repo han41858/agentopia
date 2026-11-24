@@ -1,3 +1,4 @@
+import { preferredPalaceBranches } from './branch-roads.ts';
 import type { BranchInventory } from './branch-roads.ts';
 import { observeGitHub } from './github-query.ts';
 import { linkedPullIssues, makeForges, makeQuests, runIssue } from './model.ts';
@@ -397,6 +398,7 @@ export async function readBranches(
 ): Promise<BranchInventory> {
   const get = client(region, token, force);
   let partial = false;
+  const branchTtl = 120_000;
   const [repository, branches] = await Promise.all([
     get<{ default_branch?: string }>('', undefined, 10 * 60_000),
     get<{ name: string }[]>(
@@ -404,13 +406,27 @@ export async function readBranches(
       (next) => {
         partial = next;
       },
-      120_000,
+      branchTtl,
     ),
   ]);
-  if (!repository.default_branch) throw new GitHubError(502);
-  return {
-    defaultBranch: repository.default_branch,
-    names: branches.map(({ name }) => name),
-    partial,
-  };
+  const defaultBranch = repository.default_branch;
+  if (!defaultBranch) throw new GitHubError(502);
+  const names = branches.map(({ name }) => name);
+  if (partial) {
+    // A truncated list cannot rule out a higher-priority palace branch.
+    for (const name of preferredPalaceBranches) {
+      if (name === defaultBranch || names.includes(name)) break;
+      const branch = await get<{ name: string } | null>(
+        `/branches/${name}`,
+        undefined,
+        branchTtl,
+        'branch-probe',
+      );
+      if (branch) {
+        names.push(branch.name);
+        break;
+      }
+    }
+  }
+  return { defaultBranch, names, partial };
 }

@@ -313,3 +313,160 @@ for (const mode of ['development', 'review']) {
     });
   }
 }
+
+for (const [agent, summary, count, diagnostic, retryValid] of [
+  ['claude', ' ', 1, /요약이 비어/, true],
+  ['codex', '가'.repeat(1201), 1, /1201\/1200/, true],
+  ['claude', '수정', 2, /2\/1/, false],
+]) {
+  test(`${agent} development corrects invalid output once: ${diagnostic}`, async () => {
+    let calls = 0;
+    const models = createModels({
+      keys: { [agent]: 'mock' },
+      modelNames: { [agent]: 'mock' },
+      limits: { ...config.limits, edits: 1 },
+      log: () => {},
+      request: async (_, options) => {
+        calls++;
+        const body = JSON.parse(options.body);
+        assert.match(body.instructions ?? body.system, /at most 1 exact edits/);
+        if (calls === 2) {
+          assert.equal(body.tool_choice.type ?? body.tool_choice, 'none');
+          assert.match(
+            (body.input ?? body.messages).at(-1).content,
+            diagnostic,
+          );
+        }
+        const valid = calls === 2 && retryValid;
+        const text = JSON.stringify({
+          status: 'completed',
+          title: '🐛 화면: 팝업 수정',
+          summary: valid ? '팝업을 수정했습니다.' : summary,
+          edits: Array(valid ? 1 : count).fill({
+            path: 'src/example.ts',
+            before: 'a',
+            after: 'b',
+          }),
+        });
+        return Response.json(
+          agent === 'codex'
+            ? {
+                status: 'completed',
+                output: [
+                  { type: 'message', content: [{ type: 'output_text', text }] },
+                ],
+              }
+            : { stop_reason: 'end_turn', content: [{ type: 'text', text }] },
+        );
+      },
+    });
+    const result = models.run({
+      agent,
+      mode: 'development',
+      instructions: 'Develop',
+      context: 'Test',
+      inspect: () => '',
+    });
+    if (retryValid) assert.equal((await result).edits.length, 1);
+    else await assert.rejects(result, diagnostic);
+    assert.equal(calls, 2);
+  });
+}
+
+for (const repeat of [false, true]) {
+  test(`Claude resumes a checkpoint once (repeated: ${repeat})`, async () => {
+    let calls = 0;
+    const models = createModels({
+      keys: { claude: 'mock' },
+      modelNames: { claude: 'mock' },
+      log: () => {},
+      request: async (_, options) => {
+        calls++;
+        if (calls === 2)
+          assert.equal(JSON.parse(options.body).tool_choice, undefined);
+        const result =
+          calls === 1 || repeat
+            ? {
+                status: 'needs_human',
+                summary: '(중간 확인 단계)',
+                findings: [],
+              }
+            : { status: 'pass', summary: '검토 완료', findings: [] };
+        return Response.json({
+          stop_reason: 'end_turn',
+          content: [{ type: 'text', text: JSON.stringify(result) }],
+        });
+      },
+    });
+    const result = await models.run({
+      agent: 'claude',
+      mode: 'review',
+      instructions: 'Review',
+      context: 'Test',
+      inspect: () => '',
+    });
+    assert.equal(calls, 2);
+    assert.equal(result.status, repeat ? 'needs_human' : 'pass');
+  });
+}
+
+for (const correctedVerdict of ['pass', 'changes_requested']) {
+  test(`Claude keeps review findings during the reserved correction: ${correctedVerdict}`, async () => {
+    const finding = {
+      path: 'src/example.ts',
+      line: 3,
+      defect: '조건 누락',
+      impact: '갱신 중단',
+      evidence: '빈 목록에서 종료',
+      fix: '빈 목록 처리',
+    };
+    let calls = 0;
+    const models = createModels({
+      keys: { claude: 'mock' },
+      modelNames: { claude: 'mock' },
+      limits: { ...config.limits, reviewTurns: 3 },
+      log: () => {},
+      request: async (_, options) => {
+        calls++;
+        const body = JSON.parse(options.body);
+        if (calls === 1) {
+          assert.equal(body.tool_choice, undefined);
+          return Response.json({
+            stop_reason: 'tool_use',
+            content: [
+              {
+                type: 'tool_use',
+                id: 'diff',
+                name: 'read_diff',
+                input: { line: 1 },
+              },
+            ],
+          });
+        }
+        assert.equal(body.tool_choice.type, 'none');
+        if (calls === 3)
+          assert.match(body.messages.at(-1).content, /pass에 지적 사항/);
+        const result = {
+          status: calls === 2 ? 'pass' : correctedVerdict,
+          summary: '검토 결과',
+          findings: calls === 3 && correctedVerdict === 'pass' ? [] : [finding],
+        };
+        return Response.json({
+          stop_reason: 'end_turn',
+          content: [{ type: 'text', text: JSON.stringify(result) }],
+        });
+      },
+    });
+    const result = models.run({
+      agent: 'claude',
+      mode: 'review',
+      instructions: 'Review',
+      context: 'Test',
+      inspect: () => 'diff',
+    });
+    if (correctedVerdict === 'pass')
+      await assert.rejects(result, /승인으로 변경/);
+    else assert.deepEqual((await result).findings, [finding]);
+    assert.equal(calls, 3);
+  });
+}

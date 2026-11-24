@@ -9,11 +9,7 @@ import { createRoot } from 'react-dom/client';
 import { Plus, RefreshCw, Ticket } from 'lucide-react';
 import { repositoryRegion } from '../server/model.ts';
 import type { PullQuest, Region, Report } from '../server/model.ts';
-import {
-  AdventurerGlyph,
-  PartyLeaderGlyph,
-  PortalKeeperGlyph,
-} from './characters.tsx';
+import { AdventurerGlyph, PartyLeaderGlyph } from './characters.tsx';
 import type { Heritage } from '../server/heritage.ts';
 import { GitHubUsage } from './github-usage.tsx';
 import { placeBranchRoads } from './branch-road-map.tsx';
@@ -348,9 +344,6 @@ function App() {
             </li>
             <li className="claude">
               <AdventurerGlyph agent="claude" /> Claude
-            </li>
-            <li className="release">
-              <PortalKeeperGlyph /> {isSimple ? '릴리즈' : '포탈 관리자'}
             </li>
           </ul>
         </footer>
