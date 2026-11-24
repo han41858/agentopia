@@ -412,9 +412,9 @@ function App() {
             <p>브랜치 목록의 첫 페이지와 열린 PR에서 확인한 경로입니다.</p>
           )}
           <ul className="branch-road-details">
-            {selectedRoad.selection.roads.map((road) => (
+            {selectedRoad.selection.roads.map((road, _, roads) => (
               <li key={road.name}>
-                <strong>{road.name}</strong>
+                {roads.length > 1 && <strong>{road.name}</strong>}
                 {road.role === 'palace' && <small>왕궁</small>}
                 {road.role === 'plaza' && <small>개발 광장</small>}
                 {road.parent && <small>관측된 PR 대상 · {road.parent}</small>}

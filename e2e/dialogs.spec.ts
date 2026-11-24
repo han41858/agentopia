@@ -97,6 +97,7 @@ test.describe('상세 창', () => {
     ]) {
       const counter = counters.getByRole('button', { name, exact: true });
       await expect(counter).toBeVisible();
+      await expect(counter).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
       await expect(counter).toHaveAttribute('aria-expanded', 'false');
     }
     expect(github.count('activity')).toBe(0);
@@ -236,8 +237,7 @@ test.describe('상세 창', () => {
     await expect(dialog.getByRole('img', { name: rpgStatus })).toHaveCount(0);
     for (const name of ['Codex', 'Claude']) {
       const adventurer = dialog.getByRole('img', { name, exact: true });
-      await expect(adventurer).toBeVisible();
-      await expect(adventurer).toHaveAttribute('title', name);
+      await expect(adventurer).toHaveCount(0);
     }
 
     const evidence = dialog.locator(`a[href="${comment.url}"]`);
@@ -367,13 +367,51 @@ test.describe('상세 창', () => {
     ]);
 
     // 이력은 끝난 시각이 최근인 순서입니다.
-    await dialog.getByText('시설 이력').click();
+    await expect(
+      dialog
+        .getByRole('region', { name: '시설 이력' })
+        .getByRole('button')
+        .first(),
+    ).toBeVisible();
     await expect(
       dialog.locator('.facility-history .quest-row small'),
     ).toHaveText(['PR #9', 'PR #8']);
 
     await dialog.getByRole('button', { name: /PR #13/ }).click();
     await expect(page.getByRole('dialog', { name: 'PR #13' })).toBeVisible();
+  });
+
+  test('좁은 광장에서 긴 시설 이력 끝까지 스크롤할 수 있다', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 320, height: 640 });
+    await mockGitHub(page);
+    await seedSettings(page, [alpha]);
+    const report = structuredClone(alphaReport);
+    const facility = report.forges!.find((pull) => pull.merged)!;
+    report.forges = Array.from({ length: 20 }, (_, index) => ({
+      ...facility,
+      number: 100 + index,
+    }));
+    await page.route('**/api/github?**', async (route) => {
+      if (new URL(route.request().url()).searchParams.has('branches'))
+        await route.fulfill({ json: report });
+      else await route.fallback();
+    });
+    await page.goto('/');
+    await settled(page);
+    await page.getByRole('button', { name: '개발 광장 · dev' }).click();
+    const dialog = page.getByRole('dialog', { name: '개발 광장' });
+    await expect(dialog.getByText('조회된 PR이 없습니다.')).toBeVisible();
+    const list = dialog
+      .getByRole('region', { name: '시설 이력' })
+      .getByRole('list');
+    await list.getByRole('button').last().scrollIntoViewIfNeeded();
+    await expect
+      .poll(() => list.evaluate((el) => el.scrollTop))
+      .toBeGreaterThan(0);
+    await list.getByRole('button').last().click();
+    await expect(page.getByRole('dialog', { name: 'PR #119' })).toBeVisible();
   });
 
   test('왕궁: 배포 기록을 최신 순으로 10개씩 보여 준다', async ({ page }) => {
@@ -418,6 +456,9 @@ test.describe('상세 창', () => {
     await page.getByRole('button', { name: '브랜치 feature/facility' }).click();
     const dialog = page.getByRole('dialog', { name: 'feature/facility' });
 
+    await expect(
+      dialog.getByText('feature/facility', { exact: true }),
+    ).toHaveCount(1);
     await expect(dialog.getByText('관측된 PR 대상 · dev')).toBeVisible();
     const link = dialog.getByRole('link', { name: /PR #11 · dev/ });
     await expect(link).toContainText('열림');

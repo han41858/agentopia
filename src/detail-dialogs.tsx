@@ -4,8 +4,7 @@ import { WorldArt } from './world-art.tsx';
 import { useState } from 'react';
 import { ChevronRight, ExternalLink, Trash2, X } from 'lucide-react';
 import type { IssueRun, PullQuest, Quest, Region } from '../server/model.ts';
-import { AdventurerGlyph, agentNames, MonsterGlyph } from './characters.tsx';
-import { ActivityAura } from './activity-effects.tsx';
+import { agentNames } from './characters.tsx';
 import { facilities, FacilityGlyph } from './facility-art.tsx';
 import { facilityKind, isCurrentFacility } from './facility-kind.ts';
 import { heritageBuildings } from './heritage-arc.tsx';
@@ -130,41 +129,6 @@ export function QuestDetail({
           현재 커밋의 AI 리뷰 결과 <strong>{quest.review}</strong>
         </p>
       )}
-      <div className="battle-scene">
-        {(['codex', 'claude'] as const).map((agent) => {
-          const member = quest.adventurers?.find(
-            (item) => item.agent === agent,
-          );
-          return (
-            member && (
-              <div
-                className={`battle-adventurer ${agent}`}
-                key={agent}
-                title={agentNames[agent]}
-                role="img"
-                aria-label={agentNames[agent]}
-              >
-                <AdventurerGlyph
-                  agent={agent}
-                  active={member.active}
-                  fallen={member.fallen}
-                />
-              </div>
-            )
-          );
-        })}
-        <div className="battle-monster">
-          <ActivityAura activity={quest.activity}>
-            <MonsterGlyph
-              boss={Boolean(quest.subIssueCount)}
-              defeated={quest.state === 'closed'}
-              reopened={quest.reopened}
-              commits={quest.activity?.commits}
-            />
-          </ActivityAura>
-          <small className="expedition-number">{`#${quest.number}`}</small>
-        </div>
-      </div>
       {visited.map((kind) => (
         <div key={kind} hidden={selected !== kind}>
           {kind === 'issueComments' ? (
@@ -371,11 +335,11 @@ export function PlazaDetail({
       {current.length ? (
         <FacilityRows entries={current} openPull={openPull} />
       ) : (
-        <p>조회된 열린 PR이 없습니다.</p>
+        <p>조회된 PR이 없습니다.</p>
       )}
       {facilityHistory.length > 0 && (
-        <details className="facility-history">
-          <summary>시설 이력</summary>
+        <section className="facility-history" aria-label="시설 이력">
+          <h4>시설 이력</h4>
           <FacilityRows entries={facilityHistory} openPull={openPull} />
           <OutLink
             item={{
@@ -383,7 +347,7 @@ export function PlazaDetail({
               url: `https://github.com/${region.slug}/pulls?q=is%3Apr+is%3Aclosed`,
             }}
           />
-        </details>
+        </section>
       )}
     </Dialog>
   );
