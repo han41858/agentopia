@@ -1,6 +1,33 @@
+import type { Locator } from '@playwright/test';
 import { alpha, alphaReport } from './fixtures.ts';
 import { mockGitHub, openWorld, seedSettings, settled } from './github.ts';
 import { expect, test } from './test.ts';
+
+async function expectWorkflowRunRows(rows: Locator) {
+  for (const [index, row] of (await rows.all()).entries()) {
+    await expect(row).toHaveCSS('border-top-width', '0px');
+    await expect(row).toHaveCSS(
+      'margin-block-start',
+      index === 0 ? '0px' : '4px',
+    );
+    await expect(row).toHaveCSS('margin-block-end', '0px');
+    expect(
+      await row.evaluate((node) => {
+        const rowBox = node.getBoundingClientRect();
+        const boxes = Array.from(node.children, (child) =>
+          child.getBoundingClientRect(),
+        );
+        const center = boxes[0].top + boxes[0].height / 2;
+        return boxes.every(
+          (box, index) =>
+            Math.abs(box.top + box.height / 2 - center) < 1 &&
+            box.left >= (boxes[index - 1]?.right ?? rowBox.left) &&
+            box.right <= rowBox.right + 1,
+        );
+      }),
+    ).toBe(true);
+  }
+}
 
 test.describe('상세 창', () => {
   test('PR 시설: 상태와 활동을 보여 주고, 눌렀을 때만 기록을 조회한다', async ({
@@ -79,6 +106,13 @@ test.describe('상세 창', () => {
     forge.stage = 'ci';
     forge.quality = 'ci';
     forge.runs[0]!.status = 'in_progress';
+    forge.runs.push(
+      ...Array.from({ length: 9 }, (_, index) => ({
+        title: `이전 CI ${index + 1}`,
+        url: `https://github.com/${alpha}/actions/runs/${300 + index}`,
+        status: 'success',
+      })),
+    );
     await seedSettings(page, [alpha]);
     await mockGitHub(page);
     await page.route('**/api/github?**', (route) =>
@@ -91,11 +125,24 @@ test.describe('상세 창', () => {
     const dialog = page.getByRole('dialog', { name: 'PR #12' });
     await expect(dialog.getByText('품질 시험', { exact: true })).toBeVisible();
     await expect(dialog.locator('.badge img')).toHaveCount(0);
-    const row = dialog.getByRole('listitem').filter({ hasText: 'in_progress' });
+    const list = dialog.getByRole('list', { name: 'GitHub Actions 실행 목록' });
+    const rows = list.getByRole('listitem');
+    await expect(rows).toHaveCount(10);
+    const row = rows.filter({ hasText: 'in_progress' });
     await expect(row.getByRole('link', { name: 'CI' })).toBeVisible();
     expect(
       await row.evaluate((node) => node.scrollWidth <= node.clientWidth),
     ).toBe(true);
+    await expectWorkflowRunRows(rows);
+
+    const lastLink = rows.last().getByRole('link', { name: '이전 CI 9' });
+    await expect(lastLink).not.toBeInViewport();
+    await list.hover();
+    await page.mouse.wheel(0, 800);
+    await expect
+      .poll(() => list.evaluate((node) => node.scrollTop))
+      .toBeGreaterThan(0);
+    await expect(lastLink).toBeInViewport({ ratio: 1 });
   });
 
   test('PR 시설에서 연결된 이슈로 넘어간다', async ({ page }) => {
@@ -376,23 +423,7 @@ test.describe('상세 창', () => {
       await expect(badges.nth(index)).toHaveCSS('background-color', background);
       await expect(badges.nth(index)).toHaveCSS('color', foreground);
     }
-    for (const row of await rows.all()) {
-      expect(
-        await row.evaluate((node) => {
-          const rowBox = node.getBoundingClientRect();
-          const boxes = Array.from(node.children, (child) =>
-            child.getBoundingClientRect(),
-          );
-          const center = boxes[0].top + boxes[0].height / 2;
-          return boxes.every(
-            (box, index) =>
-              Math.abs(box.top + box.height / 2 - center) < 1 &&
-              box.left >= (boxes[index - 1]?.right ?? rowBox.left) &&
-              box.right <= rowBox.right + 1,
-          );
-        }),
-      ).toBe(true);
-    }
+    await expectWorkflowRunRows(rows);
 
     await expect(startedAt).toBeInViewport({ ratio: 1 });
     await expect(
