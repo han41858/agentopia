@@ -163,6 +163,55 @@ for (const width of [1280, 390, 320]) {
       ).toBeInViewport();
     });
 
+    test('두 모드에서 왕궁 로고와 앱 이름이 한 줄에 보인다', async ({
+      page,
+    }) => {
+      const crest = page.locator('.world-heading .crest');
+      const brand = page.getByRole('heading', {
+        name: 'Agentopia',
+        exact: true,
+      });
+      const buttons = page.locator('.world-controls > button, .refresh-button');
+      for (const mode of ['world', 'simple']) {
+        if (mode === 'simple') {
+          const modeSwitch = page.locator('.mode-switch');
+          if (touch) await modeSwitch.tap();
+          else await modeSwitch.click();
+        }
+        await expect(page.locator('[data-display-mode]')).toHaveAttribute(
+          'data-display-mode',
+          mode,
+        );
+        await expect(crest).toBeInViewport({ ratio: 1 });
+        await expect(brand).toBeInViewport({ ratio: 1 });
+        const [logo] = await boxes(crest);
+        const [title] = await boxes(brand);
+        expect(title.x).toBeGreaterThanOrEqual(logo.x + logo.width);
+        const logoCenter = logo.y + logo.height / 2;
+        expect(title.y + title.height / 2).toBeCloseTo(logoCenter, 0);
+
+        const controls = await boxes(buttons);
+        expect(controls).toHaveLength(4);
+        expect(overlappingPairs([logo, title, ...controls])).toEqual([]);
+        const [first] = controls;
+        for (const button of controls) {
+          expect(button.y + button.height / 2).toBeCloseTo(
+            first.y + first.height / 2,
+            0,
+          );
+          expect(button.height).toBe(first.height);
+          expect(button.x).toBeGreaterThanOrEqual(0);
+          expect(button.x + button.width).toBeLessThanOrEqual(width);
+        }
+        if (width === 320) {
+          expect(first.y).toBeGreaterThanOrEqual(logo.y + logo.height);
+        } else if (!touch) {
+          expect(first.x).toBeGreaterThanOrEqual(title.x + title.width);
+          expect(first.y + first.height / 2).toBeCloseTo(logoCenter, 0);
+        }
+      }
+    });
+
     if (touch) {
       test('두 모드에서 이슈 링크와 활동 펼침 및 닫기를 터치할 수 있다', async ({
         page,
@@ -195,32 +244,6 @@ for (const width of [1280, 390, 320]) {
           await expect(commit).toBeHidden();
           await close.tap();
           await expect(dialog).toBeHidden();
-        }
-      });
-
-      test('두 모드에서 헤더 버튼이 로고 오른쪽 첫 줄에 정렬된다', async ({
-        page,
-      }) => {
-        for (const mode of ['world', 'simple']) {
-          if (mode === 'simple') await page.locator('.mode-switch').tap();
-          await expect(page.locator('[data-display-mode]')).toHaveAttribute(
-            'data-display-mode',
-            mode,
-          );
-          const [crest] = await boxes(page.locator('.crest'));
-          const buttons = await boxes(
-            page.locator('.world-controls > button, .refresh-button'),
-          );
-          expect(buttons).toHaveLength(4);
-          for (const button of buttons) {
-            expect(button.x).toBeGreaterThanOrEqual(crest.x + crest.width);
-            expect(button.y + button.height / 2).toBeCloseTo(
-              crest.y + crest.height / 2,
-              0,
-            );
-            expect(button.height).toBe(buttons[0].height);
-            expect(button.x + button.width).toBeLessThanOrEqual(width);
-          }
         }
       });
 

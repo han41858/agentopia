@@ -85,24 +85,20 @@ svg {
 }
 .world-header {
   --header-button-size: 38px;
+  flex-wrap: wrap;
   gap: 12px;
 }
 .world-controls {
   flex: none;
   gap: 6px;
+  margin-inline-start: auto;
 }
 .world-heading {
   --crest-size: 42px;
   display: flex;
-  flex: 1;
-  flex-wrap: wrap;
+  flex: 1 0 auto;
   align-items: center;
-  align-content: flex-start;
   gap: 10px;
-  min-width: var(--crest-size);
-  height: var(--crest-size);
-  /* Clip the entire title when it wraps below the crest. */
-  overflow: hidden;
 }
 .crest {
   flex: none;
