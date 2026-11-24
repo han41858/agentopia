@@ -335,7 +335,12 @@ for (const width of [1280, 390, 320]) {
       const emptyPalace = page.locator(
         '.kingdom-area:not(:has(.heritage-slot)) > .kingdom',
       );
-      expect(await emptyPalace.evaluate((node) => node.offsetTop)).toBe(25);
+      const emptyPalaceOffset = await emptyPalace.evaluate((node) => {
+        if (!(node instanceof HTMLElement))
+          throw new Error('왕궁이 HTML 요소가 아닙니다.');
+        return node.offsetTop;
+      });
+      expect(emptyPalaceOffset).toBe(25);
 
       if (!touch) {
         const previousSpacing = await page.addStyleTag({
@@ -346,7 +351,9 @@ for (const width of [1280, 390, 320]) {
           `,
         });
         const previous = await heritageArtGaps(area);
-        await previousSpacing.evaluate((node) => node.remove());
+        await previousSpacing.evaluate((node) => {
+          node.parentNode?.removeChild(node);
+        });
         for (const reduction of [
           previous.above - gaps.above,
           previous.below - gaps.below,
