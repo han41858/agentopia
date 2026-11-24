@@ -130,7 +130,9 @@ test.describe('상세 창', () => {
       ...run,
       url: `https://github.com/${alpha}/actions/runs/${400 + index}`,
     }));
-    report.quests.find(({ number }) => number === 1)!.runs = runs;
+    const issue = report.quests.find(({ number }) => number === 1)!;
+    issue.runs = runs;
+    issue.evidence = runs[3]!;
     report.forges!.find(({ number }) => number === 12)!.runs = runs;
     await seedSettings(page, [alpha]);
     await mockGitHub(page);
@@ -161,6 +163,11 @@ test.describe('상세 창', () => {
       await expect(list.locator('.workflow-run-status')).toHaveText(
         runs.map(({ status }) => status),
       );
+      if (name === '이슈 #1') {
+        await expect(
+          rows.nth(3).getByText('근거', { exact: true }),
+        ).toBeVisible();
+      }
       for (const [index, run] of runs.entries()) {
         const row = rows.nth(index);
         await expect(
@@ -471,11 +478,12 @@ test.describe('상세 창', () => {
     expect(
       await runName.evaluate((node) => node.scrollWidth > node.clientWidth),
     ).toBe(true);
-    await expect(rows.first().getByText('근거', { exact: true })).toBeVisible();
+    const failedRow = rows.filter({ hasText: failedRun.title });
+    await expect(failedRow.getByText('근거', { exact: true })).toBeVisible();
     await expect(previousLink).toBeVisible();
     await expect(previousLink).toHaveAttribute('href', previousRun.url);
     await expect(rows.nth(1).getByText('—', { exact: true })).toBeVisible();
-    const startedAt = rows.first().locator('time');
+    const startedAt = failedRow.locator('time');
     await expect(startedAt).toHaveAttribute('datetime', failedRun.startedAt);
     await expect(startedAt).toHaveText(/2026.*1.*15.*10:00 KST/);
     const badges = list.locator('.workflow-run-status');
@@ -510,7 +518,7 @@ test.describe('상세 창', () => {
 
     await expect(startedAt).toBeInViewport({ ratio: 1 });
     await expect(
-      rows.first().getByText('failure', { exact: true }),
+      failedRow.getByText('failure', { exact: true }),
     ).toBeInViewport({ ratio: 1 });
     expect(await list.evaluate((node) => node.scrollWidth)).toBe(
       await list.evaluate((node) => node.clientWidth),
