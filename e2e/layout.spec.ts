@@ -164,16 +164,44 @@ for (const width of [1280, 390, 320]) {
     });
 
     if (touch) {
+      test('두 모드에서 헤더 버튼이 로고 오른쪽 첫 줄에 정렬된다', async ({
+        page,
+      }) => {
+        for (const mode of ['world', 'simple']) {
+          if (mode === 'simple') await page.locator('.mode-switch').tap();
+          await expect(page.locator('[data-display-mode]')).toHaveAttribute(
+            'data-display-mode',
+            mode,
+          );
+          const [crest] = await boxes(page.locator('.crest'));
+          const buttons = await boxes(
+            page.locator('.world-controls > button, .refresh-button'),
+          );
+          expect(buttons).toHaveLength(4);
+          for (const button of buttons) {
+            expect(button.x).toBeGreaterThanOrEqual(crest.x + crest.width);
+            expect(button.y + button.height / 2).toBeCloseTo(
+              crest.y + crest.height / 2,
+              0,
+            );
+            expect(button.height).toBe(buttons[0].height);
+            expect(button.x + button.width).toBeLessThanOrEqual(width);
+          }
+        }
+      });
+
       test('터치로 누르는 요소가 충분히 크다', async ({ page }) => {
         const targets = [
-          ...(await boxes(page.locator('.mode-switch-option'))),
+          ...(await boxes(
+            page.locator('.world-controls > button, .refresh-button'),
+          )),
           ...(await boxes(page.locator('.facility-marker'))),
           ...(await boxes(page.locator('.heritage-slot'))),
           ...(await boxes(
             page.locator('.branch-road-node[data-road-role="road"]'),
           )),
         ];
-        expect(targets).toHaveLength(2 + 4 + 3 + 4);
+        expect(targets).toHaveLength(4 + 4 + 3 + 4);
         for (const box of targets) {
           expect(Math.round(box.width)).toBeGreaterThanOrEqual(touchTarget);
           expect(Math.round(box.height)).toBeGreaterThanOrEqual(touchTarget);
