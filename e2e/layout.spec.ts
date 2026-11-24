@@ -232,6 +232,7 @@ for (const width of [1280, 390, 320]) {
         const close = page.getByRole('button', { name: '상단 도구 접기' });
         const controls = page.locator('.world-controls');
         const map = page.locator('.map-viewport');
+        const bookmarkFace = page.locator('.header-bookmark-face');
 
         for (const mode of ['world', 'simple']) {
           await expect(page.locator('[data-display-mode]')).toHaveAttribute(
@@ -243,21 +244,37 @@ for (const width of [1280, 390, 320]) {
           await expect(title).toBeInViewport({ ratio: 1 });
           const [heading] = await boxes(title);
           const [crest] = await boxes(page.locator('.crest'));
-          const [collapsed] = await boxes(open);
+          const [collapsedHit] = await boxes(open);
+          const [collapsedFace] = await boxes(bookmarkFace);
           const [collapsedIcon] = await boxes(open.locator('svg'));
           const [viewport] = await boxes(map);
-          const centerY = collapsed.y + collapsed.height / 2;
+          const centerY = collapsedHit.y + collapsedHit.height / 2;
           expect(heading.y + heading.height / 2).toBeCloseTo(
             crest.y + crest.height / 2,
             0,
           );
           expect(centerY).toBeCloseTo(crest.y + crest.height / 2, 1);
-          expect(heading.x + heading.width).toBeLessThan(collapsed.x);
-          expect(collapsed.x + collapsed.width).toBe(width);
-          expect(collapsed.width).toBeGreaterThanOrEqual(touchTarget);
-          expect(collapsed.height).toBeGreaterThanOrEqual(touchTarget);
+          expect(heading.x + heading.width).toBeLessThan(collapsedHit.x);
+          expect(collapsedHit.x + collapsedHit.width).toBe(width);
+          expect(collapsedHit.width).toBe(touchTarget);
+          expect(collapsedHit.height).toBe(touchTarget);
+          expect(collapsedFace.x + collapsedFace.width).toBe(width);
+          expect(collapsedFace.y).toBe(collapsedHit.y);
+          expect(collapsedFace.height).toBe(collapsedHit.height);
+          expect(collapsedIcon.x + collapsedIcon.width / 2).toBeCloseTo(
+            collapsedFace.x + collapsedFace.width / 2,
+            1,
+          );
+          expect(collapsedIcon.y + collapsedIcon.height / 2).toBeCloseTo(
+            centerY,
+            1,
+          );
 
-          await open.tap();
+          // 표시 영역 왼쪽의 투명한 부분을 눌러 도구를 엽니다.
+          await page.touchscreen.tap(
+            Math.round((collapsedHit.x + collapsedFace.x) / 2),
+            Math.round(centerY),
+          );
           await expect(close).toHaveAttribute('aria-expanded', 'true');
           const buttons = page.locator(
             '.header-bookmark, .world-controls > button',
@@ -273,7 +290,10 @@ for (const width of [1280, 390, 320]) {
             await expect(buttons.nth(index)).toHaveAccessibleName(name);
           }
           const row = await boxes(buttons);
-          expect(row[0].x).toBeLessThan(collapsed.x);
+          const [expandedFace] = await boxes(bookmarkFace);
+          expect(expandedFace).toEqual(row[0]);
+          expect(collapsedFace.width * 2).toBe(expandedFace.width);
+          expect(row[0].x).toBeLessThan(collapsedHit.x);
           expect(row[4].x + row[4].width).toBe(width);
           for (const [index, button] of row.entries()) {
             expect(button.x).toBeGreaterThanOrEqual(
@@ -287,11 +307,12 @@ for (const width of [1280, 390, 320]) {
             '.header-bookmark, .world-controls > button:not(.mode-switch)',
           );
           for (const [index, button] of (await boxes(singles)).entries()) {
-            expect(button.width).toBe(collapsed.width);
-            expect(button.height).toBe(collapsed.height);
+            expect(button.width).toBe(expandedFace.width);
+            expect(button.height).toBe(collapsedFace.height);
             const single = singles.nth(index);
+            const face = index === 0 ? bookmarkFace : single;
             await expect(single).toHaveCSS('padding', '0px');
-            await expect(single).toHaveCSS('border-width', '1px');
+            await expect(face).toHaveCSS('border-width', '1px');
             const [icon] = await boxes(single.locator('svg'));
             expect(icon.width).toBe(collapsedIcon.width);
             expect(icon.height).toBe(collapsedIcon.height);
@@ -314,13 +335,18 @@ for (const width of [1280, 390, 320]) {
 
           await close.tap();
           await expect(controls).toBeHidden();
-          expect(await boxes(open)).toEqual([collapsed]);
+          expect(await boxes(open)).toEqual([collapsedHit]);
+          expect(await boxes(bookmarkFace)).toEqual([collapsedFace]);
 
-          await open.tap();
+          await page.touchscreen.tap(
+            Math.round(collapsedFace.x + collapsedFace.width / 2),
+            Math.round(centerY),
+          );
           await expect(controls).toBeVisible();
           await page.touchscreen.tap(1, Math.round(centerY));
           await expect(controls).toBeHidden();
-          expect(await boxes(open)).toEqual([collapsed]);
+          expect(await boxes(open)).toEqual([collapsedHit]);
+          expect(await boxes(bookmarkFace)).toEqual([collapsedFace]);
           expect(await boxes(title)).toEqual([heading]);
           expect(await boxes(map)).toEqual([viewport]);
           if (mode === 'world') {
