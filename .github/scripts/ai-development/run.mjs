@@ -225,6 +225,35 @@ async function openPull() {
   return pull;
 }
 
+function matchesPublication(head, intent) {
+  if (
+    git('show', '-s', '--format=%P', head) !== intent.parent ||
+    git('show', '-s', '--format=%s', head) !== intent.title ||
+    !git('show', '-s', '--format=%b', head).split('\n').includes(marker)
+  )
+    return false;
+  const changed = git(
+    'diff',
+    '--name-only',
+    '--no-renames',
+    '-z',
+    intent.parent,
+    head,
+  )
+    .split('\0')
+    .filter(Boolean);
+  if (changed.length !== intent.files.length) return false;
+  const paths = new Set(changed);
+  return intent.files.every(({ path, blob }) => {
+    if (!paths.has(path)) return false;
+    const entry = git('ls-tree', head, '--', path);
+    if (blob === null) return !entry;
+    const mode =
+      git('ls-tree', intent.parent, '--', path).split(' ')[0] || '100644';
+    return entry.split('\t')[0] === `${mode} blob ${blob}`;
+  });
+}
+
 async function publishChanges(head, title, changes) {
   const result = await request('/graphql', {
     method: 'POST',
@@ -521,6 +550,43 @@ async function main() {
         '기존 상태의 작업 출처를 확인할 수 없어 자동 재개를 중지했습니다.',
       );
     recovery.issue ??= fingerprint(issue.title, issue.body);
+    if (
+      previous &&
+      env.GITHUB_EVENT_NAME === 'workflow_dispatch' &&
+      !sender.endsWith('[bot]') &&
+      !recoveryRun &&
+      recovery.pull &&
+      state.pullNumber &&
+      state.head === recovery.head &&
+      state.reviews?.some(
+        (r) => r.head === state.head && r.result.status === 'pass',
+      ) &&
+      fingerprint(issue.title, issue.body) === recovery.issue &&
+      !issue.labels.some((label) => label.name === 'ai:stop') &&
+      (issue.state === 'open' || issue.state_reason === 'completed')
+    ) {
+      const current = (
+        await repo(
+          `/pulls?state=closed&base=${base}&head=${encodeURIComponent('han41858:' + branch)}`,
+        )
+      ).find((p) => p.number === state.pullNumber);
+      if (
+        current?.merged_at &&
+        isSha(current.merge_commit_sha) &&
+        pullIdentity(current) === recovery.pull &&
+        current.head.sha === state.head &&
+        current.head.repo?.full_name === repository &&
+        current.head.ref === branch &&
+        current.base.ref === base &&
+        current.base.repo?.full_name === repository
+      ) {
+        if (issue.state === 'open') await guard(recovery.issue, issue);
+        await ready(
+          '검토한 HEAD의 dev 머지를 확인했습니다. 완료 기록을 재개합니다.',
+        );
+        return;
+      }
+    }
     await guard(recovery.issue, issue);
     const manualResume =
       previous &&
@@ -531,6 +597,46 @@ async function main() {
       (['needs_human', 'failed'].includes(previous.data.status) ||
         recovery.pending);
     if (manualResume) {
+      const intent = recovery.publication;
+      if (intent && intent.kind === recovery.pending) {
+        const remote = await ref(branch, true);
+        const actual = await openPull();
+        if (!isSha(remote) || (actual && actual.head.sha !== remote))
+          throw new Stop('게시한 작업의 HEAD를 확인할 수 없습니다.');
+        if (intent.kind === 'commit') {
+          if (
+            intent.parent !== recovery.head ||
+            pullIdentity(actual) !== recovery.pull
+          )
+            throw new Stop('커밋 게시 중 작업 PR이 변경되었습니다.');
+          fetchCommit(remote);
+          if (!matchesPublication(remote, intent))
+            throw new Stop('원격 커밋이 예약한 변경과 일치하지 않습니다.');
+          recovery.head = state.head = remote;
+          if (intent.draft) recovery.draft = intent.draft;
+          if (intent.repairingCI) recovery.ciReviewHead = remote;
+          delete state.reviews;
+        } else {
+          if (
+            remote !== intent.head ||
+            !actual ||
+            actual.title !== intent.title ||
+            fingerprint(actual.body) !== intent.bodyHash
+          )
+            throw new Stop(
+              '생성 예약한 초안 PR과 실제 PR이 일치하지 않습니다.',
+            );
+          state.pullNumber = actual.number;
+          recovery.pull = pullIdentity(actual);
+          delete recovery.draft;
+        }
+        delete recovery.pending;
+        delete recovery.publication;
+        await save(
+          'recovering',
+          '예약된 게시 결과를 원격 저장소에서 확인했습니다.',
+        );
+      }
       const pull = await verifyArtifacts(true);
       const publication = recovery.reviewPublication;
       if (
@@ -848,6 +954,25 @@ before에는 정확히 한 곳에 일치하는 원문을, after에는 대체할 
               recovery.head = head;
               await confirmed('developing', '작업 브랜치를 확인했습니다.');
             }
+            recovery.publication = {
+              kind: 'commit',
+              parent: head,
+              title,
+              repairingCI,
+              draft: pull
+                ? null
+                : { title, summary: safeText(plan.summary, 800) },
+              files: changes.map(({ path, text }) => ({
+                path,
+                blob:
+                  text === null
+                    ? null
+                    : execFileSync('git', ['hash-object', '--stdin'], {
+                        input: text,
+                        encoding: 'utf8',
+                      }).trim(),
+              })),
+            };
             await reserve(
               'commit',
               'developing',
@@ -859,6 +984,7 @@ before에는 정확히 한 곳에 일치하는 원문을, after에는 대체할 
             if (repairingCI) recovery.ciReviewHead = head;
             if (!pull)
               recovery.draft = { title, summary: safeText(plan.summary, 800) };
+            delete recovery.publication;
             await confirmed('developing', '개발 커밋을 게시했습니다.');
             fetchCommit(head);
           }
@@ -866,6 +992,13 @@ before에는 정확히 한 곳에 일치하는 원문을, after에는 대체할 
         if (!pull) {
           await checkBase(baseSha);
           const { title, summary } = recovery.draft;
+          const draftBody = `${marker}\n\n## 변경 사항\n\n이슈 #${number} 대응\n\n${summary}\n\nFixes #${number}\n\n## 검증\n\n- [ ] \`npm test\`\n- [ ] \`npm run build\`\n- [ ] \`npm run format:check\`\n\nGenerated by ${names[developer]}`;
+          recovery.publication = {
+            kind: 'pull',
+            head,
+            title,
+            bodyHash: fingerprint(draftBody),
+          };
           await reserve('pull', 'developing', '초안 PR 생성을 예약했습니다.');
           await checkBase(baseSha);
           pull = await repo('/pulls', {
@@ -876,12 +1009,13 @@ before에는 정확히 한 곳에 일치하는 원문을, after에는 대체할 
               head: branch,
               base,
               draft: true,
-              body: `${marker}\n\n## 변경 사항\n\n이슈 #${number} 대응\n\n${summary}\n\nFixes #${number}\n\n## 검증\n\n- [ ] \`npm test\`\n- [ ] \`npm run build\`\n- [ ] \`npm run format:check\`\n\nGenerated by ${names[developer]}`,
+              body: draftBody,
             },
           });
           state.pullNumber = pull.number;
           recovery.pull = pullIdentity(pull);
           delete recovery.draft;
+          delete recovery.publication;
           await confirmed('developing', '초안 PR을 확인했습니다.');
         }
 
