@@ -1,6 +1,6 @@
 import type { Locator, Page } from '@playwright/test';
-import { alpha, alphaReport, noPlaza } from './fixtures.ts';
-import { mockGitHub, openWorld, seedSettings } from './github.ts';
+import { alpha, alphaReport, emptyReport, noPlaza, owner } from './fixtures.ts';
+import { mockGitHub, openWorld, seedSettings, settled } from './github.ts';
 import { expect, test } from './test.ts';
 
 type Box = { x: number; y: number; width: number; height: number };
@@ -240,6 +240,81 @@ test.describe('높은 데스크톱의 왕국 하나', () => {
     expect(gap).toBeGreaterThanOrEqual(12);
     expect(gap).toBeLessThanOrEqual(20);
   });
+});
+
+test.describe('창 너비에 따른 왕국 줄바꿈', () => {
+  test.use({ reducedMotion: 'reduce' });
+
+  for (const mode of ['world', 'simple'] as const) {
+    test(`${mode}: 넓은 창에서는 왕국 네 개가 한 줄에 놓인다`, async ({
+      page,
+    }) => {
+      const repositories = [1, 2, 3, 4].map(
+        (index) =>
+          `${owner}/worldmap-responsive-layout-regression-fixture-${index}`,
+      );
+      await page.setViewportSize({ width: 3200, height: 800 });
+      await mockGitHub(page);
+      await page.route('**/api/github?**', async (route) => {
+        const params = new URL(route.request().url()).searchParams;
+        if (
+          !repositories.includes(params.get('repo') ?? '') ||
+          ['owner', 'heritage', 'summary', 'activity', 'repository'].some(
+            (key) => params.has(key),
+          )
+        ) {
+          await route.fallback();
+          return;
+        }
+        await route.fulfill({ json: emptyReport });
+      });
+      await seedSettings(page, repositories, mode);
+      await page.goto('/');
+      await settled(page);
+      await expect(page.locator('[data-display-mode]')).toHaveAttribute(
+        'data-display-mode',
+        mode,
+      );
+      const areas = page.locator('.kingdoms > .kingdom-area');
+      await expect(areas).toHaveCount(4);
+      await page.evaluate(async () => {
+        await document.fonts.ready;
+      });
+
+      const wide = await boxes(areas);
+      const columnGap = await page.locator('.kingdoms').evaluate((node) => {
+        return Number.parseFloat(getComputedStyle(node).columnGap);
+      });
+      const requiredWidth =
+        wide.reduce((sum, box) => sum + box.width, 0) +
+        (wide.length - 1) * columnGap;
+      expect(requiredWidth).toBeGreaterThan(1160);
+      for (const [index, box] of wide.entries()) {
+        expect(box.y).toBeCloseTo(wide[0].y, 1);
+        if (index > 0) expect(box.x).toBeGreaterThan(wide[index - 1].x);
+      }
+      expect(overlappingPairs(wide)).toEqual([]);
+
+      await page.setViewportSize({ width: 1200, height: 800 });
+      const narrow = await boxes(areas);
+      expect(narrow[3].y).toBeGreaterThan(narrow[0].y);
+      expect(overlappingPairs(narrow)).toEqual([]);
+
+      await page.setViewportSize({ width: 320, height: 800 });
+      const mobile = await boxes(areas);
+      expect(overlappingPairs(mobile)).toEqual([]);
+      for (const box of mobile) {
+        expect(box.x).toBeGreaterThanOrEqual(0);
+        expect(box.x + box.width).toBeLessThanOrEqual(320);
+      }
+      const overflow = await page.evaluate(
+        () =>
+          document.documentElement.scrollWidth -
+          document.documentElement.clientWidth,
+      );
+      expect(overflow).toBeLessThanOrEqual(0);
+    });
+  }
 });
 
 for (const width of [1280, 390, 320]) {
