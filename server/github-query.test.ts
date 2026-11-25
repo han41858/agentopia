@@ -208,8 +208,47 @@ test('release history uses published releases and excludes drafts and workflow r
     draft: false,
     prerelease: false,
   };
+  const rows = [
+    { ...release, tag_name: 'draft', draft: true },
+    { ...release, tag_name: 'unpublished', published_at: null },
+    {
+      ...release,
+      tag_name: 'v2-beta',
+      prerelease: true,
+      published_at: '2026-11-23T02:00:00Z',
+    },
+    release,
+  ];
+  const paths: string[] = [];
+  const names = ['v1', 'tag-only'];
   context.mock.method(globalThis, 'fetch', async (input: string) => {
     const path = new URL(input).pathname;
+    paths.push(path);
+    if (path === '/graphql')
+      return Response.json({
+        data: {
+          repository: {
+            refs: {
+              nodes: names.map((name) => ({
+                name,
+                target: { oid: 'abc', committedDate: release.published_at },
+              })),
+            },
+            releases: {
+              pageInfo: { hasNextPage: false },
+              // v1 was created after v2-beta, but v2-beta was published later.
+              nodes: rows.toReversed().map((row) => ({
+                tagName: row.tag_name,
+                url: row.html_url,
+                isDraft: row.draft,
+                isPrerelease: row.prerelease,
+                publishedAt: row.published_at,
+                tagCommit: row.tag_name === 'v1' ? { oid: 'abc' } : null,
+              })),
+            },
+          },
+        },
+      });
     if (path.endsWith('/actions/runs')) return Response.json({ workflow_runs });
     if (path.endsWith('/commits'))
       return Response.json([
@@ -217,20 +256,9 @@ test('release history uses published releases and excludes drafts and workflow r
       ]);
     if (path.endsWith('/tags'))
       return Response.json(
-        ['v1', 'tag-only'].map((name) => ({ name, commit: { sha: 'abc' } })),
+        names.map((name) => ({ name, commit: { sha: 'abc' } })),
       );
-    if (path.endsWith('/releases'))
-      return Response.json([
-        { ...release, draft: true },
-        { ...release, published_at: null },
-        {
-          ...release,
-          tag_name: 'v2-beta',
-          prerelease: true,
-          published_at: '2026-11-23T02:00:00Z',
-        },
-        release,
-      ]);
+    if (path.endsWith('/releases')) return Response.json(rows);
     return Response.json([]);
   });
   const response = await githubResponse(
@@ -262,6 +290,20 @@ test('release history uses published releases and excludes drafts and workflow r
       stage: 'complete',
     },
   ]);
+  assert.equal(paths.filter((path) => path.endsWith('/releases')).length, 1);
+  paths.length = 0;
+  const authenticated = await githubResponse(
+    new URL('https://agentopia.test/api/github?repo=example/release-history'),
+    'GET',
+    'Bearer checked_token',
+  );
+  assert.equal(authenticated.status, 200);
+  const report = JSON.parse(authenticated.body);
+  assert.deepEqual(report.releases, JSON.parse(response.body).releases);
+  assert.deepEqual(report.tags, JSON.parse(response.body).tags);
+  assert.deepEqual(report.warnings, []);
+  assert.equal(paths.filter((path) => path === '/graphql').length, 1);
+  assert.equal(paths.filter((path) => path.endsWith('/releases')).length, 0);
 });
 
 test('anonymous history bounds date and release lookups when the tag page is full', async (context) => {
@@ -360,7 +402,7 @@ test('authenticated history accepts annotated tags and skips history calls when 
                 },
               ],
             },
-            releases: { nodes: [] },
+            releases: { nodes: [], pageInfo: { hasNextPage: false } },
           },
         },
       });
@@ -384,13 +426,167 @@ test('authenticated history accepts annotated tags and skips history calls when 
     !paths.includes('/graphql') &&
       !paths.some((path) => path.endsWith('/releases')),
   );
+  assert.equal(paths.filter((path) => path.endsWith('/tags')).length, 0);
+  paths.length = 0;
   url.searchParams.set('refresh', '1');
-  await load();
-  assert.ok(
-    paths.includes('/graphql') &&
-      paths.some((path) => path.endsWith('/releases')),
-  );
+  const refreshed = await load();
+  assert.deepEqual(refreshed.tags, initial.tags);
+  assert.equal(paths.filter((path) => path === '/graphql').length, 1);
+  assert.equal(paths.filter((path) => path.endsWith('/releases')).length, 0);
 });
+
+test('authenticated history falls back to the REST window when creation order truncates releases', async (context) => {
+  const slug = 'example/late-publication';
+  const url = `https://github.com/${slug}/releases/tag/late`;
+  const publishedAt = '2026-11-25T00:00:00Z';
+  let rest = 0;
+  context.mock.method(globalThis, 'fetch', async (input: string) => {
+    const path = new URL(input).pathname;
+    if (path === '/graphql')
+      return Response.json({
+        data: {
+          repository: {
+            refs: { nodes: [] },
+            releases: {
+              nodes: Array.from({ length: 30 }, (_, i) => ({
+                tagName: `draft-${i}`,
+                url: `${url}-${i}`,
+                isDraft: true,
+                isPrerelease: false,
+                publishedAt: null,
+                tagCommit: null,
+              })),
+              pageInfo: { hasNextPage: true },
+            },
+          },
+        },
+      });
+    if (path.endsWith('/releases')) {
+      rest++;
+      assert.equal(new URL(input).searchParams.get('per_page'), '30');
+      return Response.json([
+        {
+          tag_name: 'late',
+          html_url: url,
+          draft: false,
+          prerelease: false,
+          created_at: '2025-01-01T00:00:00Z',
+          published_at: publishedAt,
+        },
+      ]);
+    }
+    if (path.endsWith('/actions/runs'))
+      return Response.json({ workflow_runs: [] });
+    return Response.json([]);
+  });
+  const report = await getReport({ slug, name: slug }, 'fixture-token');
+  assert.deepEqual(report.warnings, []);
+  assert.deepEqual(report.releases, [
+    {
+      title: 'late',
+      url,
+      status: '릴리스',
+      sha: undefined,
+      at: publishedAt,
+      stage: 'complete',
+    },
+  ]);
+  assert.equal(rest, 1);
+});
+
+for (const failure of [
+  'refs',
+  'releases',
+  'recovered',
+  'permission',
+] as const) {
+  test(`authenticated history retains available rows after ${failure} failure`, async (context) => {
+    const slug = `example/history-${failure}`;
+    const url = `https://github.com/${slug}/releases/tag/v1`;
+    const at = '2026-11-22T02:00:00Z';
+    let rest = 0;
+    context.mock.method(globalThis, 'fetch', async (input: string) => {
+      const path = new URL(input).pathname;
+      if (path === '/graphql') {
+        if (failure === 'permission')
+          return new Response(null, { status: 403 });
+        return Response.json({
+          errors: [
+            {
+              path: [
+                'repository',
+                failure === 'recovered' ? 'releases' : failure,
+                'nodes',
+                1,
+              ],
+            },
+          ],
+          data: {
+            repository: {
+              refs: {
+                nodes: [
+                  {
+                    name: 'tag-only',
+                    target: { oid: 'tag', committedDate: at },
+                  },
+                  ...(failure === 'refs' ? [null] : []),
+                ],
+              },
+              releases: {
+                nodes: [
+                  {
+                    tagName: 'v1',
+                    url,
+                    isDraft: false,
+                    isPrerelease: false,
+                    publishedAt: at,
+                    tagCommit: { oid: 'released' },
+                  },
+                  ...(failure === 'releases' || failure === 'recovered'
+                    ? [null]
+                    : []),
+                ],
+                pageInfo: { hasNextPage: false },
+              },
+            },
+          },
+        });
+      }
+      if (path.endsWith('/releases')) {
+        rest++;
+        if (failure === 'releases') return new Response(null, { status: 403 });
+        return Response.json([
+          { tag_name: 'v1', html_url: url, published_at: at, draft: false },
+        ]);
+      }
+      if (path.endsWith('/actions/runs'))
+        return Response.json({ workflow_runs: [] });
+      return Response.json([]);
+    });
+    const report = await getReport({ slug, name: slug }, 'fixture-token');
+    assert.deepEqual(
+      report.warnings,
+      failure === 'recovered'
+        ? []
+        : [failure === 'releases' ? '릴리스' : '태그'],
+    );
+    assert.deepEqual(
+      report.tags,
+      failure === 'permission' ? [] : [{ name: 'tag-only', committedAt: at }],
+    );
+    assert.deepEqual(report.releases, [
+      {
+        title: 'v1',
+        url,
+        at,
+        status: '릴리스',
+        stage: 'complete',
+        sha: failure === 'permission' ? undefined : 'released',
+      },
+    ]);
+    assert.equal(rest, failure === 'refs' ? 0 : 1);
+  });
+}
 
 test('cached publication evidence follows the current merged PRs', () => {
   const published = {
@@ -554,12 +750,24 @@ for (const mode of ['public', 'authenticated'] as const) {
                   refs: {
                     nodes: [
                       {
-                        name: 'v1',
-                        target: { oid: 'merged', committedDate: mergedAt },
+                        name: 'tag-only',
+                        target: { oid: 'tag-commit', committedDate: mergedAt },
                       },
                     ],
                   },
-                  releases: { nodes: [] },
+                  releases: {
+                    nodes: [
+                      {
+                        tagName: 'v1',
+                        url: releaseUrl,
+                        publishedAt,
+                        isDraft: false,
+                        isPrerelease: false,
+                        tagCommit: { oid: 'merged' },
+                      },
+                    ],
+                    pageInfo: { hasNextPage: false },
+                  },
                 },
               },
             });
@@ -633,10 +841,9 @@ for (const mode of ['public', 'authenticated'] as const) {
       '/issues/1/sub_issues',
       '/issues/comments',
       '/pulls',
-      '/releases',
       ...(token
         ? ['GraphQL tags', 'GraphQL links']
-        : ['/tags', '/pulls/3/commits']),
+        : ['/releases', '/tags', '/pulls/3/commits']),
     ];
     assert.deepEqual(beforeTags.sort(), expectedBeforeTags.toSorted());
     assert.deepEqual(
@@ -644,7 +851,9 @@ for (const mode of ['public', 'authenticated'] as const) {
       [...expectedBeforeTags, ...(token ? [] : ['/commits'])].sort(),
     );
     assert.deepEqual(report.warnings, []);
-    assert.deepEqual(report.tags, [{ name: 'v1', committedAt: mergedAt }]);
+    assert.deepEqual(report.tags, [
+      { name: token ? 'tag-only' : 'v1', committedAt: mergedAt },
+    ]);
     assert.equal(report.releases[0]?.sha, 'merged');
     const quest = report.quests.find(({ number }) => number === 1);
     assert.equal(quest?.state, 'closed');
