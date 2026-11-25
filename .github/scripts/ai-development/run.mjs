@@ -573,8 +573,15 @@ async function main() {
         const match = await findReview(pullNumber, fingerprint(body));
         if (match) return match;
         if (attempt >= 1) {
-          recovery.reviewPublication.retryable = true;
-          throw error;
+          const publication = recovery.reviewPublication;
+          publication.retryable = true;
+          if (publication.delayedRetryReserved) throw error;
+          publication.delayedRetryReserved = true;
+          await save('recovering', '리뷰 댓글 게시 재시도 대기 중입니다.');
+          await new Promise((resolve) => setTimeout(resolve, 30_000));
+          await checkBase(baseSha);
+          const existing = await findReview(pullNumber, publication.bodyHash);
+          if (existing) return existing;
         }
       }
     }

@@ -427,6 +427,48 @@ test('the issue party leader moves only during current CI and rests after CI pas
   );
 });
 
+test('a failed completion job preserves approval only for the same attempt and PR HEAD', () => {
+  function stage(
+    ciStatus: string,
+    ciConclusion: string | null,
+    reviewHead = sha,
+    attempt = 1,
+  ) {
+    const development = run(2, {
+      status: 'completed',
+      conclusion: 'failure',
+      run_attempt: attempt,
+    });
+    const ci = run(2, {
+      id: 500,
+      path: '.github/workflows/ci.yml',
+      head_branch: pull.head.ref,
+      pull_requests: [{ number: pull.number }],
+      status: ciStatus,
+      conclusion: ciConclusion,
+    });
+    return makeQuests(
+      commitTrail,
+      [issue(2)],
+      [pull],
+      [development, ci],
+      [
+        comment(2, 'ready', {
+          pullNumber: pull.number,
+          reviews: [{ head: reviewHead, result: { status: 'pass' } }],
+        }),
+      ],
+      new Map(),
+      [],
+    )[0].stage;
+  }
+  assert.equal(stage('in_progress', null), 'ci');
+  assert.equal(stage('completed', 'success'), 'ci');
+  assert.equal(stage('completed', 'failure'), 'failed');
+  assert.equal(stage('in_progress', null, mergeSha), 'failed');
+  assert.equal(stage('in_progress', null, sha, 2), 'failed');
+});
+
 test('completed development keeps an issue leader before a PR exists', () => {
   const [completed, unrelated] = makeQuests(
     commitTrail,
