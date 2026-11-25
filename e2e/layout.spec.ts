@@ -518,7 +518,9 @@ for (const width of [1280, 390, 320]) {
             `,
           });
           const before = await measure();
-          await baseline.evaluate((node) => node.remove());
+          await baseline.evaluate((node) => {
+            node.parentNode?.removeChild(node);
+          });
 
           await testInfo.attach(`kingdom-spacing-${mode}`, {
             body: JSON.stringify(
