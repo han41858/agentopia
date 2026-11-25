@@ -84,6 +84,13 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           AI_CODEX_MODEL: ${{ vars.AI_CODEX_MODEL }}
           AI_CLAUDE_MODEL: ${{ vars.AI_CLAUDE_MODEL }}
+      - name: Sync PR progress from the latest issue journal
+        if: ${{ !cancelled() && steps.review.outcome != 'skipped' }}
+        continue-on-error: true
+        run: python3 .github/scripts/progress-sync.py
+        env:
+          GH_TOKEN: ${{ github.token }}
+          AI_ISSUE: ${{ github.event.issue.number || inputs.issue }}
 
   handoff:
     needs: develop

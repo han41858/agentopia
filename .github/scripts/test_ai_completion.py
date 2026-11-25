@@ -44,7 +44,7 @@ class CompletionTest(unittest.TestCase):
             if path.startswith("actions/"):
                 ci_reads += 1
                 return {"workflow_runs": [{"head_sha": "old" if stale_head else head, "pull_requests": [{"number": 2}], "status": "in_progress" if rerunning and ci_reads > 1 else status,
-                                           "conclusion": ci, "html_url": "CI"}]}
+                                           "conclusion": ci, "html_url": "CI", "id": 81, "run_attempt": 1}]}
             if path == "pulls/2":
                 return pull
             calls.append(path)
@@ -77,7 +77,7 @@ class CompletionTest(unittest.TestCase):
             else:
                 completion.complete(1, 7)
             if not wrong_close and issue_state["state"] == "closed":
-                self.assertEqual([c.args[3].split(":")[0] for c in journal.call_args_list], ["merge", "closed"])
+                self.assertEqual([c.args[3].split(":")[0] for c in journal.call_args_list], (["merge", "closed"] if merged else ["ci", "merge", "closed"]))
                 self.assertEqual(journal.call_args.kwargs["status"], "merged")
         return calls
 

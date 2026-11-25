@@ -16,6 +16,8 @@ const labels = {
   failed: '실패',
   needs_human: '사람 확인 필요',
   merged: '완료',
+  closed_unplanned: '종료',
+  superseded: '요구사항 변경으로 종료',
 };
 
 function plain(value) {
@@ -75,6 +77,10 @@ export function progressBody({
         if (record.pullNumber)
           links.push(
             `[PR #${record.pullNumber}](${root}/pull/${record.pullNumber})`,
+          );
+        if (/^[a-f0-9]{40}$/.test(record.head ?? ''))
+          links.push(
+            `[\`${record.head.slice(0, 7)}\`](${root}/commit/${record.head})`,
           );
         if (entry.reviewId && record.pullNumber)
           links.push(

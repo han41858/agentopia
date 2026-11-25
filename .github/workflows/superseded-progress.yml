@@ -1,0 +1,28 @@
+name: Superseded issue progress
+on:
+  issues:
+    types: [closed, edited]
+permissions: {}
+jobs:
+  journal:
+    if: >-
+      github.repository == 'han41858/agentopia' && github.ref == 'refs/heads/dev' &&
+      github.event.issue.state_reason == 'not_planned'
+    concurrency:
+      group: ai-development-issue-${{ github.event.issue.number }}
+      queue: max
+      cancel-in-progress: false
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - run: python3 .github/scripts/progress-sync.py
+        env:
+          GH_TOKEN: ${{ github.token }}
+          AI_ISSUE: ${{ github.event.issue.number }}
+          AI_CLOSURE: '1'
