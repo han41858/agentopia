@@ -373,11 +373,11 @@ type RoleProgress = {
 function roleProgress({ comment }: StateRecord): RoleProgress[] {
   // Only read the progress list in the comment that supplied the checkpoint.
   const lists = (comment.body ?? '').matchAll(
-    /<details>\s*<summary>진행 기록<\/summary>([\s\S]*?)<\/details>/g,
+    /<details>\s*<summary>진행 기록<\/summary>([\s\S]*?)<\/details>|^\*\*진행 기록\*\*[ \t]*\r?\n((?:(?:[ \t]*\r?\n)*[ \t]*- [^\r\n]*(?:\r?\n|$))+)/gm,
   );
   const records: RoleProgress[] = [];
-  for (const [, list] of lists) {
-    for (const line of list.split(/\r?\n/)) {
+  for (const [, html, markdown] of lists) {
+    for (const line of (html ?? markdown).split(/\r?\n/)) {
       const development =
         /^- \d{2}:\d{2} (developing|revising) · (Codex|Claude) 개발 \d+\/\d+회차입니다\.$/.exec(
           line.trim(),
@@ -457,7 +457,7 @@ export function selectIssueAutomation(
         latestAttempts.set(run.id, run);
     }
     const candidates = [...latestAttempts.values()].sort((a, b) => b.id - a.id);
-    const record = entry.records
+    const records = entry.records
       .filter(({ state }) => {
         const run = latestAttempts.get(state.runId);
         if (!run) return true;
@@ -472,10 +472,21 @@ export function selectIssueAutomation(
           b.state.runId - a.state.runId ||
           (b.state.attempt ?? 1) - (a.state.attempt ?? 1) ||
           Date.parse(b.comment.updated_at) - Date.parse(a.comment.updated_at),
-      )[0];
+      );
+
+    // A queued trigger hasn't taken over work from a checkpointed active run.
+    const activeRecord = records.find(({ state }) => {
+      const run = latestAttempts.get(state.runId);
+      return run?.status === 'in_progress' && stateMatchesRun(state, run);
+    });
+    const record = records.find(({ state }) => {
+      if (!activeRecord || state.runId <= activeRecord.state.runId) return true;
+      const run = latestAttempts.get(state.runId);
+      return !run || !stateMatchesRun(state, run) || runStage(run) !== 'queued';
+    });
 
     // A parallel trigger can exit without writing a checkpoint. A newer
-    // success alone does not establish recovery from a recorded failure.
+    // success alone does not clear a recorded failure or request for help.
     const run = candidates.find(
       (candidate) =>
         candidate.conclusion !== 'skipped' &&
@@ -484,9 +495,12 @@ export function selectIssueAutomation(
             stateMatchesRun(state, candidate),
           )) &&
         !(
-          record?.state.status === 'failed' &&
+          record &&
           candidate.id > record.state.runId &&
-          candidate.conclusion === 'success'
+          ((record === activeRecord && runStage(candidate) === 'queued') ||
+            ((record.state.status === 'failed' ||
+              record.state.status === 'needs_human') &&
+              candidate.conclusion === 'success'))
         ),
     );
     if (
