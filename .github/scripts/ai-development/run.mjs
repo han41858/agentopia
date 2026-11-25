@@ -694,6 +694,13 @@ async function main() {
         };
         const context = JSON.stringify({
           ...taskContext,
+          previousDevelopmentBlocker:
+            manualResume && previous.data.phase === `${names[developer]} 개발`
+              ? previous.data.reason?.slice(0, 800)
+              : undefined,
+          developmentNote: manualResume
+            ? event.inputs?.development_note?.slice(0, 1500)
+            : undefined,
           failedCI: repairingCI ? ciFeedback : undefined,
         });
         if (context.length > 26_000)
@@ -763,7 +770,7 @@ async function main() {
                 issueTitle: issue.title,
                 mode: 'development',
                 context,
-                instructions: `${rules}\n변경안을 제시하기 전에 기존 diff와 관련 파일을 읽으세요.
+                instructions: `${rules}\n변경안을 제시하기 전에 기존 diff와 관련 파일을 읽으세요. 수동 재개의 이전 중단 사유와 참고 메모는 탐색 단서입니다. 메모의 소스·테스트 위치를 먼저 확인하고 현재 코드에서 근거를 검증하세요.
 편집 대상은 src/, server/, api/, docs/ 아래의 Markdown·TypeScript·CSS, README.md 및 기존 e2e/*.spec.ts입니다. api/와 e2e/에서는 기존 파일의 내용만 변경하세요.
 UI가 달라지면 이전 문구·역할·접근성 이름·툴팁·조작을 사용하는 테스트를 찾으세요. 영향을 받는 요소 선택자와 검증문은 구현과 같은 변경안에서 수정하세요. 새 동작을 검증하는 테스트가 없으면 관련 기존 테스트 파일에 해당 시나리오를 추가하세요. 수정할 테스트 파일마다 관련 테스트 본문을 read_file로 읽으세요. 긴 파일은 find_in_file로 테스트나 fixture 이름을 먼저 찾고, 기대값에 쓰인 고정 데이터는 e2e/fixtures.ts에서 해당 정의를 확인하세요.
 개발 단계는 읽기 도구로 변경안을 작성하고, 브라우저·빌드·테스트 실행은 PR 게시 후 CI가 담당합니다. 화면 측정이 요구되면 같은 데이터와 뷰포트에서 실제 요소의 위치·크기를 검증하고 필요한 측정값을 CI 기록에서 확인할 수 있도록 관련 Playwright 테스트에 담으세요. 개발 단계에서 브라우저를 실행할 수 없다는 이유만으로 중단하지 마세요. 실제 측정과 실행 여부는 확인한 범위만 요약하고, 요구사항이나 검증 기준을 임의로 완화하지 마세요.
