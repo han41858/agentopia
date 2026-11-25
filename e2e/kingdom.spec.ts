@@ -489,7 +489,6 @@ test.describe('왕국 기본 표시', () => {
         const focused = await geometry();
         expect(focused.clearance).toBeGreaterThan(2.75);
         expect(focused.parent).toEqual(overview.parent);
-        console.log({ mode, width, overview, hovered, focused });
 
         await kingdom.getByTitle('왕궁 · main').focus();
         await expectOverview();
