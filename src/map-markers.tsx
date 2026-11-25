@@ -7,7 +7,6 @@ import {
   RotateCcw,
   ScrollText,
   Swords,
-  Skull,
   Trophy,
   Pause,
   CircleHelp,
@@ -53,7 +52,7 @@ export const glyph = {
   merging: GitPullRequest,
   complete: Trophy,
   returned: null,
-  failed: Skull,
+  failed: null,
   attention: Flag,
 };
 
@@ -178,10 +177,14 @@ export function MonsterMarker({
   const defeated = quest.state === 'closed';
   const members = quest.adventurers ?? [];
   const resting = monsterRest(quest);
+  const runningCI = quest.issueCIStatus === 'running' && !defeated;
+  const stage = runningCI && quest.stage === 'failed' ? 'ci' : quest.stage;
   const badge = !defeated
     ? markerBadge(
-        quest.stage,
-        quest.issueRecoveryBadge,
+        stage,
+        runningCI && quest.issueRecoveryBadge?.kind === 'failed'
+          ? undefined
+          : quest.issueRecoveryBadge,
         quest.reason,
         quest.issueCIStatus === 'waiting',
       )
@@ -196,14 +199,14 @@ export function MonsterMarker({
   const label = [
     tooltip,
     defeated ? '이슈 닫힘' : quest.reopened ? '이슈 다시 열림' : '이슈 열림',
-    quest.stage === 'ci'
+    stage === 'ci'
       ? issueCILabels[quest.issueCIStatus ?? 'waiting']
-      : quest.stage !== 'idle'
-        ? markerStageLabels[quest.stage]
+      : stage !== 'idle'
+        ? markerStageLabels[stage]
         : undefined,
     quest.victory ? '연결된 PR 병합됨' : undefined,
     quest.issueLeader
-      ? quest.stage === 'ci'
+      ? stage === 'ci'
         ? '파티장'
         : quest.issueLeader === 'active'
           ? `${markerStageLabels.ci} · 파티장`
@@ -219,9 +222,9 @@ export function MonsterMarker({
       data-road-issue={quest.number}
       data-recovery={badge?.kind}
       data-working={
-        (activeStages.has(quest.stage) && quest.stage !== 'queued') || undefined
+        (activeStages.has(stage) && stage !== 'queued') || undefined
       }
-      className={`expedition monster-marker${boss ? ' boss-marker' : ''}${alerts.has(quest.stage) ? ' blocked' : ''}${defeated ? ' closed-issue' : ''}`}
+      className={`expedition monster-marker${boss ? ' boss-marker' : ''}${alerts.has(stage) ? ' blocked' : ''}${defeated ? ' closed-issue' : ''}`}
       aria-label={`${label}${activityEffectsLabel(quest.activity)}`}
       title={tooltip}
       onClick={open}
@@ -343,11 +346,15 @@ export function FacilityMarker({
     (member) => member.active && !member.fallen,
   );
   const leader = partyLeaderState(pull);
+  const runningCI = leader === 'active' && pull.quality === 'ci';
+  const stage = runningCI && pull.stage === 'failed' ? 'ci' : pull.stage;
   const badge = markerBadge(
-    pull.stage,
-    pull.recoveryBadge,
+    stage,
+    runningCI && pull.recoveryBadge?.kind === 'failed'
+      ? undefined
+      : pull.recoveryBadge,
     pull.reason,
-    pull.stage === 'ci' && pull.ciQueued,
+    stage === 'ci' && pull.ciQueued,
   );
   const badgeGlyph = badge && (
     <RecoveryGlyph badge={badge} className="facility-recovery" />
@@ -357,16 +364,14 @@ export function FacilityMarker({
     tooltip,
     pullActivity(pull),
     pull.cancelled ? 'PR 닫힘' : pull.draft ? '초안' : 'PR 열림',
-    !pull.cancelled && pull.stage !== 'idle'
-      ? pull.stage === 'complete'
+    !pull.cancelled && stage !== 'idle'
+      ? stage === 'complete'
         ? 'PR 병합됨'
-        : pull.stage === 'ci' && pull.ciQueued
+        : stage === 'ci' && pull.ciQueued
           ? issueCILabels.waiting
-          : markerStageLabels[pull.stage]
+          : markerStageLabels[stage]
       : undefined,
-    leader === 'active' && pull.stage !== 'ci'
-      ? markerStageLabels.ci
-      : undefined,
+    leader === 'active' && stage !== 'ci' ? markerStageLabels.ci : undefined,
     leader === 'resting'
       ? pull.ciParticipated
         ? 'GitHub Actions · CI 실행 기록'
@@ -380,11 +385,11 @@ export function FacilityMarker({
 
   return (
     <button
-      className={`expedition pull-marker facility-marker${alerts.has(pull.stage) ? ' blocked' : ''}`}
+      className={`expedition pull-marker facility-marker${alerts.has(stage) ? ' blocked' : ''}`}
       data-highlight={inspected ? 'selected' : related ? 'related' : undefined}
-      data-stage={pull.stage}
+      data-stage={stage}
       data-working={
-        (activeStages.has(pull.stage) && pull.stage !== 'queued') || undefined
+        (activeStages.has(stage) && stage !== 'queued') || undefined
       }
       data-recovery={badge?.kind}
       data-facility={kind}
@@ -523,6 +528,7 @@ export function KingdomMonsters({
 }
 
 export function Badge({ stage, label }: { stage: Stage; label?: string }) {
+  if (stage === 'failed') return null;
   const Icon = glyph[stage];
   const description =
     label ?? (stage === 'ci' ? `GitHub Actions · ${stages.ci}` : stages[stage]);

@@ -230,7 +230,13 @@ test.describe('왕국 기본 표시', () => {
       await expect(leader).toBeVisible();
       await expect(moving).toHaveCount(0);
 
-      quest = { ...quest, issueCIStatus: 'running', issueLeader: 'active' };
+      quest = {
+        ...quest,
+        stage: 'failed',
+        issueRecoveryBadge: { kind: 'failed' },
+        issueCIStatus: 'running',
+        issueLeader: 'active',
+      };
       forge = {
         ...forge,
         stage: 'ci',
@@ -252,10 +258,13 @@ test.describe('왕국 기본 표시', () => {
       await expect(activeLeader).toBeVisible();
       await expect(leader).toHaveCount(0);
 
+      await expect(marker).not.toHaveClass(/blocked/);
+      await expect(marker).not.toHaveAttribute('data-recovery', 'failed');
       const activeReviewer = { ...reviewers, active: 'review' } as const;
       quest = {
         ...quest,
         stage: 'reviewing',
+        issueRecoveryBadge: undefined,
         issueCIStatus: undefined,
         adventurers: [activeReviewer],
       };

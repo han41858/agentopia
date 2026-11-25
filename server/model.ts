@@ -566,6 +566,16 @@ function latestWorkflowRuns(runs: WorkflowRunRecord[]): WorkflowRunRecord[] {
     .map(({ run }) => run);
 }
 
+function matchesPullHead(run: Run, region: Region, pull: Pull) {
+  if (run.head_sha !== pull.head.sha) return false;
+  if (run.pull_requests.length)
+    return run.pull_requests.some(({ number }) => number === pull.number);
+  return (
+    pull.head.repo?.full_name.toLowerCase() === region.slug &&
+    run.head_branch === pull.head.ref
+  );
+}
+
 function automationRunParticipated(run: Run) {
   return (
     run.conclusion !== 'skipped' &&
@@ -690,12 +700,8 @@ export function makeForges(
         Boolean(pull.merged_at),
     )
     .map((pull) => {
-      const relatedRuns = runs.filter(
-        (run) =>
-          run.head_sha === pull.head.sha &&
-          (run.pull_requests.some(({ number }) => number === pull.number) ||
-            (pull.head.repo?.full_name.toLowerCase() === region.slug &&
-              run.head_branch === pull.head.ref)),
+      const relatedRuns = runs.filter((run) =>
+        matchesPullHead(run, region, pull),
       );
       const ciHistory = pullCIRuns(runs, region, pull);
       const ci = currentPullCI(ciHistory, pull);
@@ -1124,7 +1130,8 @@ export function makeQuests(
       stage = recoveryStages[recoveryBadge.kind];
     const adventurers = new Map<Agent, Adventurer>();
     const issueCIStatus =
-      stage !== 'ci'
+      stage !== 'ci' &&
+      (!ci || pull?.state !== 'open' || ci.conclusion === 'skipped')
         ? undefined
         : ci?.status === 'in_progress'
           ? 'running'

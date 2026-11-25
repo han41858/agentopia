@@ -508,7 +508,7 @@ test('CI history belongs to its PR, but only the current HEAD drives activity', 
     links,
   );
   assert.equal(stopped.stage, 'attention');
-  assert.equal(stopped.issueCIStatus, undefined);
+  assert.equal(stopped.issueCIStatus, 'running');
   assert.equal(stopped.issueLeader, 'active');
 
   assert.deepEqual(observe([]), [undefined, false, undefined]);
@@ -531,6 +531,47 @@ test('CI history belongs to its PR, but only the current HEAD drives activity', 
     observe([{ ...runningCI, status: 'completed', conclusion: 'success' }]),
     ['resting', true, undefined],
   );
+});
+
+test('review failure keeps its history while only the linked current CI controls the party leader', () => {
+  const failure = run(2, { status: 'completed', conclusion: 'failure' });
+  const ci = run(2, {
+    id: 500,
+    path: '.github/workflows/ci.yml',
+    head_branch: pull.head.ref,
+    pull_requests: [{ number: pull.number }],
+  });
+  function observe(check: Run) {
+    const [quest] = makeQuests(
+      commitTrail,
+      [issue(2)],
+      [pull],
+      [check, failure],
+      [
+        comment(2, 'failed', {
+          pullNumber: pull.number,
+          reason: 'review failed',
+        }),
+      ],
+      new Map(),
+      [],
+    );
+    assert.equal(quest.stage, 'failed');
+    assert.equal(quest.evidence?.status, 'failure');
+    return [quest.issueCIStatus, quest.issueLeader];
+  }
+  assert.deepEqual(observe(ci), ['running', 'active']);
+  assert.deepEqual(
+    observe({ ...ci, status: 'completed', conclusion: 'success' }),
+    ['passed', 'resting'],
+  );
+  for (const unrelated of [
+    { ...ci, pull_requests: [{ number: 99 }] },
+    { ...ci, head_sha: mergeSha },
+    { ...ci, path: '.github/workflows/preview.yml' },
+  ]) {
+    assert.deepEqual(observe(unrelated), [undefined, 'resting']);
+  }
 });
 
 test('a merged PR is a victory independently of whether its monster has been defeated', () => {
