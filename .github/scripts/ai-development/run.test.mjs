@@ -18,6 +18,7 @@ for (const testCase of [
   'review-limit',
   'review-no-change',
   'review-human',
+  'development-human',
   'issue-title-fallback',
   'stale-edit',
   'repeated-stale-edit',
@@ -185,6 +186,23 @@ for (const testCase of [
       }
       if (claudeDeveloper ? anthropic : openai) {
         developmentCalls++;
+        if (scenario === 'development-human') {
+          const context = JSON.parse(body.input[0].content);
+          if (!resumed) {
+            assert.equal(context.developmentNote, undefined);
+            return modelResponse({
+              status: 'needs_human',
+              title: '',
+              edits: [],
+              summary: '테스트 위치를 확인해 주세요.',
+            });
+          }
+          assert.equal(
+            context.previousDevelopmentBlocker,
+            '테스트 위치를 확인해 주세요.',
+          );
+          assert.equal(context.developmentNote, '관련 테스트 위치');
+        }
         if (scenario === 'interrupted-development' && !resumed)
           throw Error('connection lost');
         if (
@@ -515,6 +533,19 @@ for (const testCase of [
     )
       await assert.rejects(import(runner + '?first'));
     else await import(runner + '?first');
+    if (scenario === 'development-human') {
+      assert.equal(saved().status, 'needs_human');
+      writeFileSync(
+        event,
+        JSON.stringify({
+          repository: { full_name: repository },
+          sender: { login: 'tester' },
+          inputs: { development_note: '관련 테스트 위치' },
+        }),
+      );
+      await manualResume();
+      return;
+    }
     if (scenario.startsWith('review-')) {
       const ready = scenario === 'review-revision';
       if (ready) assert.equal(staleRead, true);
