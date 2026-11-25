@@ -283,6 +283,9 @@ def complete(issue, run_id):
     if (data["state"], data.get("state_reason")) != ("closed", "completed"):
         raise RuntimeError("PR merged, but completed issue closure is unconfirmed.")
     record_event(issue, state, number, f"closed:{head}", f"이슈 #{issue} 해결 완료", status="merged")
+    if output := os.environ.get("GITHUB_OUTPUT"):
+        with open(output, "a", encoding="utf-8") as handoff:
+            print("child_closed=true", file=handoff)
     print(f"PR #{number} merged, issue #{issue} completed.")
 
 
