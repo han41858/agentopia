@@ -375,15 +375,20 @@ async function main() {
   });
   async function verifyArtifacts(manualReview = false) {
     await guard(recovery.issue);
-    const head = await ref(branch, true);
+    let head = await ref(branch, true);
     let pull = await openPull();
-    // The PR view can lag behind a confirmed push. Never accept a different ref.
+    // After a push either read can lag. Re-read both before trusting the pair.
     for (
       let retry = 0;
-      retry < 3 && pull && pull.head.sha !== head && head === recovery.head;
+      retry < 4 &&
+      pull &&
+      pullIdentity(pull) === recovery.pull &&
+      pull.head.sha !== head &&
+      (head === recovery.head || pull.head.sha === recovery.head);
       retry++
     ) {
-      await new Promise((resolve) => setTimeout(resolve, 500));
+      await new Promise((resolve) => setTimeout(resolve, 500 * 2 ** retry));
+      head = await ref(branch, true);
       pull = await openPull();
     }
     if (

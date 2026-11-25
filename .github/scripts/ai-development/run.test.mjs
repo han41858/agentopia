@@ -80,6 +80,7 @@ for (const scenario of [
     git(remote, 'commit', '-m', 'Base');
     let base = git(remote, 'rev-parse', 'HEAD');
     let advances = 0;
+    let staleBranchRead = false;
     function advance() {
       git(remote, 'switch', 'dev');
       advances++;
@@ -383,6 +384,16 @@ for (const scenario of [
       if (path === '/git/ref/heads/' + branch) {
         if (head) head = git(remote, 'rev-parse', branch);
         if (pr) pr.head.sha = head;
+        if (
+          scenario === 'review-revision' &&
+          commits === 2 &&
+          !staleBranchRead
+        ) {
+          staleBranchRead = true;
+          return Response.json({
+            object: { sha: git(remote, 'rev-parse', branch + '^') },
+          });
+        }
         return head
           ? Response.json({ object: { sha: head } })
           : Response.json({}, { status: 404 });
@@ -507,6 +518,7 @@ for (const scenario of [
     else await import(runner + '?first');
     if (scenario.startsWith('review-')) {
       const ready = scenario === 'review-revision';
+      if (ready) assert.equal(staleBranchRead, true);
       assert.equal(saved().status, ready ? 'ready' : 'needs_human');
       assert.equal(
         readFileSync(stepOutput, 'utf8'),
