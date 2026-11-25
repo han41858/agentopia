@@ -205,7 +205,9 @@ export function MonsterMarker({
     quest.issueLeader
       ? quest.stage === 'ci'
         ? '파티장'
-        : 'GitHub Actions · 파티장'
+        : quest.issueLeader === 'active'
+          ? `${markerStageLabels.ci} · 파티장`
+          : 'GitHub Actions · 파티장'
       : undefined,
     ...members.map(markerMemberLabel),
   ]

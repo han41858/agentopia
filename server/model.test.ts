@@ -468,6 +468,20 @@ test('CI history belongs to its PR, but only the current HEAD drives activity', 
     return [quest.issueLeader, pr.ciParticipated, pr.quality];
   }
 
+  const [stopped] = makeQuests(
+    commitTrail,
+    [{ ...issue(2), labels: [{ name: 'ai:stop' }] }],
+    [pull],
+    [runningCI],
+    [],
+    new Map(),
+    [],
+    links,
+  );
+  assert.equal(stopped.stage, 'attention');
+  assert.equal(stopped.issueCIStatus, undefined);
+  assert.equal(stopped.issueLeader, 'active');
+
   assert.deepEqual(observe([]), [undefined, false, undefined]);
   assert.deepEqual(
     observe([{ ...runningCI, pull_requests: [{ number: pull.number + 1 }] }]),
