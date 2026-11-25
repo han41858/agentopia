@@ -95,35 +95,33 @@ export async function getReport(
         .sort((a, b) => b.published_at!.localeCompare(a.published_at!))[0]
         ?.tag_name,
   );
-  const [issuePage, pullPage, workflow, releasePage, tagResult] =
-    await Promise.all([
-      get<Issue[]>(
-        `/issues${recent}&state=all&sort=updated&direction=desc`,
-      ).catch((error) => {
-        if (!(error instanceof GitHubError) || error.status !== 410)
-          throw error;
-        warnings.add('이슈 비활성화');
-        return [];
-      }),
-      optional(
-        'PR',
-        get<Pull[]>(`/pulls${recent}&state=all&sort=updated&direction=desc`),
-        [],
-      ),
-      optional(
-        'Actions',
-        get<{ workflow_runs: Run[] }>('/actions/runs?per_page=100'),
-        { workflow_runs: [] },
-      ),
-      history,
-      includeHistory
-        ? optional(
-            '태그',
-            readTags(region, token, force, latestPublishedTag),
-            undefined,
-          )
-        : undefined,
-    ]);
+  const current = Promise.all([
+    get<Issue[]>(
+      `/issues${recent}&state=all&sort=updated&direction=desc`,
+    ).catch((error) => {
+      if (!(error instanceof GitHubError) || error.status !== 410) throw error;
+      warnings.add('이슈 비활성화');
+      return [];
+    }),
+    optional(
+      'PR',
+      get<Pull[]>(`/pulls${recent}&state=all&sort=updated&direction=desc`),
+      [],
+    ),
+    optional(
+      'Actions',
+      get<{ workflow_runs: Run[] }>('/actions/runs?per_page=100'),
+      { workflow_runs: [] },
+    ),
+  ]);
+  const tagsTask = includeHistory
+    ? optional(
+        '태그',
+        readTags(region, token, force, latestPublishedTag),
+        undefined,
+      )
+    : undefined;
+  const [issuePage, pullPage, workflow] = await current;
   const runs = [...workflow.workflow_runs].sort((a, b) => b.id - a.id);
   const issues = new Map(
     issuePage
@@ -282,6 +280,8 @@ export async function getReport(
       });
     }),
   );
+  // Current-work lookups do not need publication history until attribution.
+  const [releasePage, tagResult] = await Promise.all([history, tagsTask]);
   const tags = tagResult?.tags ?? [];
   if (tagResult?.dateLookupFailed) warnings.add('태그 커밋 시각');
   const tagCommits = new Map(tags.map((tag) => [tag.name, tag.sha]));

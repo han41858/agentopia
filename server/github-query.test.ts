@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { withCachedHistory } from '../src/snapshot.ts';
 import type { Report } from './model.ts';
+import { getReport } from './github-report.ts';
 import { githubGet } from './github-query.ts';
 import { githubResponse } from './github.ts';
 import { nextRefreshInterval, refreshDue } from '../src/refresh.ts';
@@ -437,3 +438,156 @@ test('anonymous ancestry starts at the most recently published tag even if it is
     ),
   );
 });
+
+for (const mode of ['public', 'authenticated'] as const) {
+  test(`${mode}: work lookups run while tags are held`, async (context) => {
+    const slug = `example/overlap-${mode}`;
+    const repo = `https://github.com/${slug}`;
+    const mergedAt = '2026-11-01T00:00:00Z';
+    const publishedAt = '2026-11-02T00:00:00Z';
+    const releaseUrl = `${repo}/releases/tag/v1`;
+    const paths: string[] = [];
+    let releaseTags!: () => void;
+    const tagGate = new Promise<void>((resolve) => {
+      releaseTags = resolve;
+    });
+    const parent = {
+      number: 1,
+      title: 'Parent issue',
+      body: '',
+      state: 'closed',
+      state_reason: 'completed',
+      html_url: `${repo}/issues/1`,
+      updated_at: mergedAt,
+      closed_at: mergedAt,
+      comments: 1,
+      labels: [],
+      sub_issues_summary: { total: 1, completed: 0 },
+    };
+    const child = {
+      number: 2,
+      title: 'Open child issue',
+      body: '',
+      state: 'open',
+      html_url: `${repo}/issues/2`,
+      updated_at: mergedAt,
+      comments: 0,
+      labels: [],
+    };
+    context.mock.method(
+      globalThis,
+      'fetch',
+      async (input: string, options: RequestInit) => {
+        const path = new URL(input).pathname.replace(`/repos/${slug}`, '');
+        if (path === '/graphql') {
+          if (String(options.body).includes('refs/tags/')) {
+            paths.push('GraphQL tags');
+            await tagGate;
+            return Response.json({
+              data: {
+                repository: {
+                  refs: {
+                    nodes: [
+                      {
+                        name: 'v1',
+                        target: { oid: 'merged', committedDate: mergedAt },
+                      },
+                    ],
+                  },
+                  releases: { nodes: [] },
+                },
+              },
+            });
+          }
+          paths.push('GraphQL links');
+          return Response.json({
+            data: { repository: { pullRequests: { nodes: [] } } },
+          });
+        }
+        paths.push(path);
+        switch (path) {
+          case '/tags':
+            await tagGate;
+            return Response.json([{ name: 'v1', commit: { sha: 'merged' } }]);
+          case '/releases':
+            return Response.json([
+              {
+                tag_name: 'v1',
+                html_url: releaseUrl,
+                published_at: publishedAt,
+                draft: false,
+                prerelease: false,
+              },
+            ]);
+          case '/commits':
+            return Response.json([
+              { sha: 'merged', commit: { committer: { date: mergedAt } } },
+            ]);
+          case '/issues':
+            return Response.json([parent]);
+          case '/issues/1/sub_issues':
+            return Response.json([child]);
+          case '/issues/comments':
+            return Response.json([]);
+          case '/actions/runs':
+            return Response.json({ workflow_runs: [] });
+          case '/pulls':
+            return Response.json([
+              {
+                number: 3,
+                title: 'Merged change',
+                body: 'Closes #1',
+                html_url: `${repo}/pull/3`,
+                state: 'closed',
+                head: { sha: 'head', ref: 'topic' },
+                merged_at: mergedAt,
+                updated_at: mergedAt,
+                merge_commit_sha: 'merged',
+              },
+            ]);
+          case '/pulls/3/commits':
+            return Response.json([{ sha: 'head' }]);
+          default:
+            assert.fail(`Unexpected GitHub request: ${input}`);
+        }
+      },
+    );
+
+    const token = mode === 'authenticated' ? 'fixture-token' : undefined;
+    const pending = getReport({ slug }, token);
+    // Drain the fixed-response work without measuring elapsed time. The gate
+    // stays closed even if a regression prevents any follow-up from starting.
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    const beforeTags = [...paths];
+    releaseTags();
+    const report = await pending;
+
+    const expectedBeforeTags = [
+      '/actions/runs',
+      '/issues',
+      '/issues/1/sub_issues',
+      '/issues/comments',
+      '/pulls',
+      '/releases',
+      ...(token
+        ? ['GraphQL tags', 'GraphQL links']
+        : ['/tags', '/pulls/3/commits']),
+    ];
+    assert.deepEqual(beforeTags.sort(), expectedBeforeTags.toSorted());
+    assert.deepEqual(
+      paths.sort(),
+      [...expectedBeforeTags, ...(token ? [] : ['/commits'])].sort(),
+    );
+    assert.deepEqual(report.warnings, []);
+    assert.deepEqual(report.tags, [{ name: 'v1', committedAt: mergedAt }]);
+    assert.equal(report.releases[0]?.sha, 'merged');
+    const quest = report.quests.find(({ number }) => number === 1);
+    assert.equal(quest?.state, 'closed');
+    assert.equal(quest?.pulls[0]?.mergeSha, 'merged');
+    assert.equal(quest?.evidence?.url, releaseUrl);
+    assert.equal(
+      report.quests.find(({ number }) => number === 2)?.state,
+      'open',
+    );
+  });
+}
