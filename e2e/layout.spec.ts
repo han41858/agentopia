@@ -702,7 +702,7 @@ for (const width of [1280, 390]) {
             const switched = await measure();
             console.log(
               `모드 전환 후 범례 위치 (px): ${JSON.stringify({
-                width,
+                viewportWidth: width,
                 mode: nextMode,
                 ...switched,
               })}`,
