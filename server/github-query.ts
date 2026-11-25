@@ -3,9 +3,10 @@ import {
   recordCoreUsage,
   recordRefreshResponse,
 } from './github-debug.ts';
+import { reportCachePath, refreshCache } from './refresh-cache.ts';
 import { createHash } from 'node:crypto';
 
-type QueryResponse = {
+export type QueryResponse = {
   body: unknown;
   next: boolean;
   link: string | null;
@@ -89,22 +90,31 @@ export async function githubGet(
   const scope = credentialScope(token);
   const key = `${branchProbe ? 'branch-probe:' : ''}${scope}:${url}`;
   const now = Date.now();
-  const entry = token ? undefined : cached.get(key);
+  const session = token ? refreshCache.getStore() : undefined;
+  const resource = session && reportCachePath(requestUrl, repo);
+  const entry = resource
+    ? session.previous[resource]
+    : token
+      ? undefined
+      : cached.get(key);
   const previous =
     entry && now - entry.checkedAt < retention ? entry : undefined;
   if (previous && now - previous.checkedAt < ttl) {
+    if (session && resource) session.next[resource] = previous;
     observeGitHub(repo, endpoint, 'hit');
     return previous;
   }
 
-  const inFlight = pending.get(key);
+  const requests = session?.pending ?? pending;
+  const inFlight = requests.get(key);
   if (inFlight) {
     observeGitHub(repo, endpoint, 'coalesced');
     return inFlight;
   }
 
   const load = async () => {
-    if (previous?.etag) headers['If-None-Match'] = previous.etag;
+    if (previous?.etag && previous.etag.length <= 512)
+      headers['If-None-Match'] = previous.etag;
     observeGitHub(
       repo,
       endpoint,
@@ -112,17 +122,25 @@ export async function githubGet(
       undefined,
       Number(requestUrl.searchParams.get('page')) > 1,
     );
-    const response = await fetch(url, {
-      headers,
-      redirect: branchProbe ? 'manual' : 'error',
-      signal: AbortSignal.timeout(9000),
-    }).catch((error) => {
-      recordRefreshResponse(undefined, Boolean(token));
-      throw error;
-    });
-    recordRefreshResponse(response, Boolean(token));
-    recordCoreUsage(scope, response.headers);
-    observeGitHub(repo, endpoint, 'response', response.status);
+    const send = async () => {
+      const response = await fetch(url, {
+        headers,
+        redirect: branchProbe ? 'manual' : 'error',
+        signal: AbortSignal.timeout(9000),
+      }).catch((error) => {
+        recordRefreshResponse(undefined, Boolean(token));
+        throw error;
+      });
+      recordRefreshResponse(response, Boolean(token));
+      recordCoreUsage(scope, response.headers);
+      observeGitHub(repo, endpoint, 'response', response.status);
+      return response;
+    };
+    let response = await send();
+    if (response.status === 304 && !previous) {
+      observeGitHub(repo, endpoint, 'request');
+      response = await send();
+    }
     let result: QueryResponse;
     if (response.status === 304 && previous) {
       result = { ...previous, checkedAt: Date.now() };
@@ -130,7 +148,23 @@ export async function githubGet(
       // GitHub returns 301 for the old name of a renamed branch.
       const missing =
         branchProbe && (response.status === 301 || response.status === 404);
-      if (!missing) await check(response);
+      if (!missing) {
+        try {
+          await check(response);
+        } catch (error) {
+          if (
+            session &&
+            resource &&
+            error instanceof Error &&
+            (response.status === 401 ||
+              (response.status === 403 &&
+                !('rateLimited' in error && error.rateLimited)) ||
+              (response.status === 404 && !/^\/issues\/\d/.test(resource)))
+          )
+            session.denied = error;
+          throw error;
+        }
+      }
       result = {
         body: missing ? null : await response.json(),
         etag: missing ? null : response.headers.get('etag'),
@@ -139,6 +173,8 @@ export async function githubGet(
         checkedAt: Date.now(),
       };
     }
+    if (session && resource && (result.etag || ttl > 0))
+      session.next[resource] = result;
     if (!token) {
       if (!cached.has(key) && cached.size >= 512)
         cached.delete(cached.keys().next().value!);
@@ -147,10 +183,10 @@ export async function githubGet(
     return result;
   };
   const work = load();
-  pending.set(key, work);
+  requests.set(key, work);
   try {
     return await work;
   } finally {
-    if (pending.get(key) === work) pending.delete(key);
+    if (requests.get(key) === work) requests.delete(key);
   }
 }

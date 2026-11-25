@@ -82,14 +82,16 @@ export const KingdomRegion = memo(function KingdomRegion({
     >
       <div className="kingdom-area">
         <KingdomWall />
-        <HeritageArc
-          slug={region.slug}
-          name={region.name}
-          token={token}
-          load={requestHeritage}
-          onLoad={onHeritageLoad}
-          open={(metric, record) => openHeritage({ region, metric, record })}
-        />
+        {!snapshot?.accessDenied && (
+          <HeritageArc
+            slug={region.slug}
+            name={region.name}
+            token={token}
+            load={requestHeritage}
+            onLoad={onHeritageLoad}
+            open={(metric, record) => openHeritage({ region, metric, record })}
+          />
+        )}
         <button
           className="kingdom"
           data-road-palace=""
