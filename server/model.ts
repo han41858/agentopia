@@ -1046,8 +1046,17 @@ export function makeQuests(
         : undefined;
     let detail = state?.detail;
     const outcome = run && runStage(run);
+    const review = state?.reviews?.findLast(
+      (item) => item.head === (pull?.head.sha ?? state.head),
+    )?.result?.status;
+    const approvedForCompletion =
+      matchingRun &&
+      state?.status === 'ready' &&
+      recordedPull &&
+      review === 'pass';
     if (
       run &&
+      !(outcome === 'failed' && approvedForCompletion) &&
       (outcome === 'failed' || outcome === 'attention') &&
       state?.status !== 'needs_human' &&
       stage !== 'complete'
@@ -1067,9 +1076,6 @@ export function makeQuests(
       stage = outcome;
       evidence = runSource(run);
     }
-    const review = state?.reviews?.findLast(
-      (item) => item.head === (pull?.head.sha ?? state.head),
-    )?.result?.status;
     if (
       ci &&
       (stage === 'ci' ||

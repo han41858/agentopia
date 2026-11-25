@@ -97,6 +97,8 @@ jobs:
     needs: develop
     if: needs.develop.outputs.ready == 'true'
     uses: ./.github/workflows/ai-completion.yml
+    secrets:
+      AI_AUTOMATION_TOKEN: ${{ secrets.AI_AUTOMATION_TOKEN }}
     permissions:
       contents: read
       actions: write
