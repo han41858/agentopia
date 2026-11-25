@@ -86,7 +86,6 @@ export async function getReport(
     );
   const history = authenticatedHistory
     ? authenticatedHistory.then((result) => {
-        if (!result || result.releasesFailed) warnings.add('릴리스');
         if (result?.tagsFailed) warnings.add('태그');
         if (result && !result.releasesFailed && !result.releasesTruncated)
           return result.releases;

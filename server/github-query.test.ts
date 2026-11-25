@@ -494,7 +494,12 @@ test('authenticated history falls back to the REST window when creation order tr
   assert.equal(rest, 1);
 });
 
-for (const failure of ['refs', 'releases', 'permission'] as const) {
+for (const failure of [
+  'refs',
+  'releases',
+  'recovered',
+  'permission',
+] as const) {
   test(`authenticated history retains available rows after ${failure} failure`, async (context) => {
     const slug = `example/history-${failure}`;
     const url = `https://github.com/${slug}/releases/tag/v1`;
@@ -506,7 +511,16 @@ for (const failure of ['refs', 'releases', 'permission'] as const) {
         if (failure === 'permission')
           return new Response(null, { status: 403 });
         return Response.json({
-          errors: [{ path: ['repository', failure, 'nodes', 1] }],
+          errors: [
+            {
+              path: [
+                'repository',
+                failure === 'recovered' ? 'releases' : failure,
+                'nodes',
+                1,
+              ],
+            },
+          ],
           data: {
             repository: {
               refs: {
@@ -528,7 +542,9 @@ for (const failure of ['refs', 'releases', 'permission'] as const) {
                     publishedAt: at,
                     tagCommit: { oid: 'released' },
                   },
-                  ...(failure === 'releases' ? [null] : []),
+                  ...(failure === 'releases' || failure === 'recovered'
+                    ? [null]
+                    : []),
                 ],
                 pageInfo: { hasNextPage: false },
               },
@@ -550,9 +566,9 @@ for (const failure of ['refs', 'releases', 'permission'] as const) {
     const report = await getReport({ slug, name: slug }, 'fixture-token');
     assert.deepEqual(
       report.warnings,
-      failure === 'permission'
-        ? ['릴리스', '태그']
-        : [failure === 'refs' ? '태그' : '릴리스'],
+      failure === 'recovered'
+        ? []
+        : [failure === 'releases' ? '릴리스' : '태그'],
     );
     assert.deepEqual(
       report.tags,
