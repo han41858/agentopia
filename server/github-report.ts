@@ -26,21 +26,14 @@ import {
   GitHubError,
   client,
 } from './github-client.ts';
-import { readTags } from './github-tags.ts';
+import { readAuthenticatedHistory, readTags } from './github-tags.ts';
+import type { GitHubRelease } from './github-tags.ts';
 import { nativePullLinks } from './github-pull-links.ts';
 
 export const publicReports = new Map<
   string,
   { requestedAt: number; pending: boolean; value: Promise<Report> }
 >();
-
-type GitHubRelease = {
-  tag_name: string;
-  html_url: string;
-  draft: boolean;
-  prerelease: boolean;
-  published_at: string | null;
-};
 
 export const pageSize = 50;
 
@@ -81,13 +74,29 @@ export async function getReport(
     }
   }
 
-  const history = includeHistory
-    ? optional(
-        '릴리스',
-        get<GitHubRelease[]>('/releases?per_page=30', undefined, 45_000),
-        [],
-      )
-    : Promise.resolve([]);
+  const authenticatedHistory =
+    includeHistory && token
+      ? optional('태그', readAuthenticatedHistory(region, token), undefined)
+      : undefined;
+  const restReleases = (fallback: GitHubRelease[] = []) =>
+    optional(
+      '릴리스',
+      get<GitHubRelease[]>('/releases?per_page=30', undefined, 45_000),
+      fallback,
+    );
+  const history = authenticatedHistory
+    ? authenticatedHistory.then((result) => {
+        if (!result || result.releasesFailed) warnings.add('릴리스');
+        if (result?.tagsFailed) warnings.add('태그');
+        if (result && !result.releasesFailed && !result.releasesTruncated)
+          return result.releases;
+        // Preserve the REST window when the creation-ordered page is cut off.
+        // An older draft may have been published more recently than this page.
+        return restReleases(result?.releases);
+      })
+    : includeHistory
+      ? restReleases()
+      : Promise.resolve([]);
   const latestPublishedTag = history.then(
     (rows) =>
       rows
@@ -114,13 +123,11 @@ export async function getReport(
       { workflow_runs: [] },
     ),
   ]);
-  const tagsTask = includeHistory
-    ? optional(
-        '태그',
-        readTags(region, token, force, latestPublishedTag),
-        undefined,
-      )
-    : undefined;
+  const tagsTask =
+    authenticatedHistory ??
+    (includeHistory
+      ? optional('태그', readTags(region, force, latestPublishedTag), undefined)
+      : undefined);
   const [issuePage, pullPage, workflow] = await current;
   const runs = [...workflow.workflow_runs].sort((a, b) => b.id - a.id);
   const issues = new Map(

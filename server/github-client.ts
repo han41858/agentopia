@@ -87,6 +87,9 @@ export function client(
   };
 }
 
+type GraphqlError = { type?: string; path?: (string | number)[] };
+type GraphqlResult<T> = { errors?: GraphqlError[]; data?: T | null };
+
 export const pendingGraphql = new Map<string, Promise<unknown>>();
 
 export async function githubGraphql<T>(
@@ -94,6 +97,17 @@ export async function githubGraphql<T>(
   variables: Record<string, string | null>,
   token: string,
   operation = variables.name ? 'pull-activity' : 'repositories',
+) {
+  return requireGraphqlData(
+    await githubGraphqlResult<T>(query, variables, token, operation),
+  );
+}
+
+export async function githubGraphqlResult<T>(
+  query: string,
+  variables: Record<string, string | null>,
+  token: string,
+  operation: string,
 ) {
   const repo =
     variables.owner && variables.name
@@ -104,9 +118,9 @@ export async function githubGraphql<T>(
   const pending = pendingGraphql.get(key);
   if (pending) {
     observeGitHub(repo, endpoint, 'coalesced');
-    return pending as Promise<T>;
+    return pending as Promise<GraphqlResult<T>>;
   }
-  const work = fetchGraphql<T>(query, variables, token, repo, endpoint);
+  const work = fetchGraphqlResult<T>(query, variables, token, repo, endpoint);
   pendingGraphql.set(key, work);
   try {
     return await work;
@@ -116,6 +130,18 @@ export async function githubGraphql<T>(
 }
 
 export async function fetchGraphql<T>(
+  query: string,
+  variables: Record<string, string | null>,
+  token: string,
+  repo: string,
+  endpoint: string,
+) {
+  return requireGraphqlData(
+    await fetchGraphqlResult<T>(query, variables, token, repo, endpoint),
+  );
+}
+
+async function fetchGraphqlResult<T>(
   query: string,
   variables: Record<string, string | null>,
   token: string,
@@ -142,10 +168,10 @@ export async function fetchGraphql<T>(
   });
   observeGitHub(repo, endpoint, 'response', response.status);
   if (!response.ok) throw new GitHubError(response.status);
-  const body = (await response.json()) as {
-    errors?: { type?: string }[];
-    data?: T;
-  };
+  return (await response.json()) as GraphqlResult<T>;
+}
+
+function requireGraphqlData<T>(body: GraphqlResult<T>) {
   if (body.errors?.length)
     throw new GitHubError(
       body.errors.some(({ type }) => type === 'NOT_FOUND') ? 404 : 403,

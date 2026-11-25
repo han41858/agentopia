@@ -1,51 +1,112 @@
-import { client, githubGraphql, GitHubError } from './github-client.ts';
+import { client, githubGraphqlResult, GitHubError } from './github-client.ts';
 import type { Region } from './model.ts';
 
 type TagRecord = { name: string; sha?: string; committedAt?: string };
-type Target = { oid: string; committedDate?: string; target?: Target };
+type Target = { oid?: string; committedDate?: string; target?: Target | null };
+
+export type GitHubRelease = {
+  tag_name: string;
+  html_url: string;
+  draft: boolean;
+  prerelease: boolean;
+  published_at: string | null;
+};
+
+type ReleaseNode = {
+  tagName: string;
+  url?: string | null;
+  isDraft?: boolean | null;
+  isPrerelease?: boolean | null;
+  publishedAt?: string | null;
+  tagCommit?: { oid: string } | null;
+};
+
+type TagNode = { name: string; target: Target | null };
+
+export async function readAuthenticatedHistory(region: Region, token: string) {
+  const [owner, name] = region.slug.split('/');
+  const { data, errors } = await githubGraphqlResult<{
+    repository: {
+      refs: { nodes: (TagNode | null)[] | null } | null;
+      releases: {
+        nodes: (ReleaseNode | null)[] | null;
+        pageInfo: { hasNextPage: boolean } | null;
+      } | null;
+    } | null;
+  }>(
+    `query($owner: String!, $name: String!) {
+      repository(owner: $owner, name: $name) {
+        refs(refPrefix: "refs/tags/", first: 30, orderBy: {field: TAG_COMMIT_DATE, direction: DESC}) {
+          nodes { name target { ... on Commit { oid committedDate } ... on Tag { target { ... on Commit { oid committedDate } } } } }
+        }
+        releases(first: 30, orderBy: {field: CREATED_AT, direction: DESC}) {
+          nodes { tagName url isDraft isPrerelease publishedAt tagCommit { oid } }
+          pageInfo { hasNextPage }
+        }
+      }
+    }`,
+    { owner, name },
+    token,
+    'tags',
+  );
+  const refs = data?.repository?.refs?.nodes;
+  const connection = data?.repository?.releases;
+  const hasNextPage = connection?.pageInfo?.hasNextPage;
+  const affected = (field: string) =>
+    errors?.some(({ path }) => !path?.[1] || path[1] === field);
+  const tagsFailed =
+    !refs || refs.some((node) => node === null) || Boolean(affected('refs'));
+  const tags: TagRecord[] = (refs ?? []).flatMap((node) => {
+    if (!node) return [];
+    const commit = node.target?.target ?? node.target;
+    return [
+      { name: node.name, sha: commit?.oid, committedAt: commit?.committedDate },
+    ];
+  });
+  const releases: GitHubRelease[] = [];
+  const releaseCommits = new Map<string, string>();
+  let releasesFailed =
+    !connection?.nodes ||
+    typeof hasNextPage !== 'boolean' ||
+    Boolean(affected('releases'));
+  for (const node of connection?.nodes ?? []) {
+    if (node?.tagName && node.tagCommit?.oid)
+      releaseCommits.set(node.tagName, node.tagCommit.oid);
+    if (
+      !node?.tagName ||
+      !node.url ||
+      typeof node.isDraft !== 'boolean' ||
+      typeof node.isPrerelease !== 'boolean' ||
+      node.publishedAt === undefined
+    ) {
+      releasesFailed = true;
+      continue;
+    }
+    releases.push({
+      tag_name: node.tagName,
+      html_url: node.url,
+      draft: node.isDraft,
+      prerelease: node.isPrerelease,
+      published_at: node.publishedAt,
+    });
+  }
+  return {
+    tags,
+    releases,
+    releaseCommits,
+    tagsFailed,
+    releasesFailed,
+    releasesTruncated: hasNextPage === true,
+    partial: false,
+    dateLookupFailed: false,
+  };
+}
 
 export async function readTags(
   region: Region,
-  token: string | undefined,
   force: boolean,
   latestPublishedTag: Promise<string | undefined>,
 ) {
-  if (token) {
-    const [owner, name] = region.slug.split('/');
-    const { repository } = await githubGraphql<{
-      repository: {
-        refs: { nodes: { name: string; target: Target }[] };
-        releases: {
-          nodes: { tagName: string; tagCommit: { oid: string } | null }[];
-        };
-      };
-    }>(
-      `query($owner: String!, $name: String!) {
-        repository(owner: $owner, name: $name) {
-          refs(refPrefix: "refs/tags/", first: 30, orderBy: {field: TAG_COMMIT_DATE, direction: DESC}) {
-            nodes { name target { ... on Commit { oid committedDate } ... on Tag { target { ... on Commit { oid committedDate } } } } }
-          }
-          releases(first: 30, orderBy: {field: CREATED_AT, direction: DESC}) { nodes { tagName tagCommit { oid } } }
-        }
-      }`,
-      { owner, name },
-      token,
-      'tags',
-    );
-    const tags: TagRecord[] = repository.refs.nodes.map(({ name, target }) => {
-      const commit = target.target ?? target;
-      return { name, sha: commit.oid, committedAt: commit.committedDate };
-    });
-    const releaseCommits = new Map(
-      repository.releases.nodes.flatMap((release) =>
-        release.tagCommit
-          ? [[release.tagName, release.tagCommit.oid] as const]
-          : [],
-      ),
-    );
-    return { tags, releaseCommits, partial: false, dateLookupFailed: false };
-  }
-
   let partial = false;
   const page = await client(region, undefined, force)<
     { name: string; commit: { sha: string } }[]
