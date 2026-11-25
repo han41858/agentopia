@@ -90,6 +90,20 @@ export type RecoveryBadge = {
   limit?: number;
 };
 
+export type SubIssue = {
+  number: number;
+  title: string;
+  url: string;
+  state: Issue['state'];
+  stateReason?: Issue['state_reason'];
+};
+
+export type SubIssueList = {
+  items: SubIssue[];
+  // Omitted only when the full direct-child list is known.
+  nextPage?: number;
+};
+
 export type Quest = {
   number: number;
   title: string;
@@ -112,6 +126,7 @@ export type Quest = {
   workReviewer?: Agent;
   issueComments?: number;
   subIssueCount?: number;
+  subIssues?: SubIssueList;
   parent?: number;
   reason?: string;
   detail?: string;

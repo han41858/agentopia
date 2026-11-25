@@ -1,6 +1,6 @@
 import type { Locator } from '@playwright/test';
 import { makeQuests, repositoryRegion } from '../server/model.ts';
-import type { Comment, Run } from '../server/model.ts';
+import type { Comment, Run, SubIssue, SubIssueList } from '../server/model.ts';
 import { alpha, alphaReport } from './fixtures.ts';
 import { mockGitHub, openWorld, seedSettings, settled } from './github.ts';
 import { expect, test } from './test.ts';
@@ -416,6 +416,157 @@ test.describe('상세 창', () => {
     await dialog.getByRole('button', { name: '닫기' }).click();
     await expect(dialog).toBeHidden();
   });
+
+  const issueUrl = (number: number) =>
+    `https://github.com/${alpha}/issues/${number}`;
+  const child = (
+    number: number,
+    state: string,
+    stateReason?: string,
+  ): SubIssue => ({
+    number,
+    title: `하위 작업 ${number}`,
+    url: issueUrl(number),
+    state,
+    stateReason,
+  });
+  const done = [200, 201, 202, 203].map((number) =>
+    child(number, 'closed', 'completed'),
+  );
+  const open = child(201, 'open');
+  const notPlanned = child(202, 'closed', 'not_planned');
+  const unknown = child(203, 'closed', nullReason());
+
+  function nullReason() {
+    return undefined;
+  }
+
+  const subIssueCases: {
+    name: string;
+    initial: SubIssueList;
+    remaining?: SubIssueList;
+    heading?: string;
+    statuses: string[];
+    mobile?: boolean;
+    mode?: 'world' | 'simple';
+  }[] = [
+    {
+      name: '#199의 완료된 자식 네 개를 모두 연결한다',
+      initial: { items: done },
+      heading: '서브 이슈 · 4/4 완료',
+      statuses: ['완료', '완료', '완료', '완료'],
+      mobile: true,
+    },
+    {
+      name: '간단 모드에서 #199의 완료된 자식 네 개를 모두 연결한다',
+      initial: { items: done },
+      heading: '서브 이슈 · 4/4 완료',
+      statuses: ['완료', '완료', '완료', '완료'],
+      mobile: true,
+      mode: 'simple',
+    },
+    {
+      name: '팝업을 열 때 나머지를 조회하고 종료 사유를 구분한다',
+      initial: { items: [done[0]!], nextPage: 2 },
+      remaining: { items: [open, notPlanned, unknown] },
+      heading: '서브 이슈 · 1/4 완료',
+      statuses: ['완료', '열림', '계획 없음', '닫힘 · 종료 사유 미확인'],
+    },
+    {
+      name: '자식이 없는 것으로 확인되면 섹션을 생략한다',
+      initial: { items: [] },
+      statuses: [],
+    },
+    {
+      name: '부분 조회에서는 기존 링크와 새로 확보한 링크를 유지한다',
+      initial: { items: [done[0]!], nextPage: 2 },
+      remaining: { items: [open], nextPage: 3 },
+      heading: '서브 이슈',
+      statuses: ['완료', '열림'],
+    },
+  ];
+
+  for (const fixture of subIssueCases) {
+    test(`서브 이슈: ${fixture.name}`, async ({ page }) => {
+      await mockGitHub(page);
+      const mode = fixture.mode ?? 'world';
+      await seedSettings(page, [alpha], mode);
+      const report = structuredClone(alphaReport);
+      const parent = report.quests.find(({ number }) => number === 1)!;
+      const items = [
+        ...fixture.initial.items,
+        ...(fixture.remaining?.items ?? []),
+      ];
+      report.quests = [
+        {
+          ...parent,
+          number: 199,
+          url: issueUrl(199),
+          subIssueCount: fixture.remaining?.nextPage ? 4 : items.length,
+          subIssues: fixture.initial,
+        },
+      ];
+      const lookups: Record<string, string>[] = [];
+      await page.route('**/api/github?**', async (route) => {
+        const params = new URL(route.request().url()).searchParams;
+        if (params.get('repo') !== alpha) return route.fallback();
+        if (params.has('subIssues')) {
+          lookups.push(Object.fromEntries(params));
+          return route.fulfill({
+            json: fixture.remaining ?? { items: [], nextPage: 1 },
+          });
+        }
+        if (
+          ['summary', 'activity', 'heritage', 'repository', 'reviews'].some(
+            (key) => params.has(key),
+          )
+        )
+          return route.fallback();
+        await route.fulfill({ json: report });
+      });
+
+      await page.goto('/');
+      await settled(page);
+      await expect(
+        page.getByRole('button', { name: '간단 모드' }),
+      ).toHaveAttribute('aria-pressed', String(mode === 'simple'));
+      expect(lookups).toEqual([]);
+      await page.getByRole('button', { name: /^이슈 #199 / }).click();
+      const dialog = page.getByRole('dialog', { name: '이슈 #199' });
+      await expect(dialog).toBeVisible();
+      const section = dialog.getByRole('region', { name: '서브 이슈' });
+      if (fixture.heading) {
+        if (fixture.mobile)
+          await page.setViewportSize({ width: 390, height: 844 });
+        await expect(
+          section.getByRole('heading', { name: fixture.heading, exact: true }),
+        ).toBeVisible();
+        if (fixture.remaining?.nextPage)
+          await expect(section.getByRole('status')).toHaveText(
+            '서브 이슈를 일부만 확인했습니다.',
+          );
+        await expect(section.getByRole('link')).toHaveCount(items.length);
+        for (const [index, item] of items.entries()) {
+          const link = section.getByRole('link', {
+            name: new RegExp(`#${item.number} · ${item.title}$`),
+          });
+          await expect(link).toHaveAttribute('href', item.url);
+          await expect(
+            link.getByRole('img', {
+              name: fixture.statuses[index],
+              exact: true,
+            }),
+          ).toBeVisible();
+          if (fixture.mobile) await link.click({ trial: true });
+        }
+      } else {
+        await expect(section).toHaveCount(0);
+      }
+      expect(lookups).toEqual(
+        fixture.remaining ? [{ repo: alpha, subIssues: '199', page: '2' }] : [],
+      );
+    });
+  }
 
   test('몬스터: PR별로 기록을 열고 근거와 실행 링크를 중복 표시하지 않는다', async ({
     page,
