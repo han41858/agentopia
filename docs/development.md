@@ -76,6 +76,13 @@ GitHub Releases에는 이 워크플로가 발행한 최신 성공 릴리스 하�
 
 상태 댓글은 `schemaVersion`, 실행/이슈 번호, 단계와 사유, 게시 후 HEAD를 포함합니다. `ready`는 현재 HEAD의 독립 리뷰 승인과 CI 대기, `recovering`은 기준 변경 복구입니다. `revising`에서 복구 예약이 `development` 또는 `format`이면 실행 사유와 실패한 CI를 함께 확인합니다. 명시적 중단과 수동 변경은 사유가 있는 `needs_human`으로 기록합니다. 최종 머지와 해결 여부는 GitHub PR과 이슈의 실제 상태로 확인합니다.
 
+PR 복구 상태를 소비할 때는 다음 필드를 대조합니다.
+
+- `issue`, `pullNumber`, `head`는 작업 대상이고, `runId`와 `attempt`는 상태를 작성한 **개발 실행**입니다. 실패한 CI는 같은 저장소의 PR과 HEAD에 연결된 CI 실행에서 별도로 확인합니다.
+- `recovery.ciRepairs`는 일반 CI 수정에 사용한 시도 수입니다. 포맷 전용 시도는 `recovery.formatRepair`로 따로 기록합니다. 두 값은 이후 단계에도 남을 수 있습니다. `recovery.pending`은 현재 예약된 작업이며 일반 리뷰 수정 때도 `development`가 될 수 있습니다.
+- CI 수정 커밋을 게시하면 `recovery.ciReviewHead`에 새 SHA를 기록합니다. 후속 HEAD의 CI를 확인할 때 이 값과 실제 PR HEAD를 대조합니다. 시도를 예약한 시점에는 아직 새 SHA가 없습니다.
+- `status: needs_human`은 사람 확인 요청이며 `reason`에 사유가 있습니다. `failed`는 개별 실행 실패를 포함합니다. 시도 수나 실패한 이전 실행만으로 최종 중단을 확정하지 않습니다. 현재 체크포인트에는 모든 단계에 걸친 원본 실패 CI 실행 ID와 총 시도 한도가 항상 제공되지는 않습니다.
+
 개발·리뷰는 각각 대화당 최대 15턴이며 이슈당 모델 대화는 누적 20회입니다. 수동 재개도 같은 한도를 사용하며, 소진하면 담당자가 기존 PR을 이어서 처리합니다. 기존 체크포인트는 이 필드가 처음 기록되는 시점부터 누적합니다. 개발의 `in_progress`는 같은 대화에서 이어가고 최종 편집안만 게시합니다. `needs_human` 사유가 `progress` 같은 중간 점검 문구뿐이면 설명만 한 번 요청합니다.
 
 ### 병렬 작업 중 기준 브랜치 갱신
