@@ -1157,9 +1157,13 @@ svg {
   position: relative;
   display: grid;
 }
+.monster-marker[data-recovery] > .monster-marker-art {
+  /* Leave room for the badge while keeping the sprite centered. */
+  padding-inline: 16px;
+}
 .monster-recovery {
   inset-block-start: 0;
-  inset-inline-start: 100%;
+  inset-inline-end: 0;
 }
 [data-recovery='stopped'] :is(.facility-recovery, .monster-recovery) {
   color: #ffd4ce;
