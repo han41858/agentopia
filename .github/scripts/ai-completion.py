@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import re
 import subprocess
+import sys
 import time
 
 REPO = "han41858/agentopia"
@@ -291,6 +292,13 @@ def complete(issue, run_id):
     print(f"PR #{number} merged, issue #{issue} completed.")
 
 
+def report_interruption(issue, run_id):
+    state = ready_state(issue)
+    if state and state["runId"] == run_id and state.get("pullNumber") and eligible(issue, state.get("developer", "codex")):
+        record_event(issue, state, state["pullNumber"], f"resume-completion:{run_id}:{state['head']}",
+                     "리뷰 통과 · 완료 단계 재개 필요. AI completion에서 이슈 번호로 재개하세요.", status="ready")
+
+
 def main():
     run = os.environ.get("AI_REVIEW_RUN")
     issue = int(os.environ["AI_ISSUE"])
@@ -312,7 +320,10 @@ def main():
 
 if __name__ == "__main__":
     try:
-        main()
+        if sys.argv[1:] == ["--report-interruption"]:
+            report_interruption(int(os.environ["AI_ISSUE"]), int(os.environ["GITHUB_RUN_ID"]))
+        else:
+            main()
     except RuntimeError as error:
         print(f"::error::{error}", flush=True)
         raise

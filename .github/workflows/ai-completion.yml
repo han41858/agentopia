@@ -1,6 +1,14 @@
 name: AI completion
 
 on:
+  workflow_call:
+    inputs:
+      issue:
+        required: true
+        type: number
+      review_run:
+        required: true
+        type: string
   workflow_dispatch:
     inputs:
       issue:
