@@ -361,6 +361,13 @@ test.describe('월드맵 배치 순서', () => {
         '같은 PR에 연결된 하위 이슈 9 → 10 → 미연결 이슈 2',
         [9, 10, 2].map((number) => issue(children, number)),
       );
+      const [parentBox] = await boxes(issue(kingdom, 20));
+      const [childrenBox] = await boxes(children);
+      const parentBottom = parentBox.y + parentBox.height;
+      expect(
+        childrenBox.y,
+        `부모 이슈 아래 묶음: 부모 하단 y=${parentBottom}, 묶음 상단 y=${childrenBox.y}`,
+      ).toBeGreaterThanOrEqual(parentBottom);
     }
 
     await expect(failure).toBeVisible();

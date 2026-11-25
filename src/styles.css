@@ -314,10 +314,12 @@ svg {
 .expeditions > .guild-branch,
 .guild-parties > .guild-branch {
   display: flex;
-  flex-wrap: wrap;
-  align-items: flex-start;
-  justify-content: center;
-  column-gap: 3px;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+}
+.guild-branch > .expedition {
+  width: auto;
 }
 .guild-parties {
   margin: 0;
