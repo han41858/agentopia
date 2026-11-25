@@ -448,6 +448,7 @@ test.describe('상세 창', () => {
     heading?: string;
     statuses: string[];
     mobile?: boolean;
+    mode?: 'world' | 'simple';
   }[] = [
     {
       name: '#199의 완료된 자식 네 개를 모두 연결한다',
@@ -455,6 +456,14 @@ test.describe('상세 창', () => {
       heading: '서브 이슈 · 4/4 완료',
       statuses: ['완료', '완료', '완료', '완료'],
       mobile: true,
+    },
+    {
+      name: '간단 모드에서 #199의 완료된 자식 네 개를 모두 연결한다',
+      initial: { items: done },
+      heading: '서브 이슈 · 4/4 완료',
+      statuses: ['완료', '완료', '완료', '완료'],
+      mobile: true,
+      mode: 'simple',
     },
     {
       name: '팝업을 열 때 나머지를 조회하고 종료 사유를 구분한다',
@@ -480,7 +489,8 @@ test.describe('상세 창', () => {
   for (const fixture of subIssueCases) {
     test(`서브 이슈: ${fixture.name}`, async ({ page }) => {
       await mockGitHub(page);
-      await seedSettings(page, [alpha]);
+      const mode = fixture.mode ?? 'world';
+      await seedSettings(page, [alpha], mode);
       const report = structuredClone(alphaReport);
       const parent = report.quests.find(({ number }) => number === 1)!;
       const items = [
@@ -517,6 +527,9 @@ test.describe('상세 창', () => {
 
       await page.goto('/');
       await settled(page);
+      await expect(
+        page.getByRole('button', { name: '간단 모드' }),
+      ).toHaveAttribute('aria-pressed', String(mode === 'simple'));
       expect(lookups).toEqual([]);
       await page.getByRole('button', { name: /^이슈 #199 / }).click();
       const dialog = page.getByRole('dialog', { name: '이슈 #199' });
