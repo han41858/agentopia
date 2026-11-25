@@ -2,6 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
 import { appendFileSync, readFileSync } from 'node:fs';
+import { progressBody } from './journal.mjs';
 import { createModels } from './models.mjs';
 import { replayLine } from './merge-base.mjs';
 import { formatChanges, resolveEdits, snapshot } from './workspace.mjs';
@@ -309,28 +310,49 @@ async function main() {
     attempt: Number(env.GITHUB_RUN_ATTEMPT),
   };
   let comment;
+  let lastStatus;
+  let lastPullNumber;
   let phase = '실행 준비';
-  async function save(status, reason, code) {
+  async function save(status, reason, code, reviewId) {
     state.status = status;
-    const encoded = Buffer.from(
-      JSON.stringify({
-        ...state,
-        schemaVersion: 1,
-        phase,
-        status,
-        reason,
-        failureCode:
-          code ??
-          (status === 'failed'
-            ? 'execution_failed'
-            : status === 'needs_human'
-              ? recovery.pending
-                ? 'unconfirmed_operation'
-                : 'human_review_required'
-              : undefined),
-      }),
-    ).toString('base64');
-    const body = `${reason}\n\n<!-- agentopia-ai-state:${encoded} -->`;
+    const checkpointState = {
+      ...state,
+      schemaVersion: 1,
+      phase,
+      status,
+      reason,
+      failureCode:
+        code ??
+        (status === 'failed'
+          ? 'execution_failed'
+          : status === 'needs_human'
+            ? recovery.pending
+              ? 'unconfirmed_operation'
+              : 'human_review_required'
+            : undefined),
+    };
+    // Keep reservation writes durable without adding a timeline row for every model call.
+    const record =
+      !comment ||
+      state.status !== lastStatus ||
+      ['needs_human', 'failed', 'ready'].includes(status) ||
+      reviewId ||
+      state.pullNumber !== lastPullNumber;
+    const body = progressBody({
+      repository,
+      body: comment?.body,
+      previousAt: comment?.updated_at,
+      state: checkpointState,
+      event: record
+        ? {
+            key: [status, state.head, reason].join('|'),
+            text: reason,
+            reviewId,
+          }
+        : null,
+    });
+    lastStatus = status;
+    lastPullNumber = state.pullNumber;
     if (comment) {
       await repo(`/issues/comments/${comment.id}`, {
         method: 'PATCH',
@@ -342,10 +364,11 @@ async function main() {
         body: { body },
       });
     }
+    comment.body = body;
   }
 
-  async function ready(message) {
-    await save('ready', message);
+  async function ready(message, reviewId) {
+    await save('ready', message, undefined, reviewId);
     if (env.GITHUB_OUTPUT) appendFileSync(env.GITHUB_OUTPUT, 'ready=true\n');
   }
 
@@ -361,6 +384,13 @@ async function main() {
     (env.GITHUB_EVENT_NAME !== 'workflow_dispatch' ||
       (previous.data.runId === state.runId &&
         previous.data.attempt === state.attempt))
+  )
+    return;
+  if (
+    previous?.data.status === 'merged' ||
+    previous?.data.runId > state.runId ||
+    (previous?.data.runId === state.runId &&
+      previous.data.attempt > state.attempt)
   )
     return;
   if (previous) {
@@ -913,7 +943,7 @@ UI에 영향을 주는 변경은 현재 HEAD의 관련 e2e/*.spec.ts를 직접 �
           '검토한 HEAD에 리뷰 결과를 기록합니다.',
         );
         await checkBase(baseSha);
-        await repo(`/issues/${pull.number}/comments`, {
+        const postedReview = await repo(`/issues/${pull.number}/comments`, {
           method: 'POST',
           body: { body: feedback },
         });
@@ -931,6 +961,8 @@ UI에 영향을 주는 변경은 현재 HEAD의 관련 e2e/*.spec.ts를 직접 �
           await save(
             'revising',
             `PR #${pull.number}의 리뷰 수정 요청을 확인했습니다.`,
+            undefined,
+            postedReview.id,
           );
           continue;
         }
@@ -940,6 +972,7 @@ UI에 영향을 주는 변경은 현재 HEAD의 관련 e2e/*.spec.ts를 직접 �
           );
         await ready(
           `PR #${pull.number}의 AI 리뷰가 통과했습니다. CI가 통과하면 자동으로 머지하고 이슈를 닫습니다.`,
+          postedReview.id,
         );
         return;
       } catch (error) {
