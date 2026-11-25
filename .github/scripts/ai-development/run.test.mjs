@@ -47,6 +47,10 @@ for (const testCase of [
   'upstream-extra',
   'interrupted-review',
   'interrupted-commit',
+  'interrupted-created-pr',
+  'interrupted-before-commit',
+  'interrupted-before-pr',
+  'merged-resume',
   'merge-conflict',
   'adjacent-line',
   'edited-issue',
@@ -337,6 +341,8 @@ for (const testCase of [
       assert.equal(hostname, 'api.github.com');
       if (pathname === '/graphql') {
         assert.equal(options.headers.authorization, 'Bearer mock-publisher');
+        if (scenario === 'interrupted-before-commit' && !resumed)
+          throw Error('not accepted');
         const input = body.variables.input;
         if (scenario === 'issue-title-fallback')
           assert.equal(
@@ -435,7 +441,10 @@ for (const testCase of [
         }
         if (options.method === 'GET')
           return Response.json(
-            pr && searchParams.get('state') === 'open' ? [pr] : [],
+            pr &&
+              searchParams.get('state') === (pr.merged_at ? 'closed' : 'open')
+              ? [pr]
+              : [],
           );
         assert.equal(options.headers.authorization, 'Bearer mock-publisher');
         if (scenario === 'issue-title-fallback')
@@ -447,14 +456,19 @@ for (const testCase of [
         assert.equal(body.base, 'dev');
         assert.equal(body.head, branch);
         assert.equal(pr, undefined);
+        if (scenario === 'interrupted-before-pr' && !resumed)
+          throw Error('not accepted');
         creations++;
         pr = {
           number: 23,
+          title: body.title,
           draft: true,
           body: body.body,
           head: { ref: branch, sha: head, repo: { full_name: repository } },
-          base: { ref: 'dev' },
+          base: { ref: 'dev', repo: { full_name: repository } },
         };
+        if (scenario === 'interrupted-created-pr' && !resumed)
+          throw Error('lost response');
         return Response.json(pr);
       }
       if (path === '/issues/23/comments') {
@@ -733,6 +747,32 @@ for (const testCase of [
       assert.equal(reviews, revised ? 3 : 2);
       assert.equal(developmentCalls, revised ? 2 : 1);
       assert.equal(commits, revised ? 2 : 1);
+      return;
+    }
+    if (scenario === 'merged-resume') {
+      pr.merged_at = '2026-11-25T00:00:00Z';
+      pr.merge_commit_sha = 'b'.repeat(40);
+      await manualResume();
+      assert.match(saved().reason, /머지/);
+      assert.equal(developmentCalls, 1);
+      assert.equal(reviewCalls, 1);
+      return;
+    }
+    if (
+      ['interrupted-before-commit', 'interrupted-before-pr'].includes(scenario)
+    ) {
+      await manualResume();
+      assert.equal(
+        developmentCalls,
+        scenario === 'interrupted-before-commit' ? 2 : 1,
+      );
+      assert.equal(reviewCalls, 1);
+      return;
+    }
+    if (['interrupted-created-pr', 'interrupted-commit'].includes(scenario)) {
+      await manualResume();
+      assert.equal(developmentCalls, 1);
+      assert.equal(reviewCalls, 1);
       return;
     }
     if (scenario === 'interrupted-visible-review') {
