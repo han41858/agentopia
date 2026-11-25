@@ -108,11 +108,15 @@ test.describe('왕국 기본 표시', () => {
         ...base,
         pulls: [],
         stage: 'queued',
+        issueLeader: undefined,
         adventurers: [],
       };
       let forge: PullQuest = {
         ...alphaReport.forges!.find(({ number }) => number === 11)!,
         stage: 'idle',
+        quality: undefined,
+        ciParticipated: false,
+        automationParticipated: false,
         adventurers: [reviewers],
       };
       await page.route('**/api/github?**', async (route) => {
@@ -154,7 +158,19 @@ test.describe('왕국 기본 표시', () => {
       await expect(facilityIdleLeader).toHaveCount(0);
       await expect(facilityActiveLeader).toHaveCount(0);
 
-      quest = { ...quest, stage: 'developing', issueLeader: 'resting' };
+      quest = { ...quest, stage: 'idle', adventurers: [reviewers] };
+      await page.reload();
+      await expect(marker).toHaveAccessibleName(/Claude · 대기/);
+      await expect(marker).not.toHaveAccessibleName(/GitHub Actions/);
+      await expect(leader).toHaveCount(0);
+      await expect(activeLeader).toHaveCount(0);
+
+      quest = {
+        ...quest,
+        stage: 'developing',
+        issueLeader: 'resting',
+        adventurers: [],
+      };
       await page.reload();
       await expect(marker).toHaveAccessibleName(/GitHub Actions · 파티장/);
       await expect(leader).toBeVisible();
@@ -183,6 +199,8 @@ test.describe('왕국 기본 표시', () => {
       await expect(facility).toHaveAccessibleName(
         /GitHub Actions · 자동화 실행 기록/,
       );
+      await expect(facilityIdleLeader).toBeVisible();
+      await expect(facilityActiveLeader).toHaveCount(0);
 
       quest = {
         ...quest,

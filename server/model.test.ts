@@ -442,6 +442,35 @@ test('completed development keeps an issue leader before a PR exists', () => {
   assert.equal(unrelated.issueLeader, undefined);
 });
 
+test('issues and PRs count started development but not queued or skipped triggers', () => {
+  const development = run(2, { pull_requests: [{ number: pull.number }] });
+  for (const [snapshot, participated] of [
+    [{ ...development, status: 'queued' }, false],
+    [{ ...development, status: 'completed', conclusion: 'skipped' }, false],
+    [development, true],
+    [{ ...development, status: 'completed', conclusion: 'success' }, true],
+  ] as const) {
+    const runs = [snapshot];
+    const quests = makeQuests(
+      commitTrail,
+      [issue(2)],
+      [pull],
+      runs,
+      [],
+      new Map(),
+      [],
+    );
+    const [quest] = quests;
+    assert.equal(quest.issueLeader, participated ? 'resting' : undefined);
+    assert.deepEqual(
+      quest.automationPulls,
+      participated ? [pull.number] : undefined,
+    );
+    const [forge] = makeForges(commitTrail, [pull], runs, new Map(), quests);
+    assert.equal(forge.automationParticipated, participated);
+  }
+});
+
 test('CI history belongs to its PR, but only the current HEAD drives activity', () => {
   const runningCI = run(2, {
     id: 500,
@@ -1954,7 +1983,7 @@ test('only a matching bot checkpoint assigns the active issue role', () => {
     [reviewing],
   );
   assert.equal(finished.stage, 'returned');
-  assert.equal(finished.issueLeader, undefined);
+  assert.equal(finished.issueLeader, 'resting');
   assert.deepEqual(finished.adventurers, resting);
 
   const reversed = [

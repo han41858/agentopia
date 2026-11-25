@@ -566,6 +566,13 @@ function latestWorkflowRuns(runs: WorkflowRunRecord[]): WorkflowRunRecord[] {
     .map(({ run }) => run);
 }
 
+function automationRunParticipated(run: Run) {
+  return (
+    run.conclusion !== 'skipped' &&
+    (run.status === 'in_progress' || run.status === 'completed')
+  );
+}
+
 function referencesPull(run: Run, pull: Pull) {
   return run.pull_requests.some(({ number }) => number === pull.number);
 }
@@ -786,7 +793,7 @@ export function makeForges(
           automationPulls.has(pull.number) ||
           runs.some(
             (run) =>
-              run.conclusion !== 'skipped' &&
+              automationRunParticipated(run) &&
               referencesPull(run, pull) &&
               runIssue(run) !== undefined,
           ),
@@ -942,9 +949,7 @@ export function makeQuests(
     const ci = pull ? currentPullCI(ciHistory, pull) : undefined;
     // Earlier CI attempts remain visible in Actions history after recovery changes the head.
     const earlierCI = ciHistory.filter((candidate) => candidate.id !== ci?.id);
-    const automationRuns = automation.filter(
-      (candidate) => candidate.conclusion !== 'skipped',
-    );
+    const automationRuns = automation.filter(automationRunParticipated);
     const checkpoints = (selection?.records ?? []).filter(
       ({ state }) =>
         !automation.some(
