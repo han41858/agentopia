@@ -195,18 +195,23 @@ function issueDetour(
   markers: Rect[],
   bounds: Pick<Rect, 'width' | 'height'>,
 ) {
-  // Leave room for the mask (1px), the active stroke and the rounded turns.
-  if (!markers.some((marker) => curveHits(curve, padded(marker, 3)))) return;
+  // The mask extends 1px past the marker and the active stroke adds 1.75px.
+  const clearance = 3;
+  const blockers = markers.map((marker) => padded(marker, clearance));
+  if (!blockers.some((marker) => curveHits(curve, marker))) return;
   for (const radius of [5, 1]) {
     const route = routeAround(
       curve[0],
       curve[3],
-      markers.map((marker) => padded(marker, 3 + radius)),
+      blockers.map((marker) => padded(marker, radius)),
       bounds,
       radius,
     );
     if (route) return route;
   }
+  // Extra room for rounding can close a narrow gap or cover an anchor.
+  // Search without it; trimming by at most 0.125px leaves the stroke clear.
+  return routeAround(curve[0], curve[3], blockers, bounds, 0.125);
 }
 
 // Reads marker positions inside one kingdom and returns the road geometry.

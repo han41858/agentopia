@@ -341,7 +341,7 @@ test.describe('왕국 기본 표시', () => {
     for (const width of [1100, 390]) {
       test(`${mode} ${width}px: 강조된 PR·이슈 연결선이 부모 마커를 우회한다`, async ({
         page,
-      }) => {
+      }, testInfo) => {
         await page.setViewportSize({ width, height: 900 });
         await page.emulateMedia({ reducedMotion: 'reduce' });
         await openWorld(page, [alpha], mode);
@@ -402,11 +402,19 @@ test.describe('왕국 기본 표시', () => {
             )!;
             const rect = marker.getBoundingClientRect();
             marker.style.translate = `${centerX - rect.left - rect.width / 2}px ${top - rect.top}px`;
+            return marker.getBoundingClientRect();
           }
-          place(1, x, facility.bottom + 95);
-          place(2, x, facility.bottom + 200);
           const side = x < area.left + area.width / 2 ? 1 : -1;
-          place(3, x + side * 100, facility.bottom + 22);
+          const clearTarget = place(3, x + side * 100, facility.bottom + 22);
+          // Keep the parent between the anchors, never on top of either one.
+          const parent = place(
+            1,
+            x,
+            Math.max(facility.bottom + 95, clearTarget.bottom + 24),
+          );
+          const blockedTarget = place(2, x, parent.bottom + 44);
+          (region as HTMLElement).style.paddingBottom =
+            `${240 + Math.max(0, blockedTarget.bottom + 12 - area.bottom)}px`;
           // Trigger the same remeasurement as a change to the marker list.
           region
             .querySelector('[data-road-issue="1"]')!
@@ -456,6 +464,10 @@ test.describe('왕국 기본 표시', () => {
           .toBeLessThan(0);
         const overview = await geometry();
         const defaultPath = (await blocked.getAttribute('d'))!;
+        await testInfo.attach('기본 연결선과 부모 마커 측정값', {
+          body: JSON.stringify({ ...overview, path: defaultPath }, null, 2),
+          contentType: 'application/json',
+        });
         const clearPath = (await clear.getAttribute('d'))!;
         const dimmed = kingdom.locator('.branch-road-lines [data-dimmed]');
 
@@ -474,9 +486,13 @@ test.describe('왕국 기본 표시', () => {
         await expect(clear).toHaveAttribute('d', clearPath);
         await expect(unrelated).toHaveCSS('opacity', '0.55');
         const hovered = await geometry();
+        const detour = (await blocked.getAttribute('d'))!;
+        await testInfo.attach('PR 호버 우회선 측정값', {
+          body: JSON.stringify({ ...hovered, path: detour }, null, 2),
+          contentType: 'application/json',
+        });
         expect(hovered.clearance).toBeGreaterThan(2.75);
         expect(hovered.parent).toEqual(overview.parent);
-        const detour = (await blocked.getAttribute('d'))!;
 
         await page.mouse.move(2, 2);
         await expectOverview();
@@ -487,6 +503,10 @@ test.describe('왕국 기본 표시', () => {
         await expect(blocked).toHaveAttribute('d', detour);
         await expect(clear).toHaveAttribute('data-dimmed', 'true');
         const focused = await geometry();
+        await testInfo.attach('이슈 키보드 포커스 우회선 측정값', {
+          body: JSON.stringify(focused, null, 2),
+          contentType: 'application/json',
+        });
         expect(focused.clearance).toBeGreaterThan(2.75);
         expect(focused.parent).toEqual(overview.parent);
 
