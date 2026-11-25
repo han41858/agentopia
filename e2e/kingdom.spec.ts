@@ -151,7 +151,10 @@ for (const viewport of ['desktop', 'mobile']) {
     const unbadgedArt = kingdom.locator(
       '.monster-marker:not([data-recovery]) .monster-marker-art',
     );
-    await expect(unbadgedArt).toHaveCount(alphaReport.quests.length);
+    const openQuestCount = alphaReport.quests.filter(
+      (quest) => quest.state === 'open',
+    ).length;
+    await expect(unbadgedArt).toHaveCount(openQuestCount);
     const unbadgedWidths = await unbadgedArt.evaluateAll((elements) =>
       elements.map((element) => ({
         art: element.getBoundingClientRect().width,
