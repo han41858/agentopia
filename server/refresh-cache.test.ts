@@ -24,6 +24,7 @@ test('authenticated reports validate each list and preserve independent activity
   let denied = false;
   let reviewRequests = 0;
   let reviews = 0;
+  let fullPage = false;
   const base = 'https://github.com/' + repo;
   const issue = {
     number: 1,
@@ -90,7 +91,13 @@ test('authenticated reports validate each list and preserve independent activity
           body = [issue];
           break;
         case '/pulls':
-          body = [pull];
+          body =
+            fullPage && new URL(input).searchParams.get('state') === 'all'
+              ? Array.from({ length: 50 }, (_, i) => ({
+                  ...pull,
+                  number: 3 + i,
+                }))
+              : [pull];
           break;
         case '/actions/runs':
           body = { workflow_runs: [] };
@@ -195,6 +202,15 @@ test('authenticated reports validate each list and preserve independent activity
     await refresh(ticket, token);
     assert.ok(calls.every((c) => c.etag === null));
   }
+  url.searchParams.delete('refresh');
+  fullPage = true;
+  const many = await refresh();
+  assert.equal(calls.filter((c) => c.path === '/pulls').length, 2);
+  const unchangedMany = await refresh(many.data.refreshTicket);
+  assert.equal(calls.filter((c) => c.path === '/pulls').length, 1);
+  now += 46_000;
+  await refresh(unchangedMany.data.refreshTicket);
+  assert.equal(calls.filter((c) => c.path === '/pulls').length, 2);
   denied = true;
   const revoked = await refresh(warm.data.refreshTicket);
   assert.equal(revoked.status, 403);
