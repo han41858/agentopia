@@ -35,7 +35,25 @@ test.describe('상세 창', () => {
   test('PR 시설: 상태와 활동을 보여 주고, 눌렀을 때만 기록을 조회한다', async ({
     page,
   }) => {
-    const github = await openWorld(page);
+    const github = await mockGitHub(page);
+    const report = structuredClone(alphaReport);
+    const pull = report.forges.find(({ number }) => number === 11)!;
+    pull.activity = { commits: 1, partialCommits: true, pullComments: 2 };
+    pull.activities = { commits: 3, reviews: 1 };
+    await page.route('**/api/github?**', async (route) => {
+      const params = new URL(route.request().url()).searchParams;
+      if (
+        params.get('repo') !== alpha ||
+        ['summary', 'activity', 'heritage', 'repository', 'reviews'].some(
+          (key) => params.has(key),
+        )
+      )
+        return route.fallback();
+      await route.fulfill({ json: report });
+    });
+    await seedSettings(page, [alpha]);
+    await page.goto('/');
+    await settled(page);
     await page.getByRole('button', { name: /PR #11/ }).click();
     const dialog = page.getByRole('dialog', { name: 'PR #11' });
 
@@ -98,8 +116,71 @@ test.describe('상세 창', () => {
     await expect(failure).toHaveText('failure');
     await expect(latest).toHaveCSS('font-size', '11px');
     expect(github.queries('summary')).toEqual([
-      { repo: alpha, summary: 'pull', number: '12' },
+      {
+        repo: alpha,
+        summary: 'pull',
+        number: '12',
+        counts: 'commits,comments,reviews',
+      },
     ]);
+  });
+
+  test('PR 시설: 닫으면 집계를 취소하고 실패를 0으로 표시하지 않는다', async ({
+    page,
+  }) => {
+    await page.addInitScript(() => {
+      const fetch = window.fetch;
+      window.fetch = (input, options) => {
+        if (String(input).includes('summary=pull')) {
+          options?.signal?.addEventListener('abort', () => {
+            document.documentElement.dataset.summaryAborted = 'true';
+          });
+        }
+        return fetch(input, options);
+      };
+    });
+    const github = await openWorld(page);
+    let release = () => {};
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let calls = 0;
+    await page.route('**/api/github?**', async (route) => {
+      const params = new URL(route.request().url()).searchParams;
+      if (params.get('summary') !== 'pull') return route.fallback();
+      if (++calls === 1) {
+        await held;
+        await route.abort().catch(() => {});
+        return;
+      }
+      await route.fulfill({ status: 502, json: { error: '집계 조회 실패' } });
+    });
+    const marker = page.getByRole('button', { name: /PR #12/ });
+    const dialog = page.getByRole('dialog', { name: 'PR #12' });
+    try {
+      await marker.click();
+      await expect.poll(() => calls).toBe(1);
+      await expect(dialog.getByRole('status')).toHaveText(
+        'GitHub 활동 집계 확인 중…',
+      );
+      await page.keyboard.press('Escape');
+      await expect(dialog).toBeHidden();
+      await expect(page.locator('html')).toHaveAttribute(
+        'data-summary-aborted',
+        'true',
+      );
+    } finally {
+      release();
+    }
+    await marker.click();
+    await expect(dialog.getByRole('status')).toHaveText(
+      '일부 활동을 조회하지 못했습니다.',
+    );
+    await expect(
+      dialog.getByRole('button', { name: '커밋', exact: true }),
+    ).toHaveText('—');
+    expect(calls).toBe(2);
+    expect(github.count('activity')).toBe(0);
   });
 
   test('이슈와 PR 팝업에서 최신 Actions 실행을 먼저 표시한다', async ({

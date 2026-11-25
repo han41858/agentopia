@@ -4,6 +4,8 @@ import { withCachedHistory } from '../src/snapshot.ts';
 import type { Report } from './model.ts';
 import { githubGet } from './github-query.ts';
 import { githubResponse } from './github.ts';
+import { summarizeActivity } from './activity.ts';
+import type { PullActivity } from './activity.ts';
 import { nextRefreshInterval, refreshDue } from '../src/refresh.ts';
 
 test('public lookups merge concurrent callers, honor TTL, and reuse data and pagination on 304', async (context) => {
@@ -108,6 +110,69 @@ test('a permission 403 does not suppress other public repositories and is distin
   );
   assert.equal(limited.status, 403);
   assert.match(limited.body, /한도/);
+});
+
+test('popup counts request only their GitHub resources and keep unknown counts distinct from zero', async (context) => {
+  const root = 'https://api.github.com/repos/example/popup-counts';
+  const calls: string[] = [];
+  const replies = new Map<string, unknown>([
+    ['/pulls/1', { commits: 0, comments: 5 }],
+    ['/pulls/1/reviews?per_page=100&page=1', [{ state: 'PENDING' }]],
+    ['/issues/2', { comments: 0 }],
+    ['/pulls/3', { commits: 2 }],
+    ['/pulls/4', { commits: 3 }],
+    ['/pulls/3/commits?per_page=100&page=1', [{ sha: 'a' }, { sha: 'b' }]],
+    ['/pulls/4/commits?per_page=100&page=1', [{ sha: 'B' }, { sha: 'c' }]],
+  ]);
+  context.mock.method(globalThis, 'fetch', async (input: string) => {
+    calls.push(input);
+    const path = input.slice(root.length);
+    assert.ok(input.startsWith(root) && replies.has(path), input);
+    return Response.json(replies.get(path));
+  });
+  async function read(query: string, paths: string[]) {
+    const url = new URL(
+      `https://agentopia.test/api/github?repo=example/popup-counts&summary=${query}`,
+    );
+    const response = await githubResponse(url, 'GET');
+    assert.deepEqual(
+      calls.splice(0).sort(),
+      paths.map((path) => root + path).sort(),
+    );
+    assert.equal(response.status, 200, response.body);
+    return JSON.parse(response.body) as PullActivity;
+  }
+  const pull = await read('pull&number=1&counts=commits,comments', [
+    '/pulls/1',
+  ]);
+  assert.equal(pull.commits, 0);
+  assert.equal(pull.comments, 5);
+  assert.equal(pull.reviews, undefined);
+  const reviews = await read('pull&number=1&counts=reviews', [
+    '/pulls/1/reviews?per_page=100&page=1',
+  ]);
+  assert.equal(reviews.reviews, 0);
+  assert.equal(reviews.comments, undefined);
+  assert.equal(
+    (await read('issue&number=2&counts=comments', ['/issues/2'])).comments,
+    0,
+  );
+  const linked = [];
+  for (const number of [3, 4]) {
+    linked.push(
+      await read(`pull&number=${number}&counts=shas`, [
+        `/pulls/${number}`,
+        `/pulls/${number}/commits?per_page=100&page=1`,
+      ]),
+    );
+  }
+  const partial = summarizeActivity(undefined, linked);
+  assert.equal(partial.commits, 3);
+  assert.equal(partial.partialCommits, true);
+  linked[1].shas.push('d');
+  const complete = summarizeActivity(undefined, linked);
+  assert.equal(complete.commits, 4);
+  assert.equal(complete.partialCommits, false);
 });
 
 test('quiet intervals back off independently and active or changed work restores the base interval', () => {
