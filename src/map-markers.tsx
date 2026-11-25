@@ -208,7 +208,9 @@ export function MonsterMarker({
     quest.issueLeader
       ? stage === 'ci'
         ? '파티장'
-        : 'GitHub Actions · 파티장'
+        : quest.issueLeader === 'active'
+          ? `${markerStageLabels.ci} · 파티장`
+          : 'GitHub Actions · 파티장'
       : undefined,
     ...members.map(markerMemberLabel),
   ]
@@ -311,9 +313,9 @@ export function pullActivity(pull: PullQuest) {
 }
 
 export function partyLeaderState(pull: PullQuest) {
-  if (pull.ciQueued) return 'resting';
-  if (pull.quality === 'ci' || pull.stage === 'ci') return 'active';
-  if (pull.ciParticipated) return 'resting';
+  if (pull.cancelled || pull.merged) return;
+  if (pull.quality === 'ci' && !pull.ciQueued) return 'active';
+  if (pull.ciParticipated || pull.automationParticipated) return 'resting';
 }
 
 export type InspectionSource = 'pointer' | 'focus';
@@ -370,7 +372,11 @@ export function FacilityMarker({
           : markerStageLabels[stage]
       : undefined,
     leader === 'active' && stage !== 'ci' ? markerStageLabels.ci : undefined,
-    leader === 'resting' ? 'GitHub Actions · CI 실행 기록' : undefined,
+    leader === 'resting'
+      ? pull.ciParticipated
+        ? 'GitHub Actions · CI 실행 기록'
+        : 'GitHub Actions · 자동화 실행 기록'
+      : undefined,
     ...members.map(markerMemberLabel),
     ...(pull.issues ?? []).map((number) => `이슈 #${number}`),
   ]
