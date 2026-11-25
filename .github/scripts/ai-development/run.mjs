@@ -13,6 +13,7 @@ let developer;
 let reviewer;
 const base = 'dev';
 const maxReviewRevisions = 2;
+const maxCiRepairs = 1;
 const env = process.env;
 const number = Number(env.AI_ISSUE);
 let branch;
@@ -717,11 +718,21 @@ async function main() {
               throw new Stop('포맷 자동 수정 한도(1회)에 도달했습니다.');
             recovery.formatRepair = true;
           } else if (repairingCI) {
-            if (recovery.ciRepairs)
+            if ((recovery.ciRepairs ?? 0) >= maxCiRepairs)
               throw new Stop('CI 자동 수정 한도(1회)에 도달했습니다.');
-            recovery.ciRepairs = 1;
+            recovery.ciRepairs = (recovery.ciRepairs ?? 0) + 1;
           }
-          if (repairingCI) delete state.reviews;
+          if (repairingCI) {
+            // Tie this reservation to its failed HEAD. Review revisions also use pending=development.
+            recovery.ciRepair = {
+              sourceHead: head,
+              ciAttempt: event.inputs?.ci_attempt,
+              runId: state.runId,
+              attempt: formattingOnly ? 1 : recovery.ciRepairs,
+              limit: formattingOnly ? 1 : maxCiRepairs,
+            };
+            delete state.reviews;
+          }
           if (requested && recovery.ciReviewHead === head) {
             delete recovery.ciReviewHead;
           } else if (requested || priorReview) {

@@ -83,6 +83,13 @@ export type ActivityEntry = Source & {
 };
 export type ActivityPage = { entries: ActivityEntry[]; next?: number };
 
+type RecoveryBadge = {
+  kind: 'waiting' | 'repairing' | 'checking' | 'stopped';
+  reason?: string;
+  attempt?: number;
+  limit?: number;
+};
+
 export type Quest = {
   number: number;
   title: string;
@@ -97,6 +104,7 @@ export type Quest = {
   activity?: ActivityProfile;
   reopened?: boolean;
   workPull?: number;
+  recoveryBadge?: RecoveryBadge;
   workReviewer?: Agent;
   issueComments?: number;
   subIssueCount?: number;
@@ -124,6 +132,7 @@ export type PullQuest = Source & {
   issues?: number[];
   adventurers?: Adventurer[];
   quality?: Stage;
+  recoveryBadge?: RecoveryBadge;
   ciParticipated?: boolean;
   activity?: ActivityProfile;
   activities?: ActivityCounts;
@@ -215,6 +224,19 @@ type AutomationState = {
   status: string;
   developer?: Agent;
   reviewer?: Agent;
+  pullNumber?: number;
+  phase?: string;
+  recovery?: {
+    pending?: string;
+    ciReviewHead?: string;
+    ciRepair?: {
+      sourceHead: string;
+      ciAttempt?: string;
+      runId: number;
+      attempt: number;
+      limit: number;
+    };
+  };
   reviewInProgress?: string;
   reason?: string;
   detail?: string;
@@ -472,6 +494,85 @@ function latestWorkflowRuns(runs: WorkflowRunRecord[]): WorkflowRunRecord[] {
     .map(({ run }) => run);
 }
 
+function currentPullCI(runs: Run[], region: Region, pull: Pull) {
+  return runs.find(
+    (run) =>
+      run.path.split('@')[0] === '.github/workflows/ci.yml' &&
+      run.head_sha === pull.head.sha &&
+      (run.pull_requests.some(({ number }) => number === pull.number) ||
+        (pull.head.repo?.full_name.toLowerCase() === region.slug &&
+          run.head_branch === pull.head.ref)),
+  );
+}
+
+const recoveryStages: Record<RecoveryBadge['kind'], Stage> = {
+  waiting: 'queued',
+  repairing: 'revising',
+  checking: 'ci',
+  stopped: 'attention',
+};
+
+function pullRecoveryBadge(
+  state: AutomationState | undefined,
+  pull: Pull,
+  ci: Run | undefined,
+  run: Run | undefined,
+): RecoveryBadge | undefined {
+  if (
+    !state ||
+    state.pullNumber !== pull.number ||
+    state.head !== pull.head.sha ||
+    pull.state !== 'open' ||
+    pull.merged_at
+  )
+    return;
+  const recovery = state.recovery;
+  const repair = recovery?.ciRepair;
+  const revisedHead = recovery?.ciReviewHead === pull.head.sha;
+  if (state.status === 'needs_human')
+    return {
+      kind: 'stopped',
+      reason: typeof state.reason === 'string' ? state.reason : undefined,
+    };
+  if (!ci || ci.conclusion === 'success') return;
+  const counts =
+    repair &&
+    Number.isSafeInteger(repair.attempt) &&
+    repair.attempt > 0 &&
+    Number.isSafeInteger(repair.limit) &&
+    repair.limit >= repair.attempt
+      ? { attempt: repair.attempt, limit: repair.limit }
+      : {};
+  if (
+    revisedHead &&
+    ci.status !== 'completed' &&
+    ['queued', 'in_progress', 'pending', 'waiting', 'requested'].includes(
+      ci.status,
+    )
+  )
+    return { kind: 'checking', ...counts };
+  if (
+    !run ||
+    !stateMatchesRun(state, run) ||
+    run.status === 'completed' ||
+    ci.conclusion !== 'failure' ||
+    state.status !== 'revising' ||
+    !repair ||
+    repair.sourceHead !== state.head ||
+    repair.runId !== state.runId ||
+    repair.ciAttempt !== `${ci.id}/${ci.run_attempt}` ||
+    !['format', 'development', 'commit'].includes(recovery?.pending ?? '')
+  )
+    return;
+  const active =
+    run.status === 'in_progress' &&
+    (recovery?.pending === 'commit' ||
+      state.phase === 'PR 포맷 수정' ||
+      state.phase === 'Codex 개발' ||
+      state.phase === 'Claude 개발');
+  return { kind: active ? 'repairing' : 'waiting', ...counts };
+}
+
 export function makeForges(
   region: Region,
   pulls: Pull[],
@@ -501,14 +602,15 @@ export function makeForges(
             (pull.head.repo?.full_name.toLowerCase() === region.slug &&
               run.head_branch === pull.head.ref)),
       );
-      const ci = relatedRuns.find(
-        (run) => run.path.split('@')[0] === '.github/workflows/ci.yml',
-      );
+      const ci = currentPullCI(relatedRuns, region, pull);
       const outcome = ci ? runStage(ci) : 'idle';
       const review = links.get(pull.number);
       const cancelled = pull.state === 'closed' && !pull.merged_at;
       const relatedWork =
         pull.merged_at || cancelled ? [] : (work.get(pull.number) ?? []);
+      const recoveryBadge = relatedWork.find(
+        (quest) => quest.recoveryBadge,
+      )?.recoveryBadge;
       const workers = new Map<Agent, Adventurer>();
       for (const quest of relatedWork) {
         for (const member of quest.adventurers ?? []) {
@@ -583,6 +685,7 @@ export function makeForges(
           (cancelled ? (pull.closed_at ?? pull.updated_at) : undefined),
         issues: linkedPullIssues(pull, region, review),
         adventurers,
+        recoveryBadge,
         ciParticipated:
           Boolean(ci) ||
           runs.some(
@@ -595,7 +698,7 @@ export function makeForges(
           pullDiscussion(pull, review?.activity),
         ]),
         activities: review?.activities,
-        stage,
+        stage: recoveryBadge ? recoveryStages[recoveryBadge.kind] : stage,
         author: pullActor(pull.user?.login, pull.user?.type),
         reviewer: review?.reviewer,
         review: review?.review,
@@ -704,22 +807,21 @@ export function makeQuests(
     const headPulls = issuePulls.filter(
       (item) => item.state === 'open' && item.head.sha === state?.head,
     );
+    const recordedPull = issuePulls.find(
+      (item) =>
+        item.state === 'open' &&
+        item.number === state?.pullNumber &&
+        item.head.sha === state?.head,
+    );
     const workPull =
-      runPulls.length === 1
+      recordedPull ??
+      (runPulls.length === 1
         ? runPulls[0]
         : headPulls.length === 1
           ? headPulls[0]
-          : undefined;
+          : undefined);
     const pull = workPull ?? issuePulls[0];
-    const ci = runs.find(
-      (candidate) =>
-        candidate.path.split('@')[0] === '.github/workflows/ci.yml' &&
-        candidate.head_sha === (pull?.head.sha ?? state?.head) &&
-        (candidate.head_branch === pull?.head.ref ||
-          candidate.pull_requests.some(
-            ({ number }) => number === pull?.number,
-          )),
-    );
+    const ci = pull ? currentPullCI(runs, region, pull) : undefined;
     // Earlier CI attempts remain visible in Actions history after recovery changes the head.
     const earlierCI = pull
       ? runs.filter(
@@ -832,6 +934,10 @@ export function makeQuests(
       detail = undefined;
     }
 
+    const recoveryBadge =
+      recordedPull && issue.state === 'open'
+        ? pullRecoveryBadge(state, recordedPull, ci, run)
+        : undefined;
     const adventurers = new Map<Agent, Adventurer>();
     const matchingRun = Boolean(run && state && stateMatchesRun(state, run));
     const running = matchingRun && run?.status === 'in_progress';
@@ -864,6 +970,7 @@ export function makeQuests(
         developer,
         'develop',
         running &&
+          recoveryBadge?.kind !== 'waiting' &&
           state?.status !== 'recovering' &&
           (stage === 'developing' || stage === 'revising'),
         matchingRun &&
@@ -957,7 +1064,10 @@ export function makeQuests(
           ? state.reviewer
           : undefined,
       workPull:
-        matchingRun && issue.state === 'open' ? workPull?.number : undefined,
+        (matchingRun || recoveryBadge) && issue.state === 'open'
+          ? workPull?.number
+          : undefined,
+      recoveryBadge,
       adventurers: [...adventurers.values()],
       activities,
       activity,

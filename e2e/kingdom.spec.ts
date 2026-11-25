@@ -137,3 +137,52 @@ test.describe('왕국 기본 표시', () => {
     await expect(linked).not.toHaveAttribute('data-highlight');
   });
 });
+
+test('복구 및 중단 글리프는 같은 PR의 두 표시 모드에서 유지된다', async ({
+  page,
+}) => {
+  await openWorld(page);
+  await page.route('**/api/github?**', async (route) => {
+    const query = new URL(route.request().url()).searchParams;
+    if (
+      query.get('repo') !== alpha ||
+      [...query.keys()].some((k) =>
+        ['heritage', 'activity', 'summary'].includes(k),
+      )
+    )
+      return route.fallback();
+    await route.fulfill({
+      json: {
+        ...alphaReport,
+        forges: alphaReport.forges!.map((pull) => {
+          if (pull.number === 11)
+            return {
+              ...pull,
+              stage: 'revising',
+              recoveryBadge: { kind: 'repairing', attempt: 1, limit: 1 },
+            };
+          if (pull.number === 12)
+            return {
+              ...pull,
+              stage: 'attention',
+              recoveryBadge: { kind: 'stopped', reason: '사람 확인 필요' },
+            };
+          return pull;
+        }),
+      },
+    });
+  });
+  await page.reload();
+  for (const mode of ['world', 'simple']) {
+    if (mode === 'simple')
+      await page.getByRole('button', { name: '간단 모드' }).click();
+    const repair = page.getByRole('button', { name: /^PR #11 · / });
+    const stop = page.getByRole('button', { name: /^PR #12 · / });
+    await expect(repair).toHaveAttribute('title', /자동 수정 중 · 1\/1회/);
+    await expect(repair).not.toHaveClass(/blocked/);
+    await expect(repair.locator('svg.facility-recovery')).toBeVisible();
+    await expect(stop).toHaveAccessibleName(/작업 중단 · 사람 확인 필요/);
+    await expect(stop).toHaveClass(/blocked/);
+    await expect(stop.locator('svg.facility-recovery')).toBeVisible();
+  }
+});
