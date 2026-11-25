@@ -473,7 +473,7 @@ export function createModels({
       inspect,
       issueTitle,
       prepareChanges,
-      needsUiSpec,
+      missingUiSpec,
     }) {
       const schema = mode === 'development' ? developmentSchema : reviewSchema;
       const verifyResult =
@@ -494,7 +494,7 @@ export function createModels({
         (mode === 'review' ? reviewFormat : developmentFormat) +
         '\n긴 파일은 find_in_file로 관련 위치를 찾은 뒤 필요한 부분만 read_file로 읽으세요. 끝부분이 필요하면 line=-1로 바로 확인하세요. 허용된 파일의 미확인 구간은 사용자에게 붙여 달라고 요청하기 전에 직접 조회하세요.';
       let correction;
-      let promptedForSpec = false;
+      let specReadTurn;
       let reviewCanPass = true;
       const missingBlocker =
         '자동화가 사람 확인을 요청했지만 구체적인 중단 사유를 제공하지 않았습니다.';
@@ -508,13 +508,21 @@ export function createModels({
         const started = performance.now();
         const finalTurn =
           turn === turnLimit || (Boolean(correction) && correction !== 'edits');
-        // Reserve the last review request for repairing an invalid verdict.
+        // Leave room for a spec read and a new verdict within the same budget.
+        const reserveSpecRead =
+          Boolean(missingUiSpec) && !specReadTurn && !correction;
         const remainingReads = Math.min(
           limits.toolCallsPerTurn,
-          limits.toolCallsTotal - toolCalls,
+          Math.max(
+            0,
+            limits.toolCallsTotal - toolCalls - Number(reserveSpecRead),
+          ),
         );
+        const resultTurn = turnLimit - (reserveSpecRead ? 2 : 1);
         const requireResult =
-          remainingReads === 0 || finalTurn || turn === turnLimit - 1;
+          remainingReads === 0 ||
+          finalTurn ||
+          (specReadTurn ? turn > specReadTurn : turn >= resultTurn);
         const turnGuidance = requireResult
           ? '이제 지정된 형식으로 최종 결과를 반환하세요. 근거가 부족하면 구체적인 장애 사유와 함께 needs_human을 반환하세요.'
           : `이번 요청을 포함해 남은 API 요청은 ${turnLimit - turn + 1}회입니다. 이번 요청에서 읽기 도구는 ${remainingReads}회 사용할 수 있습니다. 근거가 충분해지면 지정된 형식으로 최종 결과를 반환하세요.`;
@@ -727,13 +735,17 @@ export function createModels({
               '교정 과정에서 기존 수정 요청이나 지적을 승인으로 변경할 수 없습니다.',
             );
           const verified = verifyResult(result);
-          if (
+          const unread =
             ['completed', 'pass'].includes(verified.status) &&
-            needsUiSpec?.(verified.edits?.map(({ path }) => path))
-          ) {
-            const message =
-              '관련 UI 테스트 본문을 확인하지 않아 개발 완료 또는 리뷰 승인을 기록할 수 없습니다.';
-            if (promptedForSpec || requireResult || correction) {
+            missingUiSpec?.(verified.edits?.map(({ path }) => path));
+          if (unread) {
+            const message = `관련 UI 테스트 본문을 확인하지 않았습니다. 확인할 대상: ${unread}`;
+            if (
+              specReadTurn ||
+              turn + 2 > turnLimit ||
+              correction ||
+              toolCalls >= limits.toolCallsTotal
+            ) {
               return {
                 status: 'needs_human',
                 summary: message,
@@ -742,7 +754,7 @@ export function createModels({
                   : { title: '', edits: [] }),
               };
             }
-            promptedForSpec = true;
+            specReadTurn = turn + 1;
             input.push(
               ...(isCodex
                 ? output
@@ -754,8 +766,7 @@ export function createModels({
                   ]),
               {
                 role: 'user',
-                content:
-                  '수정한 e2e/*.spec.ts 각각과 영향을 받는 UI의 테스트 파일을 read_file로 읽으세요. 요소 선택자와 검증문을 변경된 역할·접근성 이름·조작과 대조한 뒤 전체 변경안 또는 리뷰 판정을 반환하세요. 검증이 이전 동작을 기대하거나 필요한 검증이 빠졌으면 수정을 요청하세요.',
+                content: `${message}. 수정한 e2e/*.spec.ts 각각과 영향을 받는 UI의 테스트 파일을 read_file로 읽으세요. 요소 선택자와 검증문을 변경된 역할·접근성 이름·조작과 대조한 뒤 전체 변경안 또는 리뷰 판정을 반환하세요. 검증이 이전 동작을 기대하거나 필요한 검증이 빠졌으면 수정을 요청하세요.`,
               },
             );
             continue;

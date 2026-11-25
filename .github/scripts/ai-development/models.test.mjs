@@ -534,6 +534,92 @@ for (const [agent, mode] of [
   ['codex', 'development'],
   ['claude', 'review'],
 ]) {
+  test(`${agent} reserves a read and a verdict when UI evidence is missing at the exploration limit`, async () => {
+    const path = 'e2e/kingdom.spec.ts';
+    const reads = [];
+    let calls = 0;
+    const models = createModels({
+      keys: { [agent]: 'mock' },
+      modelNames: { [agent]: 'mock' },
+      limits: { ...config.limits, turns: 4, reviewTurns: 4, toolCallsTotal: 2 },
+      log: () => {},
+      request: async (_, options) => {
+        calls++;
+        const body = JSON.parse(options.body);
+        const codex = agent === 'codex';
+        if (calls === 1 || calls === 3) {
+          assert.equal(body.tool_choice, undefined);
+          if (calls === 3)
+            assert.match(
+              (body.input ?? body.messages).at(-1).content,
+              /e2e\/kingdom\.spec\.ts/,
+            );
+          const args = { path: calls === 1 ? 'src/view.ts' : path, line: 1 };
+          return Response.json(
+            codex
+              ? {
+                  status: 'completed',
+                  output: [
+                    {
+                      type: 'function_call',
+                      call_id: 'read' + calls,
+                      name: 'read_file',
+                      arguments: JSON.stringify(args),
+                    },
+                  ],
+                }
+              : {
+                  stop_reason: 'tool_use',
+                  content: [
+                    {
+                      type: 'tool_use',
+                      id: 'read' + calls,
+                      name: 'read_file',
+                      input: args,
+                    },
+                  ],
+                },
+          );
+        }
+        assert.equal(codex ? body.tool_choice : body.tool_choice.type, 'none');
+        const text = JSON.stringify(
+          mode === 'review'
+            ? { status: 'pass', summary: '검토 완료', findings: [] }
+            : {
+                status: 'completed',
+                summary: '화면 수정',
+                title: '🐛 화면: 표시 수정',
+                edits: [{ path: 'src/view.ts', before: 'a', after: 'b' }],
+              },
+        );
+        return Response.json(
+          codex
+            ? {
+                status: 'completed',
+                output: [
+                  { type: 'message', content: [{ type: 'output_text', text }] },
+                ],
+              }
+            : { stop_reason: 'end_turn', content: [{ type: 'text', text }] },
+        );
+      },
+    });
+    const result = await models.run({
+      agent,
+      mode,
+      instructions: 'Check',
+      context: 'Test',
+      missingUiSpec: () => (reads.includes(path) ? '' : path),
+      inspect: (_, input) => {
+        reads.push(input.path);
+        return '1: test';
+      },
+    });
+    assert.equal(result.status, mode === 'review' ? 'pass' : 'completed');
+    assert.deepEqual(reads, ['src/view.ts', path]);
+    assert.equal(calls, 4);
+  });
+
   test(`${agent} cannot finish UI changes after ignoring the spec read reminder`, async () => {
     let calls = 0;
     const models = createModels({
@@ -575,9 +661,10 @@ for (const [agent, mode] of [
       mode,
       instructions: 'Check',
       context: 'Test',
-      needsUiSpec: () => true,
+      missingUiSpec: () => 'e2e/kingdom.spec.ts',
     });
     assert.equal(result.status, 'needs_human');
+    assert.match(result.summary, /e2e\/kingdom\.spec\.ts/);
     assert.equal(calls, 2);
   });
 }
