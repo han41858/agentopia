@@ -243,6 +243,100 @@ test.describe('왕국 기본 표시', () => {
     }
   });
 
+  for (const mode of ['world', 'simple'] as const) {
+    test(`${mode}: 이슈의 직속 부모와 자식만 강조한다`, async ({ page }) => {
+      await openWorld(page, [alpha], mode);
+      const hierarchy = [
+        { number: 199 },
+        { number: 200, parent: 199 },
+        { number: 201, parent: 199 },
+        { number: 202, parent: 199 },
+        { number: 203, parent: 199 },
+        { number: 204, parent: 200 },
+        { number: 205 },
+        { number: 206, parent: 205 },
+      ];
+      const quests = hierarchy.map(({ number, parent }): Quest => ({
+        ...alphaReport.quests[0],
+        number,
+        parent,
+        title: `관계 테스트 ${number}`,
+        url: `https://github.com/${alpha}/issues/${number}`,
+        state: 'open',
+        stage: 'idle',
+        subIssueCount: undefined,
+        workPull: undefined,
+        pulls: [],
+        adventurers: [],
+      }));
+      await page.route('**/api/github?**', async (route) => {
+        const params = new URL(route.request().url()).searchParams;
+        if (
+          params.get('repo') !== alpha ||
+          ['owner', 'heritage', 'summary', 'activity', 'repository'].some(
+            (key) => params.has(key),
+          )
+        ) {
+          await route.fallback();
+          return;
+        }
+        await route.fulfill({
+          json: { ...alphaReport, quests: [...alphaReport.quests, ...quests] },
+        });
+      });
+      await page.reload();
+
+      const kingdom = page.getByRole('region', { name: 'alpha', exact: true });
+      const issue = (number: number) =>
+        kingdom.getByRole('button', {
+          name: new RegExp(`^이슈 #${number} · `),
+        });
+      const related = kingdom.locator('[data-highlight="related"]');
+      const palace = kingdom.getByRole('button', {
+        name: 'alpha',
+        exact: true,
+      });
+
+      await issue(199).hover();
+      await expect(issue(199)).toHaveAttribute('data-highlight', 'selected');
+      await expect(related).toHaveText(['#200', '#201', '#202', '#203']);
+
+      await issue(200).focus();
+      await expect(issue(200)).toBeFocused();
+      await expect(issue(200)).toHaveAttribute('data-highlight', 'selected');
+      await expect(related).toHaveText(['#199', '#204']);
+
+      await issue(205).hover();
+      await expect(issue(205)).toHaveAttribute('data-highlight', 'selected');
+      await expect(related).toHaveText(['#206']);
+      await page.mouse.move(2, 2);
+      await expect(related).toHaveText(['#199', '#204']);
+
+      await issue(201).focus();
+      await expect(issue(201)).toHaveAttribute('data-highlight', 'selected');
+      await expect(related).toHaveText(['#199']);
+      await issue(204).hover();
+      await palace.focus();
+      await expect(related).toHaveText(['#200']);
+      await page.mouse.move(2, 2);
+      await expect(kingdom.locator('[data-highlight]')).toHaveCount(0);
+
+      const facility = kingdom.getByRole('button', { name: /^PR #11 · / });
+      await facility.hover();
+      await expect(facility).toHaveAttribute('data-highlight', 'selected');
+      await expect(issue(1)).toHaveAttribute('data-highlight', 'related');
+      await issue(1).hover();
+      await expect(facility).toHaveAttribute('data-highlight', 'related');
+      await expect(issue(2)).toHaveAttribute('data-highlight', 'related');
+      await expect(issue(199)).not.toHaveAttribute('data-highlight');
+
+      await issue(202).click();
+      await expect(
+        page.getByRole('dialog', { name: '이슈 #202', exact: true }),
+      ).toBeVisible();
+    });
+  }
+
   test('시설에 올리면 연결된 몬스터를 함께 강조한다', async ({ page }) => {
     await openWorld(page);
     const facility = page.getByRole('button', { name: /PR #11/ });

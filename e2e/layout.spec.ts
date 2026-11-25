@@ -102,6 +102,101 @@ function outsideWall(page: Page, selector: string) {
   }, selector);
 }
 
+test.describe('모바일 하위 이슈 배치', () => {
+  test.use({ viewport: { width: 390, height: 844 }, hasTouch: true });
+
+  for (const mode of ['world', 'simple'] as const) {
+    test(`${mode}: 줄이 바뀐 하위 이슈도 부모 아래 가운데 정렬된다`, async ({
+      page,
+    }, testInfo) => {
+      await openWorld(page, [alpha], mode);
+      const childNumbers = Array.from(
+        { length: 16 },
+        (_, index) => 200 + index,
+      );
+      const quests = [199, ...childNumbers, 216, 217].map((number): Quest => ({
+        ...alphaReport.quests[0],
+        number,
+        title: `모바일 배치 ${number}`,
+        url: `https://github.com/${alpha}/issues/${number}`,
+        state: 'open',
+        stage: 'idle',
+        parent: childNumbers.includes(number)
+          ? 199
+          : number === 217
+            ? 216
+            : undefined,
+        subIssueCount: undefined,
+        workPull: undefined,
+        pulls: [],
+        adventurers: [],
+      }));
+      await page.route('**/api/github?**', async (route) => {
+        const params = new URL(route.request().url()).searchParams;
+        if (
+          params.get('repo') !== alpha ||
+          ['owner', 'heritage', 'summary', 'activity', 'repository'].some(
+            (key) => params.has(key),
+          )
+        ) {
+          await route.fallback();
+          return;
+        }
+        await route.fulfill({ json: { ...alphaReport, quests } });
+      });
+      await page.reload();
+      await settled(page);
+
+      const kingdom = page.getByRole('region', { name: 'alpha', exact: true });
+      const children = kingdom.getByRole('list', {
+        name: '이슈 #199의 하위 이슈',
+      });
+      const issue = (number: number) =>
+        kingdom.getByRole('button', {
+          name: new RegExp(`^이슈 #${number} · `),
+        });
+      await expect(issue(199)).toBeVisible();
+      await expect(issue(217)).toBeVisible();
+      await expect(children.locator(':scope > li')).toHaveCount(
+        childNumbers.length,
+      );
+      await expect(children).toHaveCSS('border-inline-start-width', '0px');
+      await expect(children).toHaveCSS('padding-inline-start', '0px');
+
+      const [parentBox] = await boxes(issue(199));
+      const childBoxes = await boxes(children.locator(':scope > li'));
+      const rows: Box[][] = [];
+      for (const child of childBoxes) {
+        const row = rows.find(([first]) => Math.abs(first.y - child.y) < 1);
+        if (row) row.push(child);
+        else rows.push([child]);
+      }
+      await testInfo.attach('부모와 하위 이슈의 줄별 위치', {
+        body: JSON.stringify({ parentBox, rows }, null, 2),
+        contentType: 'application/json',
+      });
+      expect(rows.length).toBeGreaterThan(1);
+      expect(rows[0].length).toBeGreaterThan(1);
+      for (const row of rows) {
+        const left = Math.min(...row.map(({ x }) => x));
+        const right = Math.max(...row.map(({ x, width }) => x + width));
+        const parentCenter = parentBox.x + parentBox.width / 2;
+        expect(Math.abs((left + right) / 2 - parentCenter)).toBeLessThanOrEqual(
+          1,
+        );
+        expect(row[0].y + 1).toBeGreaterThanOrEqual(
+          parentBox.y + parentBox.height,
+        );
+      }
+
+      await issue(200).tap();
+      await expect(
+        page.getByRole('dialog', { name: '이슈 #200', exact: true }),
+      ).toBeVisible();
+    });
+  }
+});
+
 function heritageArtGaps(area: Locator) {
   return area.evaluate(async (node) => {
     const wall = node.querySelector<SVGSVGElement>('.kingdom-wall');

@@ -173,7 +173,7 @@ export function MonsterMarker({
   pulse?: number;
   inspected: boolean;
   related: boolean;
-  inspect: (active: boolean) => void;
+  inspect: InspectMarker;
 }) {
   const defeated = quest.state === 'closed';
   const members = quest.adventurers ?? [];
@@ -224,10 +224,14 @@ export function MonsterMarker({
       title={tooltip}
       onClick={open}
       data-highlight={inspected ? 'selected' : related ? 'related' : undefined}
-      onPointerEnter={() => inspect(true)}
-      onPointerLeave={() => inspect(false)}
-      onFocus={() => inspect(true)}
-      onBlur={() => inspect(false)}
+      onPointerEnter={(event) => {
+        if (event.pointerType !== 'touch') inspect(true, 'pointer');
+      }}
+      onPointerLeave={(event) => {
+        if (event.pointerType !== 'touch') inspect(false, 'pointer');
+      }}
+      onFocus={() => inspect(true, 'focus')}
+      onBlur={() => inspect(false, 'focus')}
     >
       {pulse !== undefined && (
         <span key={pulse} className="party-pulse" aria-hidden="true" />
@@ -309,6 +313,10 @@ export function partyLeaderState(pull: PullQuest) {
   if (pull.ciParticipated) return 'resting';
 }
 
+export type InspectionSource = 'pointer' | 'focus';
+
+type InspectMarker = (active: boolean, source: InspectionSource) => void;
+
 export function FacilityMarker({
   pull,
   open,
@@ -322,7 +330,7 @@ export function FacilityMarker({
   pulse?: number;
   inspected: boolean;
   related: boolean;
-  inspect: (active: boolean) => void;
+  inspect: InspectMarker;
 }) {
   const kind = facilityKind(pull.title);
   const { Tool } = facilities[kind];
@@ -377,10 +385,14 @@ export function FacilityMarker({
       title={tooltip}
       aria-label={`${label}${activityEffectsLabel(pull.activity)}`}
       onClick={open}
-      onPointerEnter={() => inspect(true)}
-      onPointerLeave={() => inspect(false)}
-      onFocus={() => inspect(true)}
-      onBlur={() => inspect(false)}
+      onPointerEnter={(event) => {
+        if (event.pointerType !== 'touch') inspect(true, 'pointer');
+      }}
+      onPointerLeave={(event) => {
+        if (event.pointerType !== 'touch') inspect(false, 'pointer');
+      }}
+      onFocus={() => inspect(true, 'focus')}
+      onBlur={() => inspect(false, 'focus')}
     >
       {pulse !== undefined && (
         <span key={pulse} className="party-pulse" aria-hidden="true" />
@@ -435,10 +447,13 @@ export function KingdomMonsters({
   openQuest: (quest: Quest) => void;
   highlight?: number;
   related: ReadonlySet<number>;
-  inspect: (number: number, active: boolean) => void;
+  inspect: (number: number, active: boolean, source: InspectionSource) => void;
 }) {
   const openQuests = quests.filter((quest) => quest.state === 'open');
   const visible = new Set(openQuests.map(({ number }) => number));
+  const highlightedParent = openQuests.find(
+    ({ number }) => number === highlight,
+  )?.parent;
   const childrenByParent = new Map<number, Quest[]>();
   for (const quest of quests) {
     if (quest.parent === undefined) continue;
@@ -472,8 +487,12 @@ export function KingdomMonsters({
           open={() => openQuest(quest)}
           pulse={pulses?.[`issue-${quest.number}`]}
           inspected={highlight === quest.number}
-          related={related.has(quest.number)}
-          inspect={(active) => inspect(quest.number, active)}
+          related={
+            related.has(quest.number) ||
+            (highlight !== undefined && quest.parent === highlight) ||
+            quest.number === highlightedParent
+          }
+          inspect={(active, source) => inspect(quest.number, active, source)}
         />
         {children.length > 0 && (
           <ul

@@ -331,10 +331,8 @@ svg {
 }
 .guild-parties {
   margin: 0;
-  padding: 0 0 0 4px;
   justify-content: center;
   max-width: 100%;
-  border-inline-start: 2px solid #948666;
 }
 .expedition {
   position: relative;
