@@ -204,6 +204,24 @@ function App() {
     setSnapshots,
   });
 
+  useEffect(() => {
+    function refreshOnKeyDown(event: KeyboardEvent) {
+      if (event.defaultPrevented || event.shiftKey || event.altKey) return;
+
+      const refreshKey = event.key === 'F5' && !event.ctrlKey && !event.metaKey;
+      const refreshChord =
+        event.key.toLowerCase() === 'r' && event.ctrlKey !== event.metaKey;
+      if (!refreshKey && !refreshChord) return;
+
+      // Holding a matched shortcut must not fall back to a browser reload.
+      event.preventDefault();
+      if (!event.repeat) refresh.current?.();
+    }
+
+    window.addEventListener('keydown', refreshOnKeyDown);
+    return () => window.removeEventListener('keydown', refreshOnKeyDown);
+  }, []);
+
   function setToken(value: string) {
     if (value === token) return;
     setSettings((current) => ({
