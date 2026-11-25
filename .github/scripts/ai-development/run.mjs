@@ -74,7 +74,8 @@ async function request(
   });
   if (missing && response.status === 404) return undefined;
   if (!response.ok) {
-    const diagnostic = `GitHub ${method} HTTP ${response.status}`;
+    const resource = path.split('?')[0];
+    const diagnostic = `GitHub ${method} HTTP ${response.status} (${resource})`;
     throw Object.assign(new Error(diagnostic), {
       diagnostic,
       status: response.status,
@@ -544,6 +545,40 @@ async function main() {
     }
     return pull;
   }
+  async function findReview(pullNumber, digest) {
+    for (let page = 1; ; page++) {
+      const entries = await repo(
+        `/issues/${pullNumber}/comments?per_page=100&page=${page}`,
+      );
+      const match = entries.find(
+        ({ user, body }) =>
+          user?.login === 'github-actions[bot]' && fingerprint(body) === digest,
+      );
+      if (match || entries.length < 100) return match;
+    }
+  }
+  async function publishReview(pullNumber, body, baseSha) {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return await repo(`/issues/${pullNumber}/comments`, {
+          method: 'POST',
+          body: { body },
+        });
+      } catch (error) {
+        if (!(error.status >= 500 && error.status < 600)) throw error;
+        await new Promise((resolve) =>
+          setTimeout(resolve, 1000 * (attempt + 1)),
+        );
+        await checkBase(baseSha);
+        const match = await findReview(pullNumber, fingerprint(body));
+        if (match) return match;
+        if (attempt >= 1) {
+          recovery.reviewPublication.retryable = true;
+          throw error;
+        }
+      }
+    }
+  }
   async function checkBase(expected) {
     await verifyArtifacts();
     if ((await ref(base)) !== expected) throw new BaseChanged();
@@ -731,17 +766,44 @@ async function main() {
         pull &&
         publication?.head === recovery.head
       ) {
-        let match;
-        for (let page = 1; ; page++) {
-          const entries = await repo(
-            `/issues/${pull.number}/comments?per_page=100&page=${page}`,
-          );
-          match = entries.find(
-            ({ user, body }) =>
-              user?.login === 'github-actions[bot]' &&
-              fingerprint(body) === publication.bodyHash,
-          );
-          if (match || entries.length < 100) break;
+        let match = await findReview(pull.number, publication.bodyHash);
+        if (
+          !match &&
+          publication.retryable &&
+          publication.body &&
+          fingerprint(publication.body) === publication.bodyHash
+        ) {
+          if ((await ref(base)) === state.base) {
+            await checkBase(state.base);
+            match = await publishReview(
+              pull.number,
+              publication.body,
+              state.base,
+            );
+          } else {
+            delete recovery.reviewPublication;
+            delete recovery.pending;
+          }
+        }
+        const note = event.inputs?.development_note?.trim().slice(0, 1500);
+        if (
+          !match &&
+          !publication.body &&
+          publication.result?.status === 'changes_requested' &&
+          note
+        ) {
+          // Older checkpoints kept only the digest. Preserve the rejection and require a fresh review.
+          state.reviews = [
+            {
+              head: publication.head,
+              result: publication.result,
+              feedback:
+                '이전 리뷰에서 변경을 요청했습니다. 수동 재개의 수정 근거: ' +
+                note,
+            },
+          ];
+          delete recovery.reviewPublication;
+          delete recovery.pending;
         }
         if (match) {
           await verifyArtifacts();
@@ -1179,6 +1241,7 @@ UI에 영향을 주는 변경은 현재 HEAD의 관련 e2e/*.spec.ts를 직접 �
           head,
           result: { status: review.status },
           bodyHash: fingerprint(feedback),
+          body: feedback,
         };
         await reserve(
           'review-publication',
@@ -1186,10 +1249,11 @@ UI에 영향을 주는 변경은 현재 HEAD의 관련 e2e/*.spec.ts를 직접 �
           '검토한 HEAD에 리뷰 결과를 기록합니다.',
         );
         await checkBase(baseSha);
-        const postedReview = await repo(`/issues/${pull.number}/comments`, {
-          method: 'POST',
-          body: { body: feedback },
-        });
+        const postedReview = await publishReview(
+          pull.number,
+          feedback,
+          baseSha,
+        );
         delete recovery.pending;
         delete recovery.reviewPublication;
         state.reviews = [
