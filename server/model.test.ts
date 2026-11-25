@@ -1926,6 +1926,26 @@ test('PR recovery follows the trusted PR, HEAD and CI attempt through repair', (
     ).recoveryBadge,
     undefined,
   );
+  for (const status of ['queued', 'waiting', 'in_progress']) {
+    const facility = forge(
+      'ready',
+      updated,
+      { ...checking, status },
+      run(2),
+      mergeSha,
+    );
+    assert.equal(facility.recoveryBadge?.kind, 'checking');
+    assert.equal(facility.ciQueued, status !== 'in_progress');
+  }
+  const retryFailure = forge(
+    'ready',
+    updated,
+    { ...checking, status: 'completed', conclusion: 'failure' },
+    run(2),
+    mergeSha,
+  );
+  assert.equal(retryFailure.recoveryBadge, undefined);
+  assert.equal(retryFailure.stage, 'failed');
   assert.equal(forge('failed', {}).recoveryBadge, undefined);
   assert.deepEqual(
     forge('needs_human', { reason: '자동 수정 한도 도달' }).recoveryBadge,

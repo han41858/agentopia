@@ -1161,19 +1161,21 @@ svg {
 }
 .facility-recovery {
   right: -3px;
-  bottom: 0;
+  top: -4px;
 }
 .monster-marker-art {
   position: relative;
   display: grid;
+  margin-inline: 16px;
 }
-.monster-marker[data-recovery] > .monster-marker-art {
-  /* Leave room for the badge while keeping the sprite centered. */
-  padding-inline: 16px;
-}
+.monster-failure,
 .monster-recovery {
+  position: absolute;
   inset-block-start: 0;
-  inset-inline-end: 0;
+  inset-inline-start: 100%;
+}
+.monster-failure {
+  color: #ffb3a6;
 }
 [data-recovery='stopped'] :is(.facility-recovery, .monster-recovery) {
   color: #ffd4ce;
@@ -1640,20 +1642,6 @@ svg {
 [data-display-mode='simple'] .adventurer-glyph.active,
 [data-display-mode='simple'] .working-party-leader {
   border-radius: 50%;
-}
-[data-display-mode='simple'] .expedition.blocked:not([data-recovery])::after {
-  content: '!';
-  position: absolute;
-  top: 0;
-  right: 0;
-  display: grid;
-  place-items: center;
-  width: 15px;
-  height: 15px;
-  border-radius: 3px;
-  background: #923e36;
-  color: white;
-  font: bold 12px/1 system-ui;
 }
 [data-display-mode='simple'] .facility-sprite {
   filter: none;
