@@ -84,7 +84,7 @@ export type ActivityEntry = Source & {
 export type ActivityPage = { entries: ActivityEntry[]; next?: number };
 
 export type RecoveryBadge = {
-  kind: 'waiting' | 'repairing' | 'checking' | 'stopped';
+  kind: 'pending' | 'waiting' | 'repairing' | 'checking' | 'stopped' | 'failed';
   reason?: string;
   attempt?: number;
   limit?: number;
@@ -138,6 +138,7 @@ export type PullQuest = Source & {
   recoveryBadge?: RecoveryBadge;
   ciQueued?: boolean;
   ciParticipated?: boolean;
+  reason?: string;
   activity?: ActivityProfile;
   activities?: ActivityCounts;
   stage: Stage;
@@ -457,22 +458,21 @@ export function selectIssueAutomation(
         latestAttempts.set(run.id, run);
     }
     const candidates = [...latestAttempts.values()].sort((a, b) => b.id - a.id);
-    const records = entry.records
-      .filter(({ state }) => {
-        const run = latestAttempts.get(state.runId);
-        if (!run) return true;
-        const attempt = state.attempt ?? 1;
-        return (
-          attempt > run.run_attempt ||
-          (attempt === run.run_attempt && run.conclusion !== 'skipped')
-        );
-      })
-      .sort(
-        (a, b) =>
-          b.state.runId - a.state.runId ||
-          (b.state.attempt ?? 1) - (a.state.attempt ?? 1) ||
-          Date.parse(b.comment.updated_at) - Date.parse(a.comment.updated_at),
+    entry.records.sort(
+      (a, b) =>
+        b.state.runId - a.state.runId ||
+        (b.state.attempt ?? 1) - (a.state.attempt ?? 1) ||
+        Date.parse(b.comment.updated_at) - Date.parse(a.comment.updated_at),
+    );
+    const records = entry.records.filter(({ state }) => {
+      const run = latestAttempts.get(state.runId);
+      if (!run) return true;
+      const attempt = state.attempt ?? 1;
+      return (
+        attempt > run.run_attempt ||
+        (attempt === run.run_attempt && run.conclusion !== 'skipped')
       );
+    });
 
     // A queued trigger hasn't taken over work from a checkpointed active run.
     const activeRecord = records.find(({ state }) => {
@@ -576,6 +576,8 @@ function currentPullCI(runs: Run[], region: Region, pull: Pull) {
 }
 
 const recoveryStages: Record<RecoveryBadge['kind'], Stage> = {
+  pending: 'queued',
+  failed: 'failed',
   waiting: 'queued',
   repairing: 'revising',
   checking: 'ci',
@@ -604,6 +606,8 @@ function pullRecoveryBadge(
       kind: 'stopped',
       reason: typeof state.reason === 'string' ? state.reason : undefined,
     };
+  if (state.status === 'failed')
+    return { kind: 'failed', reason: state.reason };
   if (!ci || ci.conclusion === 'success') return;
   const counts =
     repair &&
@@ -729,20 +733,18 @@ export function makeForges(
         ? 'complete'
         : cancelled
           ? 'idle'
-          : quality === 'failed' || quality === 'attention'
-            ? quality
-            : adventurers.some((member) => member.fallen)
-              ? 'failed'
-              : adventurers.some((member) => member.active === 'review')
-                ? 'reviewing'
-                : adventurers.some((member) => member.active === 'develop')
-                  ? relatedWork.some((quest) => quest.stage === 'revising')
-                    ? 'revising'
-                    : 'developing'
-                  : (quality ??
-                    (relatedWork.some((quest) => quest.stage === 'merging')
-                      ? 'merging'
-                      : 'idle'));
+          : adventurers.some((member) => member.fallen)
+            ? 'failed'
+            : adventurers.some((member) => member.active === 'review')
+              ? 'reviewing'
+              : adventurers.some((member) => member.active === 'develop')
+                ? relatedWork.some((quest) => quest.stage === 'revising')
+                  ? 'revising'
+                  : 'developing'
+                : (quality ??
+                  (relatedWork.some((quest) => quest.stage === 'merging')
+                    ? 'merging'
+                    : 'idle'));
       return {
         number: pull.number,
         title: pull.title,
@@ -755,6 +757,11 @@ export function makeForges(
           (cancelled ? (pull.closed_at ?? pull.updated_at) : undefined),
         issues: linkedPullIssues(pull, region, review),
         adventurers,
+        reason:
+          stage === 'failed' || stage === 'attention'
+            ? (relatedWork.find((quest) => quest.stage === stage)?.reason ??
+              (ci && `CI · ${ci.conclusion ?? ci.status}`))
+            : undefined,
         recoveryBadge,
         ciQueued:
           (quality === 'ci' || recoveryBadge?.kind === 'checking') &&
@@ -886,13 +893,33 @@ export function makeQuests(
         item.number === state?.pullNumber &&
         item.head.sha === state?.head,
     );
+    // A queued retry may not have written its own checkpoint yet. Only carry
+    // the previous PR association while its number and HEAD still match.
+    const pendingRetry =
+      run && runStage(run) === 'queued' && !record
+        ? selection?.records.find(
+            ({ state }) =>
+              state.runId < run.id ||
+              (state.runId === run.id &&
+                (state.attempt ?? 1) < run.run_attempt),
+          )?.state
+        : undefined;
+    const retryPull =
+      pendingRetry?.status === 'failed'
+        ? issuePulls.find(
+            (item) =>
+              item.state === 'open' &&
+              item.number === pendingRetry.pullNumber &&
+              item.head.sha === pendingRetry.head,
+          )
+        : undefined;
     const workPull =
       recordedPull ??
       (runPulls.length === 1
         ? runPulls[0]
         : headPulls.length === 1
           ? headPulls[0]
-          : undefined);
+          : retryPull);
     const pull = workPull ?? issuePulls[0];
     const ci = pull ? currentPullCI(runs, region, pull) : undefined;
     // Earlier CI attempts remain visible in Actions history after recovery changes the head.
@@ -1031,10 +1058,27 @@ export function makeQuests(
       detail = undefined;
     }
 
+    const queuedBadge: RecoveryBadge | undefined =
+      stage === 'queued' && issue.state === 'open'
+        ? {
+            kind:
+              run &&
+              (run.run_attempt > 1 ||
+                automation.some(
+                  (prior) =>
+                    prior.id < run.id && prior.conclusion === 'failure',
+                ) ||
+                pendingRetry?.status === 'failed')
+                ? 'waiting'
+                : 'pending',
+          }
+        : undefined;
     const recoveryBadge =
       recordedPull && issue.state === 'open'
-        ? pullRecoveryBadge(state, recordedPull, ci, run)
-        : undefined;
+        ? (pullRecoveryBadge(state, recordedPull, ci, run) ?? queuedBadge)
+        : workPull
+          ? queuedBadge
+          : undefined;
     if (recoveryBadge && evidence?.status !== 'ai:stop')
       stage = recoveryStages[recoveryBadge.kind];
     const adventurers = new Map<Agent, Adventurer>();
@@ -1199,7 +1243,7 @@ export function makeQuests(
           ? workPull?.number
           : undefined,
       recoveryBadge,
-      issueRecoveryBadge: issueStop ?? recoveryBadge,
+      issueRecoveryBadge: issueStop ?? recoveryBadge ?? queuedBadge,
       issueLeader,
       issueCIStatus,
       adventurers:

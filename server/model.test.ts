@@ -1981,6 +1981,67 @@ test('issue stops only on the selected checkpoint and does not stop other PRs', 
   );
 });
 
+test('only a confirmed queued retry marks the issue and its last verified PR as waiting', () => {
+  const failed = run(2, { status: 'completed', conclusion: 'failure' });
+  const pending = run(2, { id: failed.id + 1, status: 'pending' });
+  const checkpoint = comment(2, 'failed', {
+    pullNumber: pull.number,
+    reason: '검사 실패',
+  });
+  function observe(runs: Run[], comments: Comment[], current = pull) {
+    const quests = makeQuests(
+      commitTrail,
+      [issue(2)],
+      [current],
+      runs,
+      comments,
+      new Map(),
+      [],
+    );
+    const [facility] = makeForges(
+      commitTrail,
+      [current],
+      runs,
+      new Map(),
+      quests,
+    );
+    return [
+      quests[0].stage,
+      quests[0].issueRecoveryBadge?.kind,
+      facility.recoveryBadge?.kind,
+    ];
+  }
+  assert.deepEqual(observe([failed], [checkpoint]), [
+    'failed',
+    'failed',
+    'failed',
+  ]);
+  assert.deepEqual(observe([failed, pending], [checkpoint]), [
+    'queued',
+    'waiting',
+    'waiting',
+  ]);
+  assert.deepEqual(observe([pending], []), ['queued', 'pending', undefined]);
+  assert.deepEqual(
+    observe([failed, pending], [checkpoint], {
+      ...pull,
+      head: { ...pull.head, sha: mergeSha },
+    }),
+    ['queued', 'waiting', undefined],
+  );
+  const current = comment(2, 'developing', {
+    runId: pending.id,
+    pullNumber: pull.number,
+  });
+  assert.deepEqual(
+    observe(
+      [failed, { ...pending, status: 'in_progress' }],
+      [current, checkpoint],
+    ),
+    ['developing', undefined, undefined],
+  );
+});
+
 test('PR recovery follows the trusted PR, HEAD and CI attempt through repair', () => {
   const failed = run(2, {
     id: 500,
@@ -2098,7 +2159,10 @@ test('PR recovery follows the trusted PR, HEAD and CI attempt through repair', (
   );
   assert.equal(retryFailure.recoveryBadge, undefined);
   assert.equal(retryFailure.stage, 'failed');
-  assert.equal(forge('failed', {}).recoveryBadge, undefined);
+  assert.deepEqual(forge('failed', { reason: '실행 종료' }).recoveryBadge, {
+    kind: 'failed',
+    reason: '실행 종료',
+  });
   assert.deepEqual(
     forge('needs_human', { reason: '자동 수정 한도 도달' }).recoveryBadge,
     { kind: 'stopped', reason: '자동 수정 한도 도달' },

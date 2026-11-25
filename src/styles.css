@@ -1168,18 +1168,29 @@ svg {
   display: grid;
   margin-inline: 16px;
 }
-.monster-failure,
-.monster-recovery {
+.monster-marker-art > .monster-recovery {
   position: absolute;
   inset-block-start: 0;
   inset-inline-start: 100%;
 }
-.monster-failure {
-  color: #ffb3a6;
+.adventurer {
+  position: relative;
 }
-[data-recovery='stopped'] :is(.facility-recovery, .monster-recovery) {
-  color: #ffd4ce;
-  background: #813a35;
+.adventurer > :is(.monster-recovery, .facility-recovery) {
+  top: 0;
+  right: 0;
+  width: 14px;
+  height: 14px;
+}
+:is(.monster-recovery, .facility-recovery)[data-status='stopped'] {
+  color: #f4dbff;
+  background: #553563;
+}
+:is(.monster-recovery, .facility-recovery)[data-status='failed'] {
+  color: #ffaea9;
+  background: #722c2c;
+  fill: currentColor;
+  padding: 2px;
 }
 .facility-core > .aura-opinion {
   position: absolute;
@@ -1782,4 +1793,12 @@ svg {
 }
 .issue-dialog .activity-entry {
   overflow-wrap: anywhere;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  [data-display-mode='simple']
+    .map-viewport
+    :is(.adventurer-glyph.active .adventurer-avatar, .working-party-leader) {
+    animation: forge-test 1.6s ease-in-out infinite !important;
+  }
 }

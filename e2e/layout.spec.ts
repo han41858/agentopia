@@ -322,7 +322,7 @@ test.describe('월드맵 배치 순서', () => {
     });
     const issue = (scope: Locator, number: number) =>
       scope.getByTitle(new RegExp(`^이슈 #${number} · `));
-    const failure = kingdom.locator('[data-road-pr="99"] .facility-result');
+    const failure = kingdom.locator('[data-road-pr="99"] .facility-recovery');
 
     async function expectLeftToRight(label: string, markers: Locator[]) {
       const centers: number[] = [];
