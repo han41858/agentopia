@@ -235,7 +235,7 @@ svg {
   flex-wrap: wrap;
   align-items: flex-start;
   justify-content: center;
-  gap: clamp(12px, 2vw, 24px);
+  gap: clamp(12px, 2vw, 24px) clamp(12px, 2vw, 18px);
 }
 .kingdom-area {
   --courtyard: color-mix(in oklch, var(--land) 20%, transparent);
@@ -289,7 +289,7 @@ svg {
 .kingdom-label {
   /* Use the palace sprite's transparent foot without shrinking the button. */
   position: relative;
-  inset-block-start: -4px;
+  inset-block-start: -6px;
   min-width: 0;
   overflow-wrap: anywhere;
 }
@@ -1216,10 +1216,15 @@ svg {
 .kingdom-area:has(.kingdom-workshops) {
   padding-bottom: 12px;
 }
+.kingdom-region:has(.heritage-slot),
 .kingdom-area:has(.heritage-slot) {
-  padding-top: 52px;
-  padding-inline: 40px;
-  min-width: min(100%, 285px);
+  min-width: min(100%, 261px);
+}
+.kingdom-area:has(.heritage-slot) {
+  /* Flatten the arch so the outer monuments still clear the wall. */
+  --kingdom-arch-depth: 56;
+  padding-top: 38px;
+  padding-inline: 28px;
 }
 .heritage-arc {
   display: grid;
@@ -1322,15 +1327,20 @@ svg {
 .branch-roads {
   display: grid;
   justify-items: center;
-  row-gap: 6px;
-  margin: 3px auto 14px;
+  row-gap: var(--branch-plaza-gap, 6px);
+  margin: 3px auto var(--branch-facility-gap, 14px);
 }
 .branch-roads:empty {
   margin: 0;
 }
 .branch-roads:has(.branch-bridge) {
   /* Use the transparent space above the bridge; keep it joined to the plaza. */
-  margin-block: -6px 11px;
+  margin-block: -10px var(--branch-facility-gap, 11px);
+}
+.branch-roads:has(.branch-plaza):has(.branch-road-row:only-child) {
+  /* Keep the regular spacing when another tier or a branch list is present. */
+  --branch-plaza-gap: 2px;
+  --branch-facility-gap: 3px;
 }
 .branch-plaza,
 .branch-road-tiers {

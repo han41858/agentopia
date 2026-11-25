@@ -11,24 +11,31 @@ export function KingdomWall() {
     const area = wall?.parentElement;
     if (!wall || !area) return;
     const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
-    let previous: { width: number; height: number } | undefined;
+    let previous:
+      { width: number; height: number; archDepth: number } | undefined;
     let motion: Animation | undefined;
 
     function measure() {
       if (!wall || !area) return;
       const width = area.offsetWidth;
       const height = area.offsetHeight;
+      const archDepth =
+        Number.parseFloat(
+          getComputedStyle(area).getPropertyValue('--kingdom-arch-depth'),
+        ) || 104;
       if (
         !width ||
         !height ||
-        (previous?.width === width && previous.height === height)
+        (previous?.width === width &&
+          previous.height === height &&
+          previous.archDepth === archDepth)
       )
         return;
       const insideWidth = Math.max(1, width - 16);
       const insideHeight = Math.max(1, height - 16);
       wall.setAttribute('viewBox', `0 0 ${width} ${height}`);
       const rx = insideWidth * 0.48;
-      const ry = Math.min(insideHeight * 0.48, 104);
+      const ry = Math.min(insideHeight * 0.48, archDepth);
       const right = 8 + insideWidth;
       const bottom = 8 + insideHeight;
       outline.current?.setAttribute(
@@ -57,7 +64,7 @@ export function KingdomWall() {
           { duration: 240, easing: 'cubic-bezier(.2,.75,.28,1)' },
         );
       }
-      previous = { width, height };
+      previous = { width, height, archDepth };
     }
 
     measure();

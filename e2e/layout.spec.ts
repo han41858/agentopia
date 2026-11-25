@@ -285,10 +285,13 @@ test.describe('창 너비에 따른 왕국 줄바꿈', () => {
       const columnGap = await page.locator('.kingdoms').evaluate((node) => {
         return Number.parseFloat(getComputedStyle(node).columnGap);
       });
+      const regions = page.locator('.kingdoms > .kingdom-region');
       const requiredWidth =
-        wide.reduce((sum, box) => sum + box.width, 0) +
+        (await boxes(regions)).reduce((sum, box) => sum + box.width, 0) +
         (wide.length - 1) * columnGap;
-      expect(requiredWidth).toBeGreaterThan(1160);
+      const [wideMap] = await boxes(page.locator('.kingdoms'));
+      expect(columnGap).toBe(18);
+      expect(requiredWidth).toBeLessThanOrEqual(wideMap.width + 1);
       for (const [index, box] of wide.entries()) {
         expect(box.y).toBeCloseTo(wide[0].y, 1);
         if (index > 0) expect(box.x).toBeGreaterThan(wide[index - 1].x);
@@ -296,6 +299,8 @@ test.describe('창 너비에 따른 왕국 줄바꿈', () => {
       expect(overlappingPairs(wide)).toEqual([]);
 
       await page.setViewportSize({ width: 1200, height: 800 });
+      const [narrowMap] = await boxes(page.locator('.kingdoms'));
+      expect(requiredWidth).toBeGreaterThan(narrowMap.width);
       const narrow = await boxes(areas);
       expect(narrow[3].y).toBeGreaterThan(narrow[0].y);
       expect(overlappingPairs(narrow)).toEqual([]);
@@ -435,9 +440,9 @@ for (const width of [1280, 390, 320]) {
         const [currentWithoutBridge] = await boxes(withoutBridge);
         const previousSpacing = await page.addStyleTag({
           content: `
-            .kingdom-area:has(.heritage-slot) { padding-top: 54px; }
-            .kingdom-label { inset-block-start: -2px; }
-            .branch-roads:has(.branch-bridge) { margin-block-start: -2px; }
+            .kingdom-area:has(.heritage-slot) { padding-top: 52px; }
+            .kingdom-label { inset-block-start: -4px; }
+            .branch-roads:has(.branch-bridge) { margin-block-start: -6px; }
           `,
         });
         const previousHeritage = await heritageArtGaps(area);
@@ -464,6 +469,80 @@ for (const width of [1280, 390, 320]) {
         expect(currentWithoutBridge.height).toBe(previousWithoutBridge.height);
       }
     });
+
+    if (!touch) {
+      test('같은 장면에서 성벽 크기와 왕국 사이 가로 간격이 줄어든다', async ({
+        page,
+      }, testInfo) => {
+        const walls = page.locator('.kingdoms .kingdom-wall');
+        const heritageWall = page.locator(
+          '.kingdom-area:has(.heritage-slot) > .kingdom-wall',
+        );
+        const regions = page.locator('.kingdoms > .kingdom-region');
+        await expect(walls).toHaveCount(2);
+        await expect(heritageWall).toHaveCount(1);
+        await page.evaluate(async () => {
+          await document.fonts.ready;
+        });
+
+        const measure = async () => {
+          const [wall] = await boxes(heritageWall);
+          const [leftWall, rightWall] = await boxes(walls);
+          const [left, right] = await boxes(regions);
+          expect(right.y).toBeCloseTo(left.y, 1);
+          return {
+            width: wall.width,
+            height: wall.height,
+            wallGap: rightWall.x - (leftWall.x + leftWall.width),
+            regionGap: right.x - (left.x + left.width),
+          };
+        };
+
+        for (const mode of ['world', 'simple']) {
+          if (mode === 'simple') await switchToSimple(page, touch);
+          const after = await measure();
+          const baseline = await page.addStyleTag({
+            content: `
+              .kingdoms { column-gap: clamp(12px, 2vw, 24px); }
+              .kingdom-region:has(.heritage-slot),
+              .kingdom-area:has(.heritage-slot) { min-width: min(100%, 285px); }
+              .kingdom-area:has(.heritage-slot) {
+                --kingdom-arch-depth: 104;
+                padding-top: 52px;
+                padding-inline: 40px;
+              }
+              .kingdom-label { inset-block-start: -4px; }
+              .branch-roads { row-gap: 6px; margin-block-end: 14px; }
+              .branch-roads:empty { margin: 0; }
+              .branch-roads:has(.branch-bridge) { margin-block: -6px 11px; }
+            `,
+          });
+          const before = await measure();
+          await baseline.evaluate((node) => node.remove());
+
+          await testInfo.attach(`kingdom-spacing-${mode}`, {
+            body: JSON.stringify(
+              { viewportWidth: width, before, after },
+              null,
+              2,
+            ),
+            contentType: 'application/json',
+          });
+          expect(before.regionGap).toBeCloseTo(24, 1);
+          expect(after.regionGap).toBeCloseTo(18, 1);
+          expect(after.wallGap).toBeLessThan(before.wallGap);
+          expect(after.width).toBeLessThan(before.width);
+          const singleTier = page.locator(
+            '.kingdom-area:has(.heritage-slot) .branch-road-row:only-child',
+          );
+          const expectedReduction = (await singleTier.count()) ? 30 : 18;
+          expect(before.height - after.height).toBeCloseTo(
+            expectedReduction,
+            0,
+          );
+        }
+      });
+    }
 
     test('두 모드에서 도로가 짧아져도 분기와 PR 시설에 연결된다', async ({
       page,
@@ -658,8 +737,8 @@ for (const width of [1280, 390, 320]) {
         await previousSpacing.evaluate((node) => {
           node.parentNode?.removeChild(node);
         });
-        expect(previous.above - gaps.above).toBeGreaterThanOrEqual(6);
-        expect(previous.above - gaps.above).toBeLessThanOrEqual(10);
+        expect(previous.above - gaps.above).toBeGreaterThanOrEqual(20);
+        expect(previous.above - gaps.above).toBeLessThanOrEqual(24);
         expect(previous.below - gaps.below).toBeGreaterThanOrEqual(4);
         expect(previous.below - gaps.below).toBeLessThanOrEqual(8);
       }
@@ -692,22 +771,31 @@ for (const width of [1280, 390, 320]) {
       await expect(area.locator('.heritage-slot[data-tier="5"]')).toHaveCount(
         4,
       );
-      const gaps = await heritageArtGaps(area);
-      expect(gaps.above).toBeGreaterThan(0);
-      // 유산 그림의 아래쪽에 칠해지는 1px 그림자도 왕궁에 닿지 않습니다.
-      expect(gaps.below).toBeGreaterThan(1);
+      for (const mode of ['world', 'simple']) {
+        if (mode === 'simple') await switchToSimple(page, touch);
+        const gaps = await heritageArtGaps(area);
+        expect(gaps.above).toBeGreaterThan(0);
+        // 유산 그림 아래 1px 그림자도 왕궁에 닿지 않습니다.
+        expect(gaps.below).toBeGreaterThan(1);
 
-      const slotBoxes = await boxes(slots);
-      expect(
-        overlappingPairs([
-          ...slotBoxes,
-          ...(await boxes(area.locator('.kingdom'))),
-        ]),
-      ).toEqual([]);
-      if (touch) {
-        for (const box of slotBoxes) {
-          expect(box.width).toBeGreaterThanOrEqual(touchTarget - 0.1);
-          expect(box.height).toBeGreaterThanOrEqual(touchTarget - 0.1);
+        const slotBoxes = await boxes(slots);
+        expect(
+          overlappingPairs([
+            ...slotBoxes,
+            ...(await boxes(area.locator('.kingdom'))),
+          ]),
+        ).toEqual([]);
+        const overflow = await page.evaluate(
+          () =>
+            document.documentElement.scrollWidth -
+            document.documentElement.clientWidth,
+        );
+        expect(overflow).toBeLessThanOrEqual(0);
+        if (touch) {
+          for (const box of slotBoxes) {
+            expect(box.width).toBeGreaterThanOrEqual(touchTarget - 0.1);
+            expect(box.height).toBeGreaterThanOrEqual(touchTarget - 0.1);
+          }
         }
       }
     });
