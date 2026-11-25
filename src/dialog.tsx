@@ -102,7 +102,7 @@ export function Dialog({
     }
 
     let frame = 0;
-    function scheduleUpdate() {
+    const scheduleUpdate = () => {
       if (frame) return;
       frame = window.requestAnimationFrame(() => {
         frame = 0;
@@ -139,7 +139,7 @@ export function Dialog({
           body.scrollTop += field.bottom - visible.bottom;
         }
       });
-    }
+    };
 
     scheduleUpdate();
     viewport.addEventListener('resize', scheduleUpdate);
