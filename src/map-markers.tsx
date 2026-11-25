@@ -148,6 +148,7 @@ export function MonsterMarker({
     defeated ? '이슈 닫힘' : quest.reopened ? '이슈 다시 열림' : '이슈 열림',
     quest.stage !== 'idle' ? markerStageLabels[quest.stage] : undefined,
     quest.victory ? '연결된 PR 병합됨' : undefined,
+    quest.issueLeader ? 'GitHub Actions · 파티장' : undefined,
     ...members.map(markerMemberLabel),
   ]
     .filter(Boolean)
@@ -186,7 +187,7 @@ export function MonsterMarker({
       <AdventurerParty
         members={members}
         resting={resting}
-        leader={quest.stage === 'ci' ? 'active' : undefined}
+        leader={quest.issueLeader}
         showTitles={false}
       />
     </button>
