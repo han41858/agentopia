@@ -9,8 +9,9 @@ import {
   Swords,
   Skull,
   Trophy,
-  TriangleAlert,
-  OctagonPause,
+  Pause,
+  CircleHelp,
+  Square,
 } from 'lucide-react';
 import { stages } from '../server/model.ts';
 import type {
@@ -90,10 +91,12 @@ function markerMemberLabel(member: NonNullable<Quest['adventurers']>[number]) {
 function recoveryTooltip(title: string, badge?: RecoveryBadge) {
   if (!badge) return title;
   const name = {
-    waiting: '자동 수정 대기',
+    pending: '실행 대기',
+    waiting: '재시도 대기',
+    failed: '최종 실패',
     repairing: '자동 수정 중',
     checking: '수정 후 CI 재검사 중',
-    stopped: '작업 중단',
+    stopped: '사람 확인 필요',
   }[badge.kind];
   return [
     title,
@@ -114,9 +117,38 @@ function RecoveryGlyph({
   badge: RecoveryBadge;
   className: string;
 }) {
-  if (badge.kind !== 'stopped' && badge.kind !== 'waiting') return null;
-  const Icon = badge.kind === 'stopped' ? OctagonPause : TriangleAlert;
-  return <Icon className={className} size={16} aria-hidden="true" />;
+  const Icon = {
+    pending: Pause,
+    waiting: Pause,
+    failed: Square,
+    stopped: CircleHelp,
+    repairing: null,
+    checking: null,
+  }[badge.kind];
+  return (
+    Icon && (
+      <Icon
+        className={className}
+        data-status={badge.kind}
+        size={14}
+        aria-hidden="true"
+      />
+    )
+  );
+}
+
+function markerBadge(
+  stage: Stage,
+  recovery?: RecoveryBadge,
+  reason?: string,
+  ciQueued = false,
+): RecoveryBadge | undefined {
+  if (ciQueued && (!recovery || recovery.kind === 'checking'))
+    return { kind: recovery ? 'waiting' : 'pending' };
+  if (recovery) return recovery;
+  if (stage === 'queued') return { kind: 'pending' };
+  if (stage === 'failed') return { kind: 'failed', reason };
+  if (stage === 'attention') return { kind: 'stopped', reason };
 }
 
 const issueCILabels: Record<NonNullable<Quest['issueCIStatus']>, string> = {
@@ -146,7 +178,17 @@ export function MonsterMarker({
   const defeated = quest.state === 'closed';
   const members = quest.adventurers ?? [];
   const resting = monsterRest(quest);
-  const badge = quest.issueRecoveryBadge;
+  const badge = !defeated
+    ? markerBadge(
+        quest.stage,
+        quest.issueRecoveryBadge,
+        quest.reason,
+        quest.issueCIStatus === 'waiting',
+      )
+    : undefined;
+  const badgeGlyph = badge && (
+    <RecoveryGlyph badge={badge} className="monster-recovery" />
+  );
   const tooltip = recoveryTooltip(
     `이슈 #${quest.number} · ${quest.title}`,
     badge,
@@ -197,16 +239,14 @@ export function MonsterMarker({
           reopened={quest.reopened}
           commits={quest.activity?.commits}
         />
-        {badge && <RecoveryGlyph badge={badge} className="monster-recovery" />}
-        {!badge && alerts.has(quest.stage) && (
-          <Skull className="monster-failure" size={13} aria-hidden="true" />
-        )}
+        {!members.length && !quest.issueLeader && badgeGlyph}
       </span>
       <small className="expedition-number">{`#${quest.number}`}</small>
       <AdventurerParty
         members={members}
         resting={resting}
         leader={quest.issueLeader}
+        badge={badgeGlyph}
         showTitles={false}
       />
     </button>
@@ -293,7 +333,15 @@ export function FacilityMarker({
     (member) => member.active && !member.fallen,
   );
   const leader = partyLeaderState(pull);
-  const badge = pull.recoveryBadge;
+  const badge = markerBadge(
+    pull.stage,
+    pull.recoveryBadge,
+    pull.reason,
+    pull.stage === 'ci' && pull.ciQueued,
+  );
+  const badgeGlyph = badge && (
+    <RecoveryGlyph badge={badge} className="facility-recovery" />
+  );
   const tooltip = recoveryTooltip(`PR #${pull.number} · ${pull.title}`, badge);
   const label = [
     tooltip,
@@ -354,18 +402,14 @@ export function FacilityMarker({
           {pull.stage === 'merging' && (
             <GitPullRequest className="facility-result" size={13} />
           )}
-          {badge && (
-            <RecoveryGlyph badge={badge} className="facility-recovery" />
-          )}
-          {!badge && alerts.has(pull.stage) && (
-            <Skull className="facility-result" size={13} />
-          )}
+          {!members.length && !leader && badgeGlyph}
         </span>
       </ActivityAura>
       <small className="expedition-number">{`PR #${pull.number}`}</small>
       <AdventurerParty
         members={members}
         leader={leader}
+        badge={badgeGlyph}
         resting="대기"
         forge
         showTitles={false}

@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { objectSizes, monsterSize } from './object-sizes.ts';
 import { WorldArt } from './world-art.tsx';
 import { Hammer, ScrollText, Swords, X } from 'lucide-react';
@@ -92,6 +93,7 @@ export function AdventurerParty({
   leader,
   forge = false,
   showTitles = true,
+  badge,
 }: {
   members: Adventurer[];
   resting: string;
@@ -99,6 +101,7 @@ export function AdventurerParty({
   leader?: 'active' | 'resting';
   forge?: boolean;
   showTitles?: boolean;
+  badge?: ReactNode;
 }) {
   if (!leader && !members.length) return null;
   return (
@@ -115,10 +118,11 @@ export function AdventurerParty({
                 : 'resting-party-leader'
             }
           />
+          {!members.length && badge}
           {detailed && <strong>{partyLeaderLabel(leader)}</strong>}
         </span>
       )}
-      {members.map((member) => (
+      {members.map((member, index) => (
         <span
           className="adventurer"
           key={member.agent}
@@ -130,6 +134,7 @@ export function AdventurerParty({
             fallen={member.fallen}
             forge={forge}
           />
+          {index === members.length - 1 && badge}
           {detailed && (
             <span>
               <strong>{partyLabel(member, resting)}</strong>

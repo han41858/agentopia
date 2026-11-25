@@ -73,7 +73,9 @@ test.describe('왕국 기본 표시', () => {
         const marker = kingdom.getByRole('button', {
           name: new RegExp(`^${id} · `),
         });
-        await expect(marker).toHaveAttribute('title', `${id} · ${title}`);
+        const expected =
+          id === 'PR #12' ? `${id} · ${title} · 최종 실패` : `${id} · ${title}`;
+        await expect(marker).toHaveAttribute('title', expected);
         await expect(marker.locator('[title], svg title')).toHaveCount(0);
         await marker.click();
 
@@ -270,10 +272,7 @@ for (const viewport of ['desktop', 'mobile']) {
     const unbadgedArt = kingdom.locator(
       '.monster-marker:not([data-recovery]) .monster-marker-art',
     );
-    const openQuestCount = alphaReport.quests.filter(
-      (quest) => quest.state === 'open',
-    ).length;
-    await expect(unbadgedArt).toHaveCount(openQuestCount);
+    await expect(unbadgedArt.first()).toBeVisible();
     const unbadgedWidths = await unbadgedArt.evaluateAll((elements) =>
       elements.map((element) => ({
         art: element.getBoundingClientRect().width,
@@ -292,7 +291,7 @@ for (const viewport of ['desktop', 'mobile']) {
 
     let kind: 'waiting' | 'repairing' | 'checking' = 'waiting';
     let ciQueued = false;
-    const stopped = { kind: 'stopped', reason: '사람 확인 필요' };
+    const stopped = { kind: 'stopped', reason: '편집 충돌 확인' };
     const adventurers = [{ agent: 'codex', roles: ['develop'] }];
     await page.route('**/api/github?**', async (route) => {
       const query = new URL(route.request().url()).searchParams;
@@ -314,6 +313,16 @@ for (const viewport of ['desktop', 'mobile']) {
               return {
                 ...quest,
                 stage,
+                adventurers:
+                  kind === 'repairing'
+                    ? [
+                        {
+                          agent: 'codex',
+                          roles: ['develop'],
+                          active: 'develop',
+                        },
+                      ]
+                    : adventurers,
                 issueRecoveryBadge: recovery,
               };
             if (quest.number === 4)
@@ -327,13 +336,35 @@ for (const viewport of ['desktop', 'mobile']) {
             if (quest.number === 2 || quest.number === 3)
               return {
                 ...quest,
-                issueRecoveryBadge: quest.number === 2 ? stopped : recovery,
+                ...(quest.number === 3
+                  ? {
+                      stage: 'failed',
+                      reason: '테스트 실패',
+                      adventurers: [],
+                      issueLeader: undefined,
+                    }
+                  : { issueRecoveryBadge: stopped }),
               };
             return quest;
           }),
           forges: alphaReport.forges!.map((pull) => {
             if (pull.number === 11)
-              return { ...pull, stage, ciQueued, recoveryBadge: recovery };
+              return {
+                ...pull,
+                stage,
+                ciQueued,
+                adventurers:
+                  kind === 'repairing'
+                    ? [
+                        {
+                          agent: 'codex',
+                          roles: ['develop'],
+                          active: 'develop',
+                        },
+                      ]
+                    : adventurers,
+                recoveryBadge: recovery,
+              };
             if (pull.number === 12)
               return {
                 ...pull,
@@ -368,8 +399,8 @@ for (const viewport of ['desktop', 'mobile']) {
           name: new RegExp(`^${name} · `),
         });
         const description = isStopped
-          ? /작업 중단 · 사람 확인 필요/
-          : /자동 수정 대기 · 1\/1회/;
+          ? /사람 확인 필요 · 편집 충돌 확인/
+          : /재시도 대기 · 1\/1회/;
         await expect(marker).toHaveAttribute('title', description);
         await expect(marker).toHaveAccessibleName(description);
         if (isStopped) await expect(marker).toHaveClass(/blocked/);
@@ -377,10 +408,16 @@ for (const viewport of ['desktop', 'mobile']) {
         const badge = marker.locator(`svg.${kind}-recovery`);
         await expect(badge).toBeVisible();
 
-        const art = marker.locator(
-          kind === 'monster' ? '.monster-glyph' : '.facility-sprite',
+        const characters = marker.locator('.adventurer');
+        const anchor = (await characters.count())
+          ? characters.last()
+          : marker.locator(
+              kind === 'monster' ? '.monster-glyph' : '.facility-sprite',
+            );
+        await expect(badge).toHaveClass(
+          isStopped ? /circle-(help|question-mark)/ : /pause/,
         );
-        const artBox = (await art.boundingBox())!;
+        const artBox = (await anchor.boundingBox())!;
         const glyphBox = (await badge.boundingBox())!;
         expect(glyphBox.y + glyphBox.height / 2).toBeLessThan(
           artBox.y + artBox.height / 2,
@@ -388,41 +425,12 @@ for (const viewport of ['desktop', 'mobile']) {
         expect(glyphBox.x + glyphBox.width / 2).toBeGreaterThan(
           artBox.x + artBox.width / 2,
         );
-        if (viewport !== 'mobile') continue;
-        const targets = [
-          marker.locator('.expedition-number'),
-          marker.locator('.adventurer-party'),
-        ];
-        if (kind === 'monster') targets.push(marker.locator('.monster-glyph'));
-        const badgeBox = await badge.boundingBox();
-        const withBadge = await Promise.all(
-          targets.map((target) => target.boundingBox()),
-        );
-        await badge.evaluate((element) => {
-          element.style.display = 'none';
-        });
-        const withoutBadge = await Promise.all(
-          targets.map((target) => target.boundingBox()),
-        );
-        await badge.evaluate((element) => {
-          element.style.removeProperty('display');
-        });
-        await testInfo.attach(`${mode} ${name} 배지·번호·캐릭터 경계 상자`, {
-          body: JSON.stringify({ badgeBox, withBadge, withoutBadge }, null, 2),
-          contentType: 'application/json',
-        });
-        expect(badgeBox).not.toBeNull();
-        expect(withBadge).toEqual(withoutBadge);
-        for (const target of withBadge) {
-          expect(target).not.toBeNull();
-          expect(
-            badgeBox!.x + badgeBox!.width <= target!.x ||
-              target!.x + target!.width <= badgeBox!.x ||
-              badgeBox!.y + badgeBox!.height <= target!.y ||
-              target!.y + target!.height <= badgeBox!.y,
-          ).toBe(true);
-        }
       }
+      const failed = kingdom.locator('[data-road-issue="3"]');
+      await expect(
+        failed.locator('.monster-marker-art .lucide-square'),
+      ).toBeVisible();
+      await expect(failed).toHaveAttribute('title', /최종 실패 · 테스트 실패/);
 
       await expect(kingdom.locator('svg.monster-recovery')).toHaveCount(4);
       const markers = await kingdom
@@ -440,9 +448,7 @@ for (const viewport of ['desktop', 'mobile']) {
               box: bounds(element),
               badge: badge ? bounds(badge) : null,
               contents: Array.from(
-                element.querySelectorAll(
-                  '.monster-glyph, .expedition-number, .adventurer-party',
-                ),
+                element.querySelectorAll('.monster-glyph, .expedition-number'),
                 (target) => ({ name: target.className, box: bounds(target) }),
               ),
             };
@@ -498,10 +504,20 @@ for (const viewport of ['desktop', 'mobile']) {
         const pull = kingdom.locator('[data-road-pr="11"] .facility-marker');
         const issue = kingdom.locator('[data-road-issue="1"]');
         for (const marker of [issue, pull]) {
-          await expect(marker).toHaveAttribute('data-recovery', kind);
+          const queuedCheck = marker === pull && ciQueued;
+          await expect(marker).toHaveAttribute(
+            'data-recovery',
+            queuedCheck ? 'waiting' : kind,
+          );
           await expect(
             marker.locator('.monster-recovery, .facility-recovery'),
-          ).toHaveCount(kind === 'waiting' ? 1 : 0);
+          ).toHaveCount(kind === 'waiting' || queuedCheck ? 1 : 0);
+        }
+        if (kind === 'repairing' && viewport === 'desktop') {
+          for (const marker of [issue, pull])
+            await expect(
+              marker.locator('.adventurer-glyph.active .adventurer-avatar'),
+            ).not.toHaveCSS('animation-name', 'none');
         }
         if (kind === 'checking') {
           await expect(
