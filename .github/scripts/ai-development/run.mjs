@@ -1088,17 +1088,39 @@ before에는 정확히 한 곳에 일치하는 원문을, after에는 대체할 
           };
           await reserve('pull', 'developing', '초안 PR 생성을 예약했습니다.');
           await checkBase(baseSha);
-          pull = await repo('/pulls', {
-            method: 'POST',
-            publish: true,
-            body: {
-              title,
-              head: branch,
-              base,
-              draft: true,
-              body: draftBody,
-            },
-          });
+          for (let attempt = 0; ; attempt++) {
+            try {
+              pull = await repo('/pulls', {
+                method: 'POST',
+                publish: true,
+                body: {
+                  title,
+                  head: branch,
+                  base,
+                  draft: true,
+                  body: draftBody,
+                },
+              });
+              break;
+            } catch (error) {
+              if (!(error.status >= 500 && error.status < 600)) throw error;
+              await guard(recovery.issue);
+              const existing = await openPull();
+              if (existing) {
+                if (
+                  existing.head.sha !== head ||
+                  existing.title !== title ||
+                  existing.body !== draftBody ||
+                  (await ref(branch)) !== head
+                )
+                  throw new Stop('생성 예약과 실제 PR이 일치하지 않습니다.');
+                pull = existing;
+                break;
+              }
+              if (attempt >= 1) throw error;
+              await checkBase(baseSha);
+            }
+          }
           state.pullNumber = pull.number;
           recovery.pull = pullIdentity(pull);
           delete recovery.draft;

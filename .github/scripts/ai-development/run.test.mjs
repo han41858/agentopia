@@ -15,6 +15,8 @@ for (const testCase of [
   'duplicate',
   'journal-before-write',
   'journal-after-write',
+  'pr-service-before',
+  'pr-service-after',
   'journal-unavailable',
   'journal-conflicting',
   'output-recovery',
@@ -189,6 +191,7 @@ for (const testCase of [
       );
     }
     let journalPosts = 0;
+    let prPosts = 0;
     t.mock.method(globalThis, 'fetch', async (url, options) => {
       const { hostname, pathname, searchParams } = new URL(url);
       const body = options.body && JSON.parse(options.body);
@@ -489,6 +492,9 @@ for (const testCase of [
         assert.equal(pr, undefined);
         if (scenario === 'interrupted-before-pr' && !resumed)
           throw Error('not accepted');
+        prPosts++;
+        if (scenario === 'pr-service-before' && prPosts === 1)
+          return Response.json({}, { status: 500 });
         creations++;
         pr = {
           number: 23,
@@ -500,6 +506,8 @@ for (const testCase of [
         };
         if (scenario === 'interrupted-created-pr' && !resumed)
           throw Error('lost response');
+        if (scenario === 'pr-service-after' && prPosts === 1)
+          return Response.json({}, { status: 500 });
         return Response.json(pr);
       }
       if (path === '/issues/23/comments') {
@@ -609,6 +617,13 @@ for (const testCase of [
     )
       await assert.rejects(import(runner + '?first'));
     else await import(runner + '?first');
+    if (scenario.startsWith('pr-service-')) {
+      assert.equal(saved().status, 'ready');
+      assert.equal(prPosts, scenario === 'pr-service-after' ? 1 : 2);
+      assert.equal(developmentCalls, 1);
+      assert.equal(creations, 1);
+      return;
+    }
     if (scenario.startsWith('journal-')) {
       assert.equal(saved().status, 'ready');
       assert.equal(journalPosts, scenario === 'journal-after-write' ? 1 : 2);
