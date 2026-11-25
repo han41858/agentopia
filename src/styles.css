@@ -289,7 +289,7 @@ svg {
 .kingdom-label {
   /* Use the palace sprite's transparent foot without shrinking the button. */
   position: relative;
-  inset-block-start: -2px;
+  inset-block-start: -4px;
   min-width: 0;
   overflow-wrap: anywhere;
 }
@@ -1217,7 +1217,7 @@ svg {
   padding-bottom: 12px;
 }
 .kingdom-area:has(.heritage-slot) {
-  padding-top: 54px;
+  padding-top: 52px;
   padding-inline: 40px;
   min-width: min(100%, 285px);
 }
@@ -1322,7 +1322,7 @@ svg {
 .branch-roads {
   display: grid;
   justify-items: center;
-  gap: 9px;
+  row-gap: 6px;
   margin: 3px auto 14px;
 }
 .branch-roads:empty {
@@ -1330,13 +1330,13 @@ svg {
 }
 .branch-roads:has(.branch-bridge) {
   /* Use the transparent space above the bridge; keep it joined to the plaza. */
-  margin-block-start: -2px;
+  margin-block: -6px 11px;
 }
 .branch-plaza,
 .branch-road-tiers {
   display: grid;
   justify-items: center;
-  gap: 8px;
+  row-gap: 5px;
   width: 100%;
 }
 .branch-plaza {
