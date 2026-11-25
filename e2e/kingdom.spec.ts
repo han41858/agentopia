@@ -337,6 +337,185 @@ test.describe('왕국 기본 표시', () => {
     });
   }
 
+  for (const mode of ['world', 'simple'] as const) {
+    for (const width of [1100, 390]) {
+      test(`${mode} ${width}px: 강조된 PR·이슈 연결선이 부모 마커를 우회한다`, async ({
+        page,
+      }, testInfo) => {
+        await page.setViewportSize({ width, height: 900 });
+        await page.emulateMedia({ reducedMotion: 'reduce' });
+        await openWorld(page, [alpha], mode);
+        await page.route('**/api/github?**', async (route) => {
+          const params = new URL(route.request().url()).searchParams;
+          if (
+            params.get('repo') !== alpha ||
+            ['owner', 'heritage', 'summary', 'activity', 'repository'].some(
+              (key) => params.has(key),
+            )
+          ) {
+            await route.fallback();
+            return;
+          }
+          await route.fulfill({
+            json: {
+              ...alphaReport,
+              quests: alphaReport.quests.filter(({ number }) => number <= 3),
+              forges: alphaReport.forges!.map((pull) =>
+                pull.number === 12 ? { ...pull, issues: [2, 3] } : pull,
+              ),
+            },
+          });
+        });
+        await page.reload();
+        await expect(page.locator('[data-display-mode]')).toHaveAttribute(
+          'data-display-mode',
+          mode,
+        );
+        const kingdom = page.getByRole('region', {
+          name: 'alpha',
+          exact: true,
+        });
+        const issue = (number: number) =>
+          kingdom.locator(`[data-road-issue="${number}"]`);
+        const road = (pull: number, target: number) =>
+          kingdom.locator(`[data-road-key="pr-${pull}-issue-${target}"]`);
+        const blocked = road(12, 2);
+        const clear = road(12, 3);
+        const unrelated = road(11, 1);
+        const pull = kingdom.getByRole('button', { name: /^PR #12 · / });
+        await expect(blocked).toBeAttached();
+        await expect(clear).toBeAttached();
+        await expect(unrelated).toBeAttached();
+
+        // Pin the real click targets relative to the measured PR marker so the
+        // collision is reproducible in both modes regardless of sprite size.
+        await kingdom.evaluate((region) => {
+          (region as HTMLElement).style.paddingBottom = '240px';
+          const area = region.getBoundingClientRect();
+          const facility = region
+            .querySelector('[data-road-pr="12"]')!
+            .getBoundingClientRect();
+          const x = facility.left + facility.width / 2;
+          function place(number: number, centerX: number, top: number) {
+            const marker = region.querySelector<HTMLElement>(
+              `[data-road-issue="${number}"]`,
+            )!;
+            const rect = marker.getBoundingClientRect();
+            marker.style.translate = `${centerX - rect.left - rect.width / 2}px ${top - rect.top}px`;
+            return marker.getBoundingClientRect();
+          }
+          const side = x < area.left + area.width / 2 ? 1 : -1;
+          const clearTarget = place(3, x + side * 100, facility.bottom + 22);
+          // Keep the parent between the anchors, never on top of either one.
+          const parent = place(
+            1,
+            x,
+            Math.max(facility.bottom + 95, clearTarget.bottom + 24),
+          );
+          const blockedTarget = place(2, x, parent.bottom + 44);
+          (region as HTMLElement).style.paddingBottom =
+            `${240 + Math.max(0, blockedTarget.bottom + 12 - area.bottom)}px`;
+          // Trigger the same remeasurement as a change to the marker list.
+          region
+            .querySelector('[data-road-issue="1"]')!
+            .closest('ul')!
+            .append(document.createComment('measure pinned markers'));
+        });
+
+        const geometry = () =>
+          blocked.evaluate((element) => {
+            const path = element as unknown as SVGPathElement;
+            const region = path.closest('.kingdom-region')!;
+            const origin = region.getBoundingClientRect();
+            const parent = region
+              .querySelector('[data-road-issue="1"]')!
+              .getBoundingClientRect();
+            const matrix = path.getScreenCTM()!;
+            const length = path.getTotalLength();
+            const steps = Math.max(1, Math.ceil(length * 2));
+            let clearance = Infinity;
+            for (let index = 0; index <= steps; index++) {
+              const { x, y } = path
+                .getPointAtLength((length * index) / steps)
+                .matrixTransform(matrix);
+              clearance = Math.min(
+                clearance,
+                Math.max(
+                  parent.left - x,
+                  x - parent.right,
+                  parent.top - y,
+                  y - parent.bottom,
+                ),
+              );
+            }
+            return {
+              clearance,
+              length,
+              parent: {
+                x: parent.left - origin.left,
+                y: parent.top - origin.top,
+                width: parent.width,
+                height: parent.height,
+              },
+            };
+          });
+        await expect
+          .poll(async () => (await geometry()).clearance)
+          .toBeLessThan(0);
+        const overview = await geometry();
+        const defaultPath = (await blocked.getAttribute('d'))!;
+        await testInfo.attach('기본 연결선과 부모 마커 측정값', {
+          body: JSON.stringify({ ...overview, path: defaultPath }, null, 2),
+          contentType: 'application/json',
+        });
+        const clearPath = (await clear.getAttribute('d'))!;
+        const dimmed = kingdom.locator('.branch-road-lines [data-dimmed]');
+
+        async function expectOverview() {
+          await expect(blocked).toHaveAttribute('data-active', 'false');
+          await expect(blocked).toHaveAttribute('d', defaultPath);
+          await expect(clear).toHaveAttribute('d', clearPath);
+          await expect(dimmed).toHaveCount(0);
+        }
+
+        await pull.hover();
+        await expect(issue(2)).toHaveAttribute('data-highlight', 'related');
+        await expect(blocked).toHaveAttribute('data-active', 'true');
+        await expect(blocked).not.toHaveAttribute('d', defaultPath);
+        await expect(clear).toHaveAttribute('data-active', 'true');
+        await expect(clear).toHaveAttribute('d', clearPath);
+        await expect(unrelated).toHaveCSS('opacity', '0.55');
+        const hovered = await geometry();
+        const detour = (await blocked.getAttribute('d'))!;
+        await testInfo.attach('PR 호버 우회선 측정값', {
+          body: JSON.stringify({ ...hovered, path: detour }, null, 2),
+          contentType: 'application/json',
+        });
+        expect(hovered.clearance).toBeGreaterThan(2.75);
+        expect(hovered.parent).toEqual(overview.parent);
+
+        await page.mouse.move(2, 2);
+        await expectOverview();
+        await issue(2).focus();
+        await expect(issue(2)).toBeFocused();
+        await expect(pull).toHaveAttribute('data-highlight', 'related');
+        await expect(blocked).toHaveAttribute('data-active', 'true');
+        await expect(blocked).toHaveAttribute('d', detour);
+        await expect(clear).toHaveAttribute('data-dimmed', 'true');
+        const focused = await geometry();
+        await testInfo.attach('이슈 키보드 포커스 우회선 측정값', {
+          body: JSON.stringify(focused, null, 2),
+          contentType: 'application/json',
+        });
+        expect(focused.clearance).toBeGreaterThan(2.75);
+        expect(focused.parent).toEqual(overview.parent);
+
+        await kingdom.getByTitle('왕궁 · main').focus();
+        await expectOverview();
+      });
+    }
+  }
+
   test('시설에 올리면 연결된 몬스터를 함께 강조한다', async ({ page }) => {
     await openWorld(page);
     const facility = page.getByRole('button', { name: /PR #11/ });

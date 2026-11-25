@@ -1499,6 +1499,9 @@ svg {
   stroke: #ffdfa0;
   stroke-width: 3.5px;
 }
+.branch-road-lines path[data-dimmed='true'] {
+  opacity: 0.55;
+}
 .branch-road-details {
   display: grid;
   gap: 10px;
