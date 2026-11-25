@@ -29,7 +29,11 @@ for (const agent of ['codex', 'claude']) {
                 : body.messages.at(-1).content.map((x) => x.content);
             assert.equal(results.length, count);
             assert.equal(
-              results.filter((x) => x.startsWith('Not executed')).length,
+              results.filter((x) =>
+                x.startsWith(
+                  '이번 요청의 읽기 한도에 도달해 실행하지 않았습니다.',
+                ),
+              ).length,
               budget === 'per turn'
                 ? requests === 2
                   ? 1
@@ -192,7 +196,7 @@ test('Claude corrects an invalid review using the same evidence before publicati
       const body = JSON.parse(options.body);
       if (requests === 2) {
         assert.equal(body.tool_choice.type, 'none');
-        assert.match(body.messages.at(-1).content, /Validation/);
+        assert.match(body.messages.at(-1).content, /검증 오류/);
       }
       return Response.json({
         stop_reason: 'end_turn',
@@ -232,13 +236,13 @@ for (const correctionValid of [true, false]) {
       request: async (_, options) => {
         const body = JSON.parse(options.body);
         requests++;
-        assert.match(body.instructions, /at most 6 findings/);
+        assert.match(body.instructions, /findings는 최대 6건/);
         if (requests === 2) {
           assert.equal(body.tool_choice, 'none');
           assert.deepEqual(body.input.slice(1, -1), priorOutput);
           assert.match(
             body.input.at(-1).content,
-            /same evidence and verdict.*Validation:/,
+            /같은 근거와 판정.*검증 오류:/,
           );
         }
         const text = JSON.stringify({
@@ -374,7 +378,7 @@ for (const [agent, summary, count, diagnostic, retryValid] of [
       request: async (_, options) => {
         calls++;
         const body = JSON.parse(options.body);
-        assert.match(body.instructions ?? body.system, /at most 1 exact edits/);
+        assert.match(body.instructions ?? body.system, /편집은 최대 1건/);
         if (calls === 2) {
           assert.equal(body.tool_choice.type ?? body.tool_choice, 'none');
           assert.match(
@@ -418,8 +422,12 @@ for (const [agent, summary, count, diagnostic, retryValid] of [
   });
 }
 
-for (const repeat of [false, true]) {
-  test(`Claude preserves a human stop when clarifying a checkpoint (repeated: ${repeat})`, async () => {
+for (const [summary, repeat] of [
+  ['(중간 확인 단계)', false],
+  ['progress', true],
+  ['in_progress', false],
+]) {
+  test(`Claude preserves a human stop when clarifying ${summary} (repeated: ${repeat})`, async () => {
     let calls = 0;
     const models = createModels({
       keys: { claude: 'mock' },
@@ -435,7 +443,7 @@ for (const repeat of [false, true]) {
           calls === 1 || repeat
             ? {
                 status: 'needs_human',
-                summary: '(중간 확인 단계)',
+                summary,
                 findings: [],
               }
             : { status: 'pass', summary: '검토 완료', findings: [] };

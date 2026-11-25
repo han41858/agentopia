@@ -114,6 +114,11 @@ test('UI checks require an actual spec page independently in development and rev
   work.inspect('read_file', { path: 'e2e/dialogs.spec.ts', line: 80 });
   assert.equal(work.needsUiSpec(paths), false);
   assert.equal(review.needsUiSpec(paths), true);
+  const changed = [...paths, 'e2e/dialogs.spec.ts', 'e2e/kingdom.spec.ts'];
+  assert.equal(work.needsUiSpec(changed), true);
+  work.inspect('read_file', { path: 'e2e/kingdom.spec.ts', line: 1 });
+  assert.equal(work.needsUiSpec(changed), false);
+  assert.equal(review.needsUiSpec(changed), true);
 });
 
 test('formats proposals before publication and drops format-only no-ops', async () => {
@@ -169,7 +174,8 @@ test('literal lookup locates UI text without counting as a full UI spec read', (
   );
   execFileSync('git', ['init', '--quiet']);
   writeFileSync('e2e/github.ts', '// shared readiness helper');
-  execFileSync('git', ['add', path, 'e2e/github.ts']);
+  writeFileSync('e2e/fixtures.ts', 'export const title = "Expected title";');
+  execFileSync('git', ['add', path, 'e2e/github.ts', 'e2e/fixtures.ts']);
   const tree = execFileSync('git', ['write-tree'], { encoding: 'utf8' }).trim();
   const work = gitSnapshot(tree, tree);
   assert.equal(
@@ -188,12 +194,16 @@ test('literal lookup locates UI text without counting as a full UI spec read', (
       ),
     /허용 범위/,
   );
+  assert.match(
+    work.inspect('read_file', { path: 'e2e/fixtures.ts', line: 1 }),
+    /Expected title/,
+  );
   assert.equal(work.needsUiSpec([path]), true);
   assert.match(
     work.inspect('find_in_file', {
       path: '.github/workflows/ci.yml',
       text: 'jobs',
     }),
-    /outside/,
+    /허용된 소스 및 문서 범위를 벗어난 경로/,
   );
 });

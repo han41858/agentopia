@@ -52,22 +52,22 @@ export const reviewSchema = object({
 const tools = {
   list_files: {
     description:
-      'Find tracked paths by case-insensitive substring. Use offset 0 for the first page.',
+      '대소문자를 구분하지 않고 검색어가 포함된 Git 추적 경로를 찾습니다. 첫 페이지는 offset을 0으로 지정하세요.',
     input: object({ query: string, offset: integer }),
   },
   find_in_file: {
     description:
-      'Locate a literal UI label or symbol within a tracked text file. Returns matching line numbers for targeted read_file calls.',
+      'Git이 추적하는 텍스트 파일에서 UI 라벨이나 심벌을 입력한 문자열 그대로 찾습니다. read_file로 해당 위치를 읽을 수 있도록 일치하는 줄 번호를 반환합니다.',
     input: object({ path: string, text: string }),
   },
   read_file: {
     description:
-      'Read tracked UTF-8 text with line numbers. Use line 1 to start.',
+      'Git이 추적하는 UTF-8 텍스트를 줄 번호와 함께 읽습니다. 처음부터 읽으려면 line을 1로 지정하세요.',
     input: object({ path: string, line: integer }),
   },
   read_diff: {
     description:
-      'Read the complete PR diff from the original base to the current HEAD, paged by line.',
+      '원래 기준 커밋부터 현재 HEAD까지의 전체 PR diff를 줄 단위로 나누어 읽습니다.',
     input: object({ line: integer }),
   },
 };
@@ -187,7 +187,7 @@ function claudeAssistantContent(blocks) {
 function isCheckpoint(summary) {
   return (
     typeof summary === 'string' &&
-    /^[\s(]*(?:중간\s*)?(?:확인|점검)\s*(?:단계|중(?:입니다)?)[)\s.!…]*$/u.test(
+    /^[\s(]*(?:(?:work\s+in\s+|in[\s_]+)?progress|(?:중간\s*)?(?:확인|점검)\s*(?:단계|중(?:입니다)?))[)\s.!…]*$/iu.test(
       summary,
     )
   );
@@ -486,8 +486,8 @@ export function createModels({
       const turnLimit =
         mode === 'review' ? (limits.reviewTurns ?? limits.turns) : limits.turns;
       const reviewFormat =
-        'Keep the Korean summary under 400 characters. Use at most 6 findings, with each string under 250 characters and a positive line number. pass requires zero findings; changes_requested requires at least one. For needs_human, identify the concrete blocker.';
-      const developmentFormat = `Return a nonempty Korean summary of at most ${developmentSummaryLimit} UTF-16 code units and at most ${limits.edits} exact edits. Use a single-line GitMoji Korean title of at most 100 UTF-16 code units. For unfinished development use in_progress; no partial edits will be published. Use the read tools for intermediate checks. Reserve needs_human for a blocker that requires a decision or information from the user. If the full change cannot fit safely, return needs_human with a concrete reason and no edits.`;
+        '한국어 요약은 400자 미만으로 작성하세요. findings는 최대 6건이며 각 문자열은 250자 미만, 줄 번호는 양의 정수여야 합니다. pass이면 findings가 비어 있어야 하고 changes_requested이면 한 건 이상이어야 합니다. 검토할 때 읽기 도구를 사용하세요. 진행 상황만으로 최종 판정을 내리지 마세요. needs_human이면 구체적인 장애 사유와 필요한 결정 또는 부족한 정보를 명시하세요.';
+      const developmentFormat = `비어 있지 않은 한국어 요약과 정확한 편집안을 반환하세요. 요약은 UTF-16 코드 단위로 최대 ${developmentSummaryLimit}개, 편집은 최대 ${limits.edits}건입니다. 제목은 GitMoji를 포함한 한국어 한 줄로 작성하고 UTF-16 코드 단위 100개 이내로 제한하세요. 개발이 끝나지 않았으면 in_progress를 사용하세요. 부분 편집안은 게시되지 않습니다. 중간 확인에는 읽기 도구를 사용하세요. 사용자의 결정이나 정보가 필요한 경우에만 needs_human을 사용하세요. 허용 범위 안에 전체 변경을 안전하게 담을 수 없으면 구체적인 사유와 빈 edits를 포함해 needs_human을 반환하세요.`;
       const taskInstructions =
         instructions +
         '\n' +
@@ -516,16 +516,16 @@ export function createModels({
           remainingReads === 0 || finalTurn || turn === turnLimit - 1;
         const turnInstructions = requireResult
           ? `${taskInstructions}
-Return the final structured result now. If evidence is insufficient, return needs_human with the specific blocker.`
+이제 지정된 형식으로 최종 결과를 반환하세요. 근거가 부족하면 구체적인 장애 사유와 함께 needs_human을 반환하세요.`
           : `${taskInstructions}
-API requests remaining, including this one: ${turnLimit - turn + 1}. Read tools allowed this turn: ${remainingReads}. Return the final structured result once you have enough evidence.`;
+이번 요청을 포함해 남은 API 요청은 ${turnLimit - turn + 1}회입니다. 이번 요청에서 읽기 도구는 ${remainingReads}회 사용할 수 있습니다. 근거가 충분해지면 지정된 형식으로 최종 결과를 반환하세요.`;
         function readTool(index, name, args) {
           if (requireResult)
             throw new ModelError(
               '최종 결과 요청 중 탐색 호출이 반환되었습니다.',
             );
           if (index >= remainingReads)
-            return 'Not executed: read budget for this turn reached. Use the returned evidence or prioritize this read next turn if budget remains.';
+            return '이번 요청의 읽기 한도에 도달해 실행하지 않았습니다. 이미 반환된 근거를 사용하거나, 남은 한도가 있으면 다음 요청에서 이 읽기를 우선하세요.';
           toolCalls++;
           return invokeTool(inspect, name, isCodex ? parseJSON(args) : args);
         }
@@ -663,7 +663,7 @@ API requests remaining, including this one: ${turnLimit - turn + 1}. Read tools 
             const results = calls.map(({ name, input: args, id }, index) => ({
               type: 'tool_result',
               tool_use_id: id,
-              content: readTool(index, name, args) || 'No matching lines.',
+              content: readTool(index, name, args) || '일치하는 줄이 없습니다.',
             }));
             input.push(
               { role: 'assistant', content: claudeAssistantContent(output) },
@@ -704,7 +704,7 @@ API requests remaining, including this one: ${turnLimit - turn + 1}. Read tools 
               {
                 role: 'user',
                 content:
-                  'Continue in this conversation. Only a complete, validated final set of edits can be published.',
+                  '같은 대화에서 개발을 이어가세요. 검증을 마친 최종 편집안 전체가 준비되어야 게시할 수 있습니다.',
               },
             );
             continue;
@@ -752,7 +752,7 @@ API requests remaining, including this one: ${turnLimit - turn + 1}. Read tools 
               {
                 role: 'user',
                 content:
-                  'Read the relevant e2e/*.spec.ts using read_file. Compare its locators and assertions with the changed behavior, including role, accessible name and interaction. Then return the complete plan or review verdict. Request changes for stale or missing coverage.',
+                  '수정한 e2e/*.spec.ts 각각과 영향을 받는 UI의 테스트 파일을 read_file로 읽으세요. 요소 선택자와 검증문을 변경된 역할·접근성 이름·조작과 대조한 뒤 전체 변경안 또는 리뷰 판정을 반환하세요. 검증이 이전 동작을 기대하거나 필요한 검증이 빠졌으면 수정을 요청하세요.',
               },
             );
             continue;
@@ -801,12 +801,12 @@ API requests remaining, including this one: ${turnLimit - turn + 1}. Read tools 
             role: 'user',
             content:
               correction === 'blocker'
-                ? 'Keep the needs_human decision. Explain in Korean the specific blocker and what information the user must provide. Use the evidence already collected.'
+                ? 'needs_human 판정을 유지하세요. 이미 수집한 근거를 바탕으로 구체적인 장애 사유와 사용자가 제공해야 할 정보를 한국어로 설명하세요.'
                 : correction === 'edits'
-                  ? `The proposed edits could not be applied: ${error.message}. Read the affected source if necessary and return the complete corrected plan against the same HEAD. Earlier edits in the plan apply in order. Preserve all requested changes; if blocked, explain why. ${developmentFormat}`
+                  ? `편집안을 적용하지 못했습니다. 오류 내용은 다음과 같습니다. ${error.message}. 필요하면 해당 소스를 읽고 같은 HEAD를 기준으로 교정한 변경안 전체를 반환하세요. 변경안의 편집은 앞에서부터 순서대로 적용됩니다. 요청된 변경은 모두 보존하고, 진행할 수 없으면 이유를 설명하세요. ${developmentFormat}`
                   : correction === 'development'
-                    ? `Correct the development JSON using the same evidence and preserve the full requested behavior. Do not discard necessary edits to fit. Validation: ${error.message}. ${developmentFormat}`
-                    : `Return the corrected review JSON using the same evidence and verdict. Preserve substantive findings. If pass conflicts with findings, report changes_requested with evidence or needs_human if unresolved. Never invent findings. Validation: ${error.message}. ${reviewFormat}`,
+                    ? `같은 근거를 사용해 개발 결과 JSON을 교정하고 요청된 동작 전체를 보존하세요. 한도에 맞추기 위해 필요한 편집을 빼지 마세요. 검증 오류: ${error.message}. ${developmentFormat}`
+                    : `같은 근거와 판정을 유지해 리뷰 결과 JSON을 교정하세요. 실질적인 지적 사항을 보존하세요. pass가 지적 사항과 모순되면 근거를 담아 changes_requested를 반환하고, 모순을 해소할 수 없으면 needs_human을 반환하세요. 지적 사항을 지어내지 마세요. 검증 오류: ${error.message}. ${reviewFormat}`,
           });
         }
       }
@@ -831,6 +831,6 @@ function invokeTool(inspect, name, input) {
     validate(input, tools[name].input, 'tool');
     return inspect(name, input);
   } catch {
-    return 'Invalid arguments or requested material is unavailable.';
+    return '인수가 올바르지 않거나 요청한 자료를 읽을 수 없습니다.';
   }
 }

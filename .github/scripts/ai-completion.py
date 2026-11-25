@@ -51,8 +51,8 @@ def ready_state(issue):
     return None
 
 
-def eligible(issue, developer=None):
-    data = repo(f"issues/{issue}")
+def eligible(issue, developer=None, *, snapshot=None):
+    data = snapshot if snapshot is not None else repo(f"issues/{issue}")
     labels = {label["name"] for label in data["labels"]}
     roles = {"codex": "ai:develop", "claude": "ai:develop:claude"}
     selected = labels.intersection(roles.values())
@@ -227,7 +227,7 @@ def complete(issue, run_id):
         raise RuntimeError("Cannot confirm the reviewed HEAD merged into dev.")
     data = repo(f"issues/{issue}")
     if data["state"] == "open":
-        if (not eligible(issue, developer) or (state.get("recovery")
+        if (not eligible(issue, developer, snapshot=data) or (state.get("recovery")
                 and fingerprint(data["title"], data.get("body")) != state["recovery"]["issue"])):
             raise RuntimeError("PR merged, but issue changed or closure is no longer authorized.")
         try:

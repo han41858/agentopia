@@ -52,7 +52,7 @@ class CompletionTest(unittest.TestCase):
             mutations.append(kwargs["query"])
             pull["draft"] = "convertPullRequestToDraft" in kwargs["query"]
 
-        with patch.object(completion, "eligible", side_effect=lambda *_: not (stop_after_undraft and mutations)), patch.object(
+        with patch.object(completion, "eligible", side_effect=lambda *_, **kwargs: not (stop_after_undraft and mutations)), patch.object(
             completion, "ready_state", return_value=state
         ), patch.object(completion, "repo", side_effect=repo), patch.object(completion, "api", side_effect=mutation), patch.object(
             completion.time, "sleep"
@@ -82,6 +82,12 @@ class CompletionTest(unittest.TestCase):
             self.assertFalse(completion.eligible(74, "codex"))
             issue["labels"].append({"name": "ai:stop"})
             self.assertFalse(completion.eligible(74, "claude"))
+
+    def test_close_authorization_uses_same_snapshot_as_fingerprint(self):
+        opened = {"state": "open", "labels": [{"name": "ai:develop"}]}
+        with patch.object(completion, "repo", side_effect=AssertionError("unexpected second issue read")):
+            self.assertTrue(completion.eligible(155, "codex", snapshot=opened))
+            self.assertFalse(completion.eligible(155, "codex", snapshot={**opened, "state": "closed"}))
 
     def test_ci_feedback_uses_failed_attempt_source_annotations(self):
         jobs = {"jobs": [{"id": 9, "conclusion": "failure"}, {"id": 8, "conclusion": "success"}]}
