@@ -11,12 +11,14 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 
-for (const scenario of [
+for (const testCase of [
   'duplicate',
   'review-revision',
+  'review-revision-delayed-pr',
   'review-limit',
   'review-no-change',
   'review-human',
+  'development-human',
   'issue-title-fallback',
   'stale-edit',
   'repeated-stale-edit',
@@ -50,7 +52,9 @@ for (const scenario of [
   'edited-issue',
   'edited-pr',
 ])
-  test(`issue recovery: ${scenario}`, async (t) => {
+  test(`issue recovery: ${testCase}`, async (t) => {
+    const delayedPull = testCase === 'review-revision-delayed-pr';
+    const scenario = delayedPull ? 'review-revision' : testCase;
     const root = mkdtempSync(join(tmpdir(), 'agentopia-smoke-'));
     const cwd = process.cwd();
     t.after(() => {
@@ -80,6 +84,7 @@ for (const scenario of [
     git(remote, 'commit', '-m', 'Base');
     let base = git(remote, 'rev-parse', 'HEAD');
     let advances = 0;
+    let staleRead = false;
     function advance() {
       git(remote, 'switch', 'dev');
       advances++;
@@ -181,6 +186,23 @@ for (const scenario of [
       }
       if (claudeDeveloper ? anthropic : openai) {
         developmentCalls++;
+        if (scenario === 'development-human') {
+          const context = JSON.parse(body.input[0].content);
+          if (!resumed) {
+            assert.equal(context.developmentNote, undefined);
+            return modelResponse({
+              status: 'needs_human',
+              title: '',
+              edits: [],
+              summary: '테스트 위치를 확인해 주세요.',
+            });
+          }
+          assert.equal(
+            context.previousDevelopmentBlocker,
+            '테스트 위치를 확인해 주세요.',
+          );
+          assert.equal(context.developmentNote, '관련 테스트 위치');
+        }
         if (scenario === 'interrupted-development' && !resumed)
           throw Error('connection lost');
         if (
@@ -383,6 +405,12 @@ for (const scenario of [
       if (path === '/git/ref/heads/' + branch) {
         if (head) head = git(remote, 'rev-parse', branch);
         if (pr) pr.head.sha = head;
+        if (scenario === 'review-revision' && commits === 2 && !staleRead) {
+          staleRead = true;
+          const previousHead = git(remote, 'rev-parse', branch + '^');
+          if (delayedPull) pr.head.sha = previousHead;
+          else return Response.json({ object: { sha: previousHead } });
+        }
         return head
           ? Response.json({ object: { sha: head } })
           : Response.json({}, { status: 404 });
@@ -484,7 +512,7 @@ for (const scenario of [
       throw new Error('Unexpected request ' + path);
     });
 
-    const runner = new URL('./run.mjs?case=' + scenario, import.meta.url);
+    const runner = new URL('./run.mjs?case=' + testCase, import.meta.url);
     if (scenario === 'repeated-stale-edit' || scenario === 'blocked-edit') {
       await assert.rejects(import(runner + '?first'));
       assert.equal(saved().status, 'failed');
@@ -505,8 +533,22 @@ for (const scenario of [
     )
       await assert.rejects(import(runner + '?first'));
     else await import(runner + '?first');
+    if (scenario === 'development-human') {
+      assert.equal(saved().status, 'needs_human');
+      writeFileSync(
+        event,
+        JSON.stringify({
+          repository: { full_name: repository },
+          sender: { login: 'tester' },
+          inputs: { development_note: '관련 테스트 위치' },
+        }),
+      );
+      await manualResume();
+      return;
+    }
     if (scenario.startsWith('review-')) {
       const ready = scenario === 'review-revision';
+      if (ready) assert.equal(staleRead, true);
       assert.equal(saved().status, ready ? 'ready' : 'needs_human');
       assert.equal(
         readFileSync(stepOutput, 'utf8'),
@@ -599,6 +641,7 @@ for (const scenario of [
             inputs: {
               issue: '15',
               recovery_run: String(run),
+              ci_attempt: '53/2',
               ci_feedback: formatOnly
                 ? 'npm run format:check'
                 : 'e2e/dialogs.spec.ts:94 locator failed',
@@ -622,6 +665,13 @@ for (const scenario of [
       }
       assert.equal(saved().status, 'ready');
       assert.notEqual(saved().head, original.head);
+      assert.deepEqual(saved().recovery.ciRepair, {
+        sourceHead: original.head,
+        ciAttempt: '53/2',
+        runId: 2,
+        attempt: 1,
+        limit: 1,
+      });
       assert.equal(saved().reviews[0].head, saved().head);
       await import(runner + '?duplicate-repair');
       dispatch(saved().runId);

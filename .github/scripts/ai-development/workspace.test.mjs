@@ -107,13 +107,18 @@ test('UI checks require an actual spec page independently in development and rev
   const work = gitSnapshot('HEAD', 'HEAD');
   const review = gitSnapshot('HEAD', 'HEAD');
   const paths = ['src/detail-dialogs.tsx'];
-  assert.equal(work.needsUiSpec(['docs/development.md']), false);
+  assert.equal(work.missingUiSpec(['docs/development.md']), '');
   work.inspect('list_files', { query: 'dialogs', offset: 0 });
   work.inspect('read_file', { path: 'e2e/dialogs.spec.ts', line: 100000 });
-  assert.equal(work.needsUiSpec(paths), true);
+  assert.match(work.missingUiSpec(paths), /e2e\//);
   work.inspect('read_file', { path: 'e2e/dialogs.spec.ts', line: 80 });
-  assert.equal(work.needsUiSpec(paths), false);
-  assert.equal(review.needsUiSpec(paths), true);
+  assert.equal(work.missingUiSpec(paths), '');
+  assert.match(review.missingUiSpec(paths), /e2e\//);
+  const changed = [...paths, 'e2e/dialogs.spec.ts', 'e2e/kingdom.spec.ts'];
+  assert.equal(work.missingUiSpec(changed), 'e2e/kingdom.spec.ts');
+  work.inspect('read_file', { path: 'e2e/kingdom.spec.ts', line: 1 });
+  assert.equal(work.missingUiSpec(changed), '');
+  assert.match(review.missingUiSpec(changed), /e2e\//);
 });
 
 test('formats proposals before publication and drops format-only no-ops', async () => {
@@ -168,8 +173,14 @@ test('literal lookup locates UI text without counting as a full UI spec read', (
     '// Example UI assertion\nexpect(title).toHaveText("예시 제목");\n',
   );
   execFileSync('git', ['init', '--quiet']);
-  writeFileSync('e2e/github.ts', '// shared readiness helper');
-  execFileSync('git', ['add', path, 'e2e/github.ts']);
+  writeFileSync(
+    'e2e/github.ts',
+    '// shared readiness helper\n' +
+      ('x'.repeat(100) + '\n').repeat(150) +
+      '// final line',
+  );
+  writeFileSync('e2e/fixtures.ts', 'export const title = "Expected title";');
+  execFileSync('git', ['add', path, 'e2e/github.ts', 'e2e/fixtures.ts']);
   const tree = execFileSync('git', ['write-tree'], { encoding: 'utf8' }).trim();
   const work = gitSnapshot(tree, tree);
   assert.equal(
@@ -180,6 +191,10 @@ test('literal lookup locates UI text without counting as a full UI spec read', (
     work.inspect('read_file', { path: 'e2e/github.ts', line: 1 }),
     /shared readiness helper/,
   );
+  const tail = work.inspect('read_file', { path: 'e2e/github.ts', line: -1 });
+  assert.ok(tail.length <= 5500);
+  assert.match(tail, /152: \/\/ final line$/);
+  assert.doesNotMatch(tail, /shared readiness helper|다음 줄/);
   assert.throws(
     () =>
       resolveEdits(
@@ -188,12 +203,40 @@ test('literal lookup locates UI text without counting as a full UI spec read', (
       ),
     /허용 범위/,
   );
-  assert.equal(work.needsUiSpec([path]), true);
+  assert.match(
+    work.inspect('read_file', { path: 'e2e/fixtures.ts', line: 1 }),
+    /Expected title/,
+  );
+  assert.match(work.missingUiSpec([path]), /e2e\//);
   assert.match(
     work.inspect('find_in_file', {
       path: '.github/workflows/ci.yml',
       text: 'jobs',
     }),
-    /outside/,
+    /허용된 소스 및 문서 범위를 벗어난 경로/,
+  );
+});
+
+test('development and review can inspect recovery producers without editing them', () => {
+  const work = gitSnapshot('HEAD', 'HEAD');
+  for (const [path, text] of [
+    ['.github/scripts/ai-development/run.mjs', 'recovery.ciReviewHead'],
+    ['.github/scripts/ai-completion.py', 'def current_ci('],
+  ]) {
+    const hits = work.inspect('find_in_file', { path, text });
+    assert.ok(hits.includes(text));
+    const line = Number.parseInt(hits, 10);
+    assert.ok(work.inspect('read_file', { path, line }).includes(text));
+    assert.throws(
+      () => resolveEdits([{ path, before: text, after: 'changed' }], work),
+      /허용 범위/,
+    );
+  }
+  assert.match(
+    work.inspect('read_file', {
+      path: '.github/scripts/ai-development/config.mjs',
+      line: 1,
+    }),
+    /허용된 소스 및 문서 범위를 벗어난 경로/,
   );
 });

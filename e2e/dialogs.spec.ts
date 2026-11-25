@@ -1,4 +1,6 @@
 import type { Locator } from '@playwright/test';
+import { makeQuests, repositoryRegion } from '../server/model.ts';
+import type { Comment, Run } from '../server/model.ts';
 import { alpha, alphaReport } from './fixtures.ts';
 import { mockGitHub, openWorld, seedSettings, settled } from './github.ts';
 import { expect, test } from './test.ts';
@@ -98,6 +100,93 @@ test.describe('상세 창', () => {
     expect(github.queries('summary')).toEqual([
       { repo: alpha, summary: 'pull', number: '12' },
     ]);
+  });
+
+  test('이슈와 PR 팝업에서 최신 Actions 실행을 먼저 표시한다', async ({
+    page,
+  }) => {
+    const report = structuredClone(alphaReport);
+    const runs = [
+      {
+        title: 'CI',
+        status: 'success',
+        startedAt: '2026-01-14T16:30:00Z',
+      },
+      {
+        title: 'CI',
+        status: 'in_progress',
+        startedAt: '2026-01-14T16:23:45Z',
+      },
+      {
+        title: 'CI',
+        status: 'failure',
+        startedAt: '2026-01-14T16:23:05Z',
+      },
+      {
+        title: 'AI development',
+        status: 'cancelled',
+        startedAt: '2026-01-14T16:01:00Z',
+      },
+      { title: 'AI development', status: 'queued' },
+    ].map((run, index) => ({
+      ...run,
+      url: `https://github.com/${alpha}/actions/runs/${400 + index}`,
+    }));
+    const issue = report.quests.find(({ number }) => number === 1)!;
+    issue.runs = runs;
+    issue.evidence = runs[3]!;
+    report.forges!.find(({ number }) => number === 12)!.runs = runs;
+    await seedSettings(page, [alpha]);
+    await mockGitHub(page);
+    await page.route('**/api/github?**', (route) =>
+      new URL(route.request().url()).searchParams.has('branches')
+        ? route.fulfill({ json: report })
+        : route.fallback(),
+    );
+    await page.goto('/');
+
+    for (const [button, name] of [
+      [/^이슈 #1 /, '이슈 #1'],
+      [/PR #12/, 'PR #12'],
+    ] as const) {
+      await page.getByRole('button', { name: button }).click();
+      const dialog = page.getByRole('dialog', { name });
+      const list = dialog.getByRole('list', {
+        name: 'GitHub Actions 실행 목록',
+      });
+      const rows = list.getByRole('listitem');
+      await expect(rows).toHaveCount(runs.length);
+      await expect(list.locator('time')).toHaveText([
+        /01:30 KST/,
+        /01:23 KST/,
+        /01:23 KST/,
+        /01:01 KST/,
+      ]);
+      await expect(list.locator('.workflow-run-status')).toHaveText(
+        runs.map(({ status }) => status),
+      );
+      if (name === '이슈 #1') {
+        await expect(
+          rows.nth(3).getByText('근거', { exact: true }),
+        ).toBeVisible();
+      }
+      for (const [index, run] of runs.entries()) {
+        const row = rows.nth(index);
+        await expect(
+          row.getByRole('link', { name: run.title }),
+        ).toHaveAttribute('href', run.url);
+        if (run.startedAt) {
+          await expect(row.locator('time')).toHaveAttribute(
+            'datetime',
+            run.startedAt,
+          );
+        } else {
+          await expect(row.getByText('—', { exact: true })).toBeVisible();
+        }
+      }
+      await page.keyboard.press('Escape');
+      await expect(dialog).toBeHidden();
+    }
   });
 
   test('좁은 PR 팝업은 CI 상태와 실행 목록을 캐릭터 없이 표시한다', async ({
@@ -391,11 +480,12 @@ test.describe('상세 창', () => {
     expect(
       await runName.evaluate((node) => node.scrollWidth > node.clientWidth),
     ).toBe(true);
-    await expect(rows.first().getByText('근거', { exact: true })).toBeVisible();
+    const failedRow = rows.filter({ hasText: failedRun.title });
+    await expect(failedRow.getByText('근거', { exact: true })).toBeVisible();
     await expect(previousLink).toBeVisible();
     await expect(previousLink).toHaveAttribute('href', previousRun.url);
     await expect(rows.nth(1).getByText('—', { exact: true })).toBeVisible();
-    const startedAt = rows.first().locator('time');
+    const startedAt = failedRow.locator('time');
     await expect(startedAt).toHaveAttribute('datetime', failedRun.startedAt);
     await expect(startedAt).toHaveText(/2026.*1.*15.*10:00 KST/);
     const badges = list.locator('.workflow-run-status');
@@ -430,7 +520,7 @@ test.describe('상세 창', () => {
 
     await expect(startedAt).toBeInViewport({ ratio: 1 });
     await expect(
-      rows.first().getByText('failure', { exact: true }),
+      failedRow.getByText('failure', { exact: true }),
     ).toBeInViewport({ ratio: 1 });
     expect(await list.evaluate((node) => node.scrollWidth)).toBe(
       await list.evaluate((node) => node.clientWidth),
@@ -531,6 +621,123 @@ test.describe('상세 창', () => {
     ).toHaveText(['0', '6', '0', '0']);
     expect(github.queries('summary')).toEqual([
       { repo: alpha, summary: 'issue', number: '2' },
+    ]);
+  });
+
+  test('몬스터: 별도 성공은 실패 표시를 지우지 않고 재개 기록은 지운다', async ({
+    page,
+  }) => {
+    const at = '2026-11-22T01:00:00Z';
+    const issueUrl = `https://github.com/${alpha}/issues/78`;
+    const title = '개발 자동화 상태 확인';
+    const reason = 'Codex reached the output token limit.';
+    const run = (id: number, overrides: Partial<Run> = {}): Run => ({
+      id,
+      run_attempt: 1,
+      path: '.github/workflows/ai-development.yml',
+      name: 'AI development',
+      display_title: 'AI development for Issue #78',
+      status: 'completed',
+      conclusion: 'failure',
+      html_url: `https://github.com/${alpha}/actions/runs/${id}`,
+      head_sha: 'a'.repeat(40),
+      head_branch: 'dev',
+      event: 'issues',
+      created_at: at,
+      updated_at: at,
+      run_started_at: at,
+      pull_requests: [],
+      ...overrides,
+    });
+    const failed = run(45528330850);
+    const successful = run(45528331272, {
+      conclusion: 'success',
+      run_started_at: '2026-11-22T01:01:00Z',
+    });
+    const retry = run(successful.id + 1, {
+      status: 'in_progress',
+      conclusion: null,
+      run_started_at: '2026-11-22T01:02:00Z',
+    });
+    const checkpoint = (
+      id: number,
+      state: Record<string, unknown>,
+    ): Comment => ({
+      body: `<!-- alpha-ai-state:${Buffer.from(
+        JSON.stringify({ issue: 78, developer: 'codex', ...state }),
+      ).toString('base64')} -->`,
+      user: { login: 'github-actions[bot]' },
+      issue_url: `https://api.github.com/repos/${alpha}/issues/78`,
+      html_url: `${issueUrl}#issuecomment-${id}`,
+      updated_at: at,
+    });
+    const failure = checkpoint(1, { status: 'failed', run: failed.id, reason });
+    const recovery = checkpoint(2, { status: 'developing', runId: retry.id });
+    let resumed = false;
+    await mockGitHub(page);
+    await seedSettings(page, [alpha]);
+    await page.route('**/api/github?**', async (route) => {
+      if (!new URL(route.request().url()).searchParams.has('branches')) {
+        await route.fallback();
+        return;
+      }
+      const quests = makeQuests(
+        repositoryRegion(alpha),
+        [{ number: 78, state: 'open', title, html_url: issueUrl, labels: [] }],
+        [],
+        resumed ? [retry, successful, failed] : [successful, failed],
+        resumed ? [recovery, failure] : [failure],
+        new Map(),
+        [],
+      );
+      await route.fulfill({ json: { ...alphaReport, quests } });
+    });
+    await page.goto('/');
+    await settled(page);
+
+    const marker = page.getByRole('button', { name: /^이슈 #78 / });
+    await expect(marker).toBeVisible();
+    await expect(marker).toHaveAccessibleName(/실행 실패/);
+    await expect(marker).toHaveClass(/(?:^|\s)blocked(?:\s|$)/);
+    await marker.click();
+    const dialog = page.getByRole('dialog', { name: '이슈 #78' });
+    await expect(dialog.getByRole('img', { name: '실행 실패' })).toBeVisible();
+    await expect(dialog.getByText(reason)).toBeVisible();
+    const actions = dialog.getByRole('region', { name: 'GitHub Actions' });
+    await expect(actions.locator('.workflow-run-status')).toHaveText([
+      'success',
+      'failure',
+    ]);
+    const failureRow = actions.getByRole('listitem').filter({
+      has: page.getByText('failure', { exact: true }),
+    });
+    await expect(failureRow.getByText('근거', { exact: true })).toBeVisible();
+    await expect(
+      dialog.getByRole('link', { name: /GitHub Actions 상태 기록/ }),
+    ).toHaveCount(0);
+    await dialog.getByRole('button', { name: '닫기' }).click();
+
+    resumed = true;
+    await page.getByRole('button', { name: '새로 고침' }).click();
+    await settled(page);
+    await expect(marker).toHaveAccessibleName(/개발 중/);
+    await expect(marker).not.toHaveAccessibleName(/실행 실패/);
+    await expect(marker).not.toHaveClass(/(?:^|\s)blocked(?:\s|$)/);
+    await marker.click();
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByRole('img', { name: '실행 실패' })).toHaveCount(0);
+    await expect(dialog.getByText(reason)).toHaveCount(0);
+    const recoveryEvidence = dialog.getByRole('link', {
+      name: /GitHub Actions 상태 기록.*developing/,
+    });
+    await expect(recoveryEvidence).toHaveAttribute('href', recovery.html_url);
+    await expect(recoveryEvidence.locator('.workflow-run-status')).toHaveText(
+      'developing',
+    );
+    await expect(actions.locator('.workflow-run-status')).toHaveText([
+      'in_progress',
+      'success',
+      'failure',
     ]);
   });
 

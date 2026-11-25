@@ -9,16 +9,24 @@ import {
   Swords,
   Skull,
   Trophy,
+  Pause,
+  CircleHelp,
+  Square,
 } from 'lucide-react';
 import { stages } from '../server/model.ts';
-import type { PullQuest, Quest, Region, Stage } from '../server/model.ts';
+import type {
+  PullQuest,
+  Quest,
+  RecoveryBadge,
+  Region,
+  Stage,
+} from '../server/model.ts';
 import {
   AdventurerParty,
   PartyLeaderGlyph,
   agentNames,
   MonsterGlyph,
   partyLabel,
-  partyLeaderLabel,
 } from './characters.tsx';
 import type { ActivityProfile } from '../server/activity.ts';
 import { ActivityAura, ReviewOpinionBadge } from './activity-effects.tsx';
@@ -59,6 +67,97 @@ export function monsterRest(quest: Quest) {
   return '대기';
 }
 
+const markerStageLabels: Record<Stage, string> = {
+  idle: '대기',
+  queued: '작업 대기 중',
+  developing: '개발 중',
+  revising: '수정 중',
+  reviewing: '리뷰 중',
+  ci: 'GitHub Actions · CI 실행 중',
+  deploying: '배포 중',
+  merging: 'PR 병합 중',
+  complete: '작업 완료',
+  returned: '작업 종료',
+  failed: '실행 실패',
+  attention: '개입 필요',
+};
+
+function markerMemberLabel(member: NonNullable<Quest['adventurers']>[number]) {
+  return member.fallen
+    ? `${agentNames[member.agent]} · 실행 실패`
+    : partyLabel(member, '대기');
+}
+
+function recoveryTooltip(title: string, badge?: RecoveryBadge) {
+  if (!badge) return title;
+  const name = {
+    pending: '실행 대기',
+    waiting: '재시도 대기',
+    failed: '실행 실패',
+    repairing: '자동 수정 중',
+    checking: '수정 후 CI 재검사 중',
+    stopped: '사람 확인 필요',
+  }[badge.kind];
+  return [
+    title,
+    name,
+    badge.attempt && badge.limit
+      ? `${badge.attempt}/${badge.limit}회`
+      : undefined,
+    badge.reason,
+  ]
+    .filter(Boolean)
+    .join(' · ');
+}
+
+function RecoveryGlyph({
+  badge,
+  className,
+}: {
+  badge: RecoveryBadge;
+  className: string;
+}) {
+  const Icon = {
+    pending: Pause,
+    waiting: Pause,
+    failed: Square,
+    stopped: CircleHelp,
+    repairing: null,
+    checking: null,
+  }[badge.kind];
+  return (
+    Icon && (
+      <Icon
+        className={className}
+        data-status={badge.kind}
+        size={14}
+        aria-hidden="true"
+      />
+    )
+  );
+}
+
+function markerBadge(
+  stage: Stage,
+  recovery?: RecoveryBadge,
+  reason?: string,
+  ciQueued = false,
+): RecoveryBadge | undefined {
+  if (ciQueued && (!recovery || recovery.kind === 'checking'))
+    return { kind: recovery ? 'waiting' : 'pending' };
+  if (recovery) return recovery;
+  if (stage === 'queued') return { kind: 'pending' };
+  if (stage === 'failed') return { kind: 'failed', reason };
+  if (stage === 'attention') return { kind: 'stopped', reason };
+}
+
+const issueCILabels: Record<NonNullable<Quest['issueCIStatus']>, string> = {
+  waiting: 'GitHub Actions · CI 대기 중',
+  running: markerStageLabels.ci,
+  passed: 'GitHub Actions · CI 성공',
+  finished: 'GitHub Actions · CI 종료',
+};
+
 export function MonsterMarker({
   quest,
   boss,
@@ -79,18 +178,36 @@ export function MonsterMarker({
   const defeated = quest.state === 'closed';
   const members = quest.adventurers ?? [];
   const resting = monsterRest(quest);
-  const status = [
-    defeated
-      ? '몬스터 처치 완료'
-      : quest.reopened
-        ? '몬스터 부활'
-        : '몬스터 출현',
-    quest.stage !== 'idle' && quest.stage !== 'complete'
-      ? stages[quest.stage]
+  const badge = !defeated
+    ? markerBadge(
+        quest.stage,
+        quest.issueRecoveryBadge,
+        quest.reason,
+        quest.issueCIStatus === 'waiting',
+      )
+    : undefined;
+  const badgeGlyph = badge && (
+    <RecoveryGlyph badge={badge} className="monster-recovery" />
+  );
+  const tooltip = recoveryTooltip(
+    `이슈 #${quest.number} · ${quest.title}`,
+    badge,
+  );
+  const label = [
+    tooltip,
+    defeated ? '이슈 닫힘' : quest.reopened ? '이슈 다시 열림' : '이슈 열림',
+    quest.stage === 'ci'
+      ? issueCILabels[quest.issueCIStatus ?? 'waiting']
+      : quest.stage !== 'idle'
+        ? markerStageLabels[quest.stage]
+        : undefined,
+    quest.victory ? '연결된 PR 병합됨' : undefined,
+    quest.issueLeader
+      ? quest.stage === 'ci'
+        ? '파티장'
+        : 'GitHub Actions · 파티장'
       : undefined,
-    quest.victory ? '제작 결과 반영' : undefined,
-    quest.stage === 'failed' ? '구조 요청' : undefined,
-    ...members.map((member) => partyLabel(member, resting)),
+    ...members.map(markerMemberLabel),
   ]
     .filter(Boolean)
     .join(' · ');
@@ -98,12 +215,13 @@ export function MonsterMarker({
   return (
     <button
       data-road-issue={quest.number}
+      data-recovery={badge?.kind}
       data-working={
         (activeStages.has(quest.stage) && quest.stage !== 'queued') || undefined
       }
       className={`expedition monster-marker${boss ? ' boss-marker' : ''}${alerts.has(quest.stage) ? ' blocked' : ''}${defeated ? ' closed-issue' : ''}`}
-      aria-label={`이슈 #${quest.number} · ${quest.title} · ${status}${activityEffectsLabel(quest.activity)}`}
-      title={`${quest.title} · ${status}`}
+      aria-label={`${label}${activityEffectsLabel(quest.activity)}`}
+      title={tooltip}
       onClick={open}
       data-highlight={inspected ? 'selected' : related ? 'related' : undefined}
       onPointerEnter={() => inspect(true)}
@@ -114,17 +232,22 @@ export function MonsterMarker({
       {pulse !== undefined && (
         <span key={pulse} className="party-pulse" aria-hidden="true" />
       )}
-      <MonsterGlyph
-        boss={boss}
-        defeated={defeated}
-        reopened={quest.reopened}
-        commits={quest.activity?.commits}
-      />
+      <span className="monster-marker-art">
+        <MonsterGlyph
+          boss={boss}
+          defeated={defeated}
+          reopened={quest.reopened}
+          commits={quest.activity?.commits}
+        />
+        {!members.length && !quest.issueLeader && badgeGlyph}
+      </span>
       <small className="expedition-number">{`#${quest.number}`}</small>
       <AdventurerParty
         members={members}
         resting={resting}
-        leader={quest.stage === 'ci' ? 'active' : undefined}
+        leader={quest.issueLeader}
+        badge={badgeGlyph}
+        showTitles={false}
       />
     </button>
   );
@@ -181,6 +304,7 @@ export function pullActivity(pull: PullQuest) {
 }
 
 export function partyLeaderState(pull: PullQuest) {
+  if (pull.ciQueued) return 'resting';
   if (pull.quality === 'ci' || pull.stage === 'ci') return 'active';
   if (pull.ciParticipated) return 'resting';
 }
@@ -201,7 +325,7 @@ export function FacilityMarker({
   inspect: (active: boolean) => void;
 }) {
   const kind = facilityKind(pull.title);
-  const { name, Tool } = facilities[kind];
+  const { Tool } = facilities[kind];
   const working = pull.stage === 'developing' || pull.stage === 'revising';
   const reviewing = pull.stage === 'reviewing';
   const members = pull.adventurers ?? [];
@@ -209,13 +333,32 @@ export function FacilityMarker({
     (member) => member.active && !member.fallen,
   );
   const leader = partyLeaderState(pull);
+  const badge = markerBadge(
+    pull.stage,
+    pull.recoveryBadge,
+    pull.reason,
+    pull.stage === 'ci' && pull.ciQueued,
+  );
+  const badgeGlyph = badge && (
+    <RecoveryGlyph badge={badge} className="facility-recovery" />
+  );
+  const tooltip = recoveryTooltip(`PR #${pull.number} · ${pull.title}`, badge);
   const label = [
-    `${name} PR #${pull.number}`,
-    pull.title,
+    tooltip,
     pullActivity(pull),
-    pullStatus(pull),
-    leader && partyLeaderLabel(leader),
-    ...members.map((member) => partyLabel(member, '대기')),
+    pull.cancelled ? 'PR 닫힘' : pull.draft ? '초안' : 'PR 열림',
+    !pull.cancelled && pull.stage !== 'idle'
+      ? pull.stage === 'complete'
+        ? 'PR 병합됨'
+        : pull.stage === 'ci' && pull.ciQueued
+          ? issueCILabels.waiting
+          : markerStageLabels[pull.stage]
+      : undefined,
+    leader === 'active' && pull.stage !== 'ci'
+      ? markerStageLabels.ci
+      : undefined,
+    leader === 'resting' ? 'GitHub Actions · CI 실행 기록' : undefined,
+    ...members.map(markerMemberLabel),
     ...(pull.issues ?? []).map((number) => `이슈 #${number}`),
   ]
     .filter(Boolean)
@@ -229,8 +372,9 @@ export function FacilityMarker({
       data-working={
         (activeStages.has(pull.stage) && pull.stage !== 'queued') || undefined
       }
+      data-recovery={badge?.kind}
       data-facility={kind}
-      title={label}
+      title={tooltip}
       aria-label={`${label}${activityEffectsLabel(pull.activity)}`}
       onClick={open}
       onPointerEnter={() => inspect(true)}
@@ -258,13 +402,18 @@ export function FacilityMarker({
           {pull.stage === 'merging' && (
             <GitPullRequest className="facility-result" size={13} />
           )}
-          {alerts.has(pull.stage) && (
-            <Skull className="facility-result" size={13} />
-          )}
+          {!members.length && !leader && badgeGlyph}
         </span>
       </ActivityAura>
       <small className="expedition-number">{`PR #${pull.number}`}</small>
-      <AdventurerParty members={members} leader={leader} resting="대기" forge />
+      <AdventurerParty
+        members={members}
+        leader={leader}
+        badge={badgeGlyph}
+        resting="대기"
+        forge
+        showTitles={false}
+      />
     </button>
   );
 }
@@ -298,20 +447,18 @@ export function KingdomMonsters({
     childrenByParent.set(quest.parent, siblings);
   }
 
-  const priority = (quest: Quest) =>
-    alerts.has(quest.stage) ? 2 : activeStages.has(quest.stage) ? 1 : 0;
-  const comparePriority = (a: Quest, b: Quest) =>
-    (issueOrder.get(a.number) ?? Infinity) -
-      (issueOrder.get(b.number) ?? Infinity) || priority(b) - priority(a);
+  const comparePlacement = (left: Quest, right: Quest) =>
+    (issueOrder.get(left.number) ?? Infinity) -
+      (issueOrder.get(right.number) ?? Infinity) || left.number - right.number;
   const roots = openQuests
     .filter(({ parent }) => parent === undefined || !visible.has(parent))
-    .sort(comparePriority);
+    .sort(comparePlacement);
 
   function render(quest: Quest) {
     const children = (childrenByParent.get(quest.number) ?? []).filter(
       ({ number }) => visible.has(number),
     );
-    children.sort(comparePriority);
+    children.sort(comparePlacement);
     const boss =
       childrenByParent.has(quest.number) || Boolean(quest.subIssueCount);
     return (

@@ -83,6 +83,13 @@ export type ActivityEntry = Source & {
 };
 export type ActivityPage = { entries: ActivityEntry[]; next?: number };
 
+export type RecoveryBadge = {
+  kind: 'pending' | 'waiting' | 'repairing' | 'checking' | 'stopped' | 'failed';
+  reason?: string;
+  attempt?: number;
+  limit?: number;
+};
+
 export type Quest = {
   number: number;
   title: string;
@@ -93,10 +100,14 @@ export type Quest = {
   released?: boolean;
   victory?: boolean;
   adventurers?: Adventurer[];
+  issueLeader?: 'active' | 'resting';
+  issueCIStatus?: 'waiting' | 'running' | 'passed' | 'finished';
   activities?: ActivityCounts;
   activity?: ActivityProfile;
   reopened?: boolean;
   workPull?: number;
+  recoveryBadge?: RecoveryBadge;
+  issueRecoveryBadge?: RecoveryBadge;
   workReviewer?: Agent;
   issueComments?: number;
   subIssueCount?: number;
@@ -124,7 +135,10 @@ export type PullQuest = Source & {
   issues?: number[];
   adventurers?: Adventurer[];
   quality?: Stage;
+  recoveryBadge?: RecoveryBadge;
+  ciQueued?: boolean;
   ciParticipated?: boolean;
+  reason?: string;
   activity?: ActivityProfile;
   activities?: ActivityCounts;
   stage: Stage;
@@ -205,6 +219,7 @@ export type Comment = {
   user?: { login: string };
   issue_url: string;
   html_url: string;
+  created_at?: string;
   updated_at: string;
 };
 export type Release = Source & { stage: 'complete'; sha?: string; at?: string };
@@ -215,6 +230,19 @@ type AutomationState = {
   status: string;
   developer?: Agent;
   reviewer?: Agent;
+  pullNumber?: number;
+  phase?: string;
+  recovery?: {
+    pending?: string;
+    ciReviewHead?: string;
+    ciRepair?: {
+      sourceHead: string;
+      ciAttempt?: string;
+      runId: number;
+      attempt: number;
+      limit: number;
+    };
+  };
   reviewInProgress?: string;
   reason?: string;
   detail?: string;
@@ -229,6 +257,7 @@ const automationStages: Record<string, Stage> = {
   revising: 'revising',
   recovering: 'revising',
   reviewing: 'reviewing',
+  waiting_ci: 'ci',
   ready: 'ci',
   merging: 'merging',
   merged: 'complete',
@@ -309,19 +338,19 @@ export function readState(comment: Comment, region: Region) {
     .match(/^([a-zA-Z0-9+/=]+) -->\s*$/);
   if (!marker) return;
   try {
-    const state = JSON.parse(
+    const { run: alias, ...state } = JSON.parse(
       Buffer.from(marker[1], 'base64').toString('utf8'),
     ) as AutomationState & { run?: unknown };
     const run =
-      typeof state.run === 'string' && /^[1-9]\d*$/.test(state.run)
-        ? Number(state.run)
-        : state.run;
+      typeof alias === 'string' && String(Number(alias)) === alias
+        ? Number(alias)
+        : alias;
     const runId = state.runId === undefined ? run : state.runId;
     if (
       typeof runId === 'number' &&
       Number.isSafeInteger(runId) &&
       runId > 0 &&
-      (state.run === undefined || run === runId) &&
+      (alias === undefined || run === runId) &&
       (state.attempt === undefined ||
         (Number.isSafeInteger(state.attempt) && state.attempt > 0)) &&
       state.issue === Number(comment.issue_url.split('/').pop()) &&
@@ -335,6 +364,56 @@ export function readState(comment: Comment, region: Region) {
 }
 
 type StateRecord = { state: AutomationState; comment: Comment };
+
+type RoleProgress = {
+  status: 'developing' | 'revising' | 'reviewing';
+  agent: Agent;
+  role: AdventurerRole;
+};
+
+function roleProgress({ comment }: StateRecord): RoleProgress[] {
+  // Only read the progress list in the comment that supplied the checkpoint.
+  const lists = (comment.body ?? '').matchAll(
+    /<details>\s*<summary>진행 기록<\/summary>([\s\S]*?)<\/details>|^\*\*진행 기록\*\*[ \t]*\r?\n((?:(?:[ \t]*\r?\n)*[ \t]*- [^\r\n]*(?:\r?\n|$))+)/gm,
+  );
+  const records: RoleProgress[] = [];
+  for (const [, html, markdown] of lists) {
+    for (const line of (html ?? markdown).split(/\r?\n/)) {
+      const development =
+        /^- \d{2}:\d{2} (developing|revising) · (Codex|Claude) 개발 \d+\/\d+회차입니다\.$/.exec(
+          line.trim(),
+        );
+      if (development) {
+        records.push({
+          status: development[1] === 'developing' ? 'developing' : 'revising',
+          agent: development[2] === 'Codex' ? 'codex' : 'claude',
+          role: 'develop',
+        });
+        continue;
+      }
+      const review =
+        /^- \d{2}:\d{2} reviewing · PR #\d+의 현재 HEAD를 (Codex|Claude)가 검토합니다\.$/.exec(
+          line.trim(),
+        );
+      if (review)
+        records.push({
+          status: 'reviewing',
+          agent: review[1] === 'Codex' ? 'codex' : 'claude',
+          role: 'review',
+        });
+    }
+  }
+  return records;
+}
+
+function progressBelongsToAttempt(record: StateRecord, run: Run) {
+  if (!stateMatchesRun(record.state, run)) return false;
+  const started = Date.parse(run.run_started_at ?? '');
+  const created = Date.parse(record.comment.created_at ?? '');
+  // Editing a checkpoint can replace its marker without replacing its log.
+  // HH:mm entries cannot date individual lines in a reused comment.
+  return Number.isFinite(started) && created >= started;
+}
 
 type IssueAutomation = {
   runs: Run[];
@@ -379,29 +458,50 @@ export function selectIssueAutomation(
         latestAttempts.set(run.id, run);
     }
     const candidates = [...latestAttempts.values()].sort((a, b) => b.id - a.id);
-    const record = entry.records
-      .filter(({ state }) => {
-        const run = latestAttempts.get(state.runId);
-        if (!run) return true;
-        const attempt = state.attempt ?? 1;
-        return (
-          attempt > run.run_attempt ||
-          (attempt === run.run_attempt && run.conclusion !== 'skipped')
-        );
-      })
-      .sort(
-        (a, b) =>
-          b.state.runId - a.state.runId ||
-          (b.state.attempt ?? 1) - (a.state.attempt ?? 1) ||
-          Date.parse(b.comment.updated_at) - Date.parse(a.comment.updated_at),
-      )[0];
+    entry.records.sort(
+      (a, b) =>
+        b.state.runId - a.state.runId ||
+        (b.state.attempt ?? 1) - (a.state.attempt ?? 1) ||
+        Date.parse(b.comment.updated_at) - Date.parse(a.comment.updated_at),
+    );
+    const records = entry.records.filter(({ state }) => {
+      const run = latestAttempts.get(state.runId);
+      if (!run) return true;
+      const attempt = state.attempt ?? 1;
+      return (
+        attempt > run.run_attempt ||
+        (attempt === run.run_attempt && run.conclusion !== 'skipped')
+      );
+    });
 
-    // A parallel trigger can be cancelled before it writes any checkpoint.
+    // A queued trigger hasn't taken over work from a checkpointed active run.
+    const activeRecord = records.find(({ state }) => {
+      const run = latestAttempts.get(state.runId);
+      return run?.status === 'in_progress' && stateMatchesRun(state, run);
+    });
+    const record = records.find(({ state }) => {
+      if (!activeRecord || state.runId <= activeRecord.state.runId) return true;
+      const run = latestAttempts.get(state.runId);
+      return !run || !stateMatchesRun(state, run) || runStage(run) !== 'queued';
+    });
+
+    // A parallel trigger can exit without writing a checkpoint. A newer
+    // success alone does not clear a recorded failure or request for help.
     const run = candidates.find(
       (candidate) =>
         candidate.conclusion !== 'skipped' &&
         (candidate.conclusion !== 'cancelled' ||
-          entry.records.some(({ state }) => stateMatchesRun(state, candidate))),
+          entry.records.some(({ state }) =>
+            stateMatchesRun(state, candidate),
+          )) &&
+        !(
+          record &&
+          candidate.id > record.state.runId &&
+          ((record === activeRecord && runStage(candidate) === 'queued') ||
+            ((record.state.status === 'failed' ||
+              record.state.status === 'needs_human') &&
+              candidate.conclusion === 'success'))
+        ),
     );
     if (
       record &&
@@ -453,6 +553,100 @@ function runSource(run: Run): WorkflowRunRecord {
   };
 }
 
+function latestWorkflowRuns(runs: WorkflowRunRecord[]): WorkflowRunRecord[] {
+  return runs
+    .map((run) => {
+      const start = Date.parse(run.startedAt ?? '');
+      return { run, start: Number.isNaN(start) ? -Infinity : start };
+    })
+    .sort((a, b) => (a.start === b.start ? 0 : b.start - a.start))
+    .slice(0, 8)
+    .map(({ run }) => run);
+}
+
+function currentPullCI(runs: Run[], region: Region, pull: Pull) {
+  return runs.find(
+    (run) =>
+      run.path.split('@')[0] === '.github/workflows/ci.yml' &&
+      run.head_sha === pull.head.sha &&
+      (run.pull_requests.some(({ number }) => number === pull.number) ||
+        (pull.head.repo?.full_name.toLowerCase() === region.slug &&
+          run.head_branch === pull.head.ref)),
+  );
+}
+
+const recoveryStages: Record<RecoveryBadge['kind'], Stage> = {
+  pending: 'queued',
+  failed: 'failed',
+  waiting: 'queued',
+  repairing: 'revising',
+  checking: 'ci',
+  stopped: 'attention',
+};
+
+function pullRecoveryBadge(
+  state: AutomationState | undefined,
+  pull: Pull,
+  ci: Run | undefined,
+  run: Run | undefined,
+): RecoveryBadge | undefined {
+  if (
+    !state ||
+    state.pullNumber !== pull.number ||
+    state.head !== pull.head.sha ||
+    pull.state !== 'open' ||
+    pull.merged_at
+  )
+    return;
+  const recovery = state.recovery;
+  const repair = recovery?.ciRepair;
+  const revisedHead = recovery?.ciReviewHead === pull.head.sha;
+  if (state.status === 'needs_human')
+    return {
+      kind: 'stopped',
+      reason: typeof state.reason === 'string' ? state.reason : undefined,
+    };
+  if (state.status === 'failed')
+    return { kind: 'failed', reason: state.reason };
+  if (!ci || ci.conclusion === 'success') return;
+  const counts =
+    repair &&
+    Number.isSafeInteger(repair.attempt) &&
+    repair.attempt > 0 &&
+    Number.isSafeInteger(repair.limit) &&
+    repair.limit >= repair.attempt
+      ? { attempt: repair.attempt, limit: repair.limit }
+      : {};
+  if (
+    revisedHead &&
+    ci.status !== 'completed' &&
+    ['queued', 'in_progress', 'pending', 'waiting', 'requested'].includes(
+      ci.status,
+    )
+  )
+    return { kind: 'checking', ...counts };
+  if (
+    !run ||
+    !stateMatchesRun(state, run) ||
+    run.status === 'completed' ||
+    ci.conclusion !== 'failure' ||
+    state.status !== 'revising' ||
+    !repair ||
+    repair.sourceHead !== state.head ||
+    repair.runId !== state.runId ||
+    repair.ciAttempt !== `${ci.id}/${ci.run_attempt}` ||
+    !['format', 'development', 'commit'].includes(recovery?.pending ?? '')
+  )
+    return;
+  const active =
+    run.status === 'in_progress' &&
+    (recovery?.pending === 'commit' ||
+      state.phase === 'PR 포맷 수정' ||
+      state.phase === 'Codex 개발' ||
+      state.phase === 'Claude 개발');
+  return { kind: active ? 'repairing' : 'waiting', ...counts };
+}
+
 export function makeForges(
   region: Region,
   pulls: Pull[],
@@ -482,14 +676,15 @@ export function makeForges(
             (pull.head.repo?.full_name.toLowerCase() === region.slug &&
               run.head_branch === pull.head.ref)),
       );
-      const ci = relatedRuns.find(
-        (run) => run.path.split('@')[0] === '.github/workflows/ci.yml',
-      );
+      const ci = currentPullCI(relatedRuns, region, pull);
       const outcome = ci ? runStage(ci) : 'idle';
       const review = links.get(pull.number);
       const cancelled = pull.state === 'closed' && !pull.merged_at;
       const relatedWork =
         pull.merged_at || cancelled ? [] : (work.get(pull.number) ?? []);
+      const recoveryBadge = relatedWork.find(
+        (quest) => quest.recoveryBadge,
+      )?.recoveryBadge;
       const workers = new Map<Agent, Adventurer>();
       for (const quest of relatedWork) {
         for (const member of quest.adventurers ?? []) {
@@ -538,20 +733,18 @@ export function makeForges(
         ? 'complete'
         : cancelled
           ? 'idle'
-          : quality === 'failed' || quality === 'attention'
-            ? quality
-            : adventurers.some((member) => member.fallen)
-              ? 'failed'
-              : adventurers.some((member) => member.active === 'review')
-                ? 'reviewing'
-                : adventurers.some((member) => member.active === 'develop')
-                  ? relatedWork.some((quest) => quest.stage === 'revising')
-                    ? 'revising'
-                    : 'developing'
-                  : (quality ??
-                    (relatedWork.some((quest) => quest.stage === 'merging')
-                      ? 'merging'
-                      : 'idle'));
+          : adventurers.some((member) => member.fallen)
+            ? 'failed'
+            : adventurers.some((member) => member.active === 'review')
+              ? 'reviewing'
+              : adventurers.some((member) => member.active === 'develop')
+                ? relatedWork.some((quest) => quest.stage === 'revising')
+                  ? 'revising'
+                  : 'developing'
+                : (quality ??
+                  (relatedWork.some((quest) => quest.stage === 'merging')
+                    ? 'merging'
+                    : 'idle'));
       return {
         number: pull.number,
         title: pull.title,
@@ -564,6 +757,15 @@ export function makeForges(
           (cancelled ? (pull.closed_at ?? pull.updated_at) : undefined),
         issues: linkedPullIssues(pull, region, review),
         adventurers,
+        reason:
+          stage === 'failed' || stage === 'attention'
+            ? (relatedWork.find((quest) => quest.stage === stage)?.reason ??
+              (ci && `CI · ${ci.conclusion ?? ci.status}`))
+            : undefined,
+        recoveryBadge,
+        ciQueued:
+          (quality === 'ci' || recoveryBadge?.kind === 'checking') &&
+          ci?.status !== 'in_progress',
         ciParticipated:
           Boolean(ci) ||
           runs.some(
@@ -576,18 +778,18 @@ export function makeForges(
           pullDiscussion(pull, review?.activity),
         ]),
         activities: review?.activities,
-        stage,
+        stage: recoveryBadge ? recoveryStages[recoveryBadge.kind] : stage,
         author: pullActor(pull.user?.login, pull.user?.type),
         reviewer: review?.reviewer,
         review: review?.review,
-        runs: [
+        runs: latestWorkflowRuns([
           ...new Map(
             [
               ...relatedWork.flatMap((quest) => quest.runs),
               ...relatedRuns.map(runSource),
             ].map((run) => [run.url, run]),
           ).values(),
-        ].slice(0, 8),
+        ]),
       };
     });
 }
@@ -685,22 +887,41 @@ export function makeQuests(
     const headPulls = issuePulls.filter(
       (item) => item.state === 'open' && item.head.sha === state?.head,
     );
+    const recordedPull = issuePulls.find(
+      (item) =>
+        item.state === 'open' &&
+        item.number === state?.pullNumber &&
+        item.head.sha === state?.head,
+    );
+    // A queued retry may not have written its own checkpoint yet. Only carry
+    // the previous PR association while its number and HEAD still match.
+    const pendingRetry =
+      run && runStage(run) === 'queued' && !record
+        ? selection?.records.find(
+            ({ state }) =>
+              state.runId < run.id ||
+              (state.runId === run.id &&
+                (state.attempt ?? 1) < run.run_attempt),
+          )?.state
+        : undefined;
+    const retryPull =
+      pendingRetry?.status === 'failed'
+        ? issuePulls.find(
+            (item) =>
+              item.state === 'open' &&
+              item.number === pendingRetry.pullNumber &&
+              item.head.sha === pendingRetry.head,
+          )
+        : undefined;
     const workPull =
-      runPulls.length === 1
+      recordedPull ??
+      (runPulls.length === 1
         ? runPulls[0]
         : headPulls.length === 1
           ? headPulls[0]
-          : undefined;
+          : retryPull);
     const pull = workPull ?? issuePulls[0];
-    const ci = runs.find(
-      (candidate) =>
-        candidate.path.split('@')[0] === '.github/workflows/ci.yml' &&
-        candidate.head_sha === (pull?.head.sha ?? state?.head) &&
-        (candidate.head_branch === pull?.head.ref ||
-          candidate.pull_requests.some(
-            ({ number }) => number === pull?.number,
-          )),
-    );
+    const ci = pull ? currentPullCI(runs, region, pull) : undefined;
     // Earlier CI attempts remain visible in Actions history after recovery changes the head.
     const earlierCI = pull
       ? runs.filter(
@@ -712,18 +933,38 @@ export function makeQuests(
       : [];
     const branch =
       pull && pullIssue(pull, region) === issue.number ? pull.head.ref : '';
-    const developer =
+    const matchingRun = Boolean(run && state && stateMatchesRun(state, run));
+    const automationRunning =
+      issue.state === 'open' &&
+      run?.status === 'in_progress' &&
+      run.conclusion !== 'skipped';
+    const running = automationRunning && matchingRun;
+    const progress = record ? roleProgress(record) : [];
+    const currentProgress =
+      record && run && progressBelongsToAttempt(record, run)
+        ? progress.findLast((entry) => entry.status === state?.status)
+        : undefined;
+    const assignedDeveloper =
       state?.developer === 'codex' || state?.developer === 'claude'
         ? state.developer
-        : branch.endsWith('-codex')
-          ? 'codex'
-          : branch.endsWith('-claude')
-            ? 'claude'
-            : undefined;
-    const reviewer =
+        : !state?.developer && currentProgress?.role === 'develop'
+          ? currentProgress.agent
+          : undefined;
+    const assignedReviewer =
       state?.reviewer === 'codex' || state?.reviewer === 'claude'
         ? state.reviewer
-        : pull && pullLinks.get(pull.number)?.reviewer;
+        : !state?.reviewer && currentProgress?.role === 'review'
+          ? currentProgress.agent
+          : undefined;
+    const developer =
+      assignedDeveloper ??
+      (branch.endsWith('-codex')
+        ? 'codex'
+        : branch.endsWith('-claude')
+          ? 'claude'
+          : undefined);
+    const reviewer =
+      assignedReviewer ?? (pull && pullLinks.get(pull.number)?.reviewer);
     let stage: Stage = state ? automationStages[state.status] : 'idle';
     let evidence: Source | undefined =
       state && record
@@ -737,6 +978,10 @@ export function makeQuests(
     if (state?.status === 'needs_human' && !/[\p{L}\p{N}]/u.test(reason ?? ''))
       reason =
         '자동화가 사람 확인을 요청했습니다. 실행 기록에 구체적인 중단 사유가 없습니다.';
+    const issueStop: RecoveryBadge | undefined =
+      issue.state === 'open' && state?.status === 'needs_human'
+        ? { kind: 'stopped', reason }
+        : undefined;
     let detail = state?.detail;
     const outcome = run && runStage(run);
     if (
@@ -813,9 +1058,52 @@ export function makeQuests(
       detail = undefined;
     }
 
+    const queuedBadge: RecoveryBadge | undefined =
+      stage === 'queued' && issue.state === 'open'
+        ? {
+            kind:
+              run &&
+              (run.run_attempt > 1 ||
+                automation.some(
+                  (prior) =>
+                    prior.id < run.id && prior.conclusion === 'failure',
+                ) ||
+                pendingRetry?.status === 'failed')
+                ? 'waiting'
+                : 'pending',
+          }
+        : undefined;
+    const recoveryBadge =
+      recordedPull && issue.state === 'open'
+        ? (pullRecoveryBadge(state, recordedPull, ci, run) ?? queuedBadge)
+        : workPull
+          ? queuedBadge
+          : undefined;
+    if (recoveryBadge && evidence?.status !== 'ai:stop')
+      stage = recoveryStages[recoveryBadge.kind];
     const adventurers = new Map<Agent, Adventurer>();
-    const matchingRun = Boolean(run && state && stateMatchesRun(state, run));
-    const running = matchingRun && run?.status === 'in_progress';
+    const issueCIStatus =
+      stage !== 'ci'
+        ? undefined
+        : ci?.status === 'in_progress'
+          ? 'running'
+          : ci?.status !== 'completed'
+            ? 'waiting'
+            : ci.conclusion === 'success'
+              ? 'passed'
+              : 'finished';
+    const readyToMerge =
+      state?.status === 'ready' && issueCIStatus === 'passed';
+    const issueLeader =
+      issue.state !== 'open'
+        ? undefined
+        : issueCIStatus === 'running'
+          ? 'active'
+          : automationRunning ||
+              readyToMerge ||
+              recoveryBadge?.kind === 'checking'
+            ? 'resting'
+            : undefined;
     const addAdventurer = (
       agent: Agent,
       role: AdventurerRole,
@@ -828,6 +1116,12 @@ export function makeQuests(
       if (fallen) member.fallen = true;
       adventurers.set(agent, member);
     };
+    for (const entry of progress) {
+      const assigned =
+        entry.role === 'develop' ? assignedDeveloper : assignedReviewer;
+      if (entry !== currentProgress || !assigned || entry.agent === assigned)
+        addAdventurer(entry.agent, entry.role, false);
+    }
     const developmentRecorded = Boolean(
       branch ||
       (state &&
@@ -840,12 +1134,16 @@ export function makeQuests(
           'merged',
         ].includes(state.status)),
     );
-    if (developer && developmentRecorded)
+    if (developer && developmentRecorded && (!running || assignedDeveloper))
       addAdventurer(
         developer,
         'develop',
         running &&
-          state?.status !== 'recovering' &&
+          developer === assignedDeveloper &&
+          recoveryBadge?.kind !== 'waiting' &&
+          (recoveryBadge?.kind !== 'repairing' ||
+            state?.recovery?.pending === 'development') &&
+          state?.status === stage &&
           (stage === 'developing' || stage === 'revising'),
         matchingRun &&
           outcome === 'failed' &&
@@ -866,20 +1164,23 @@ export function makeQuests(
         addAdventurer(agent, 'review', false);
     }
     const reviewRecorded = Boolean(
-      state?.reviewInProgress || state?.reviews?.length,
+      state?.reviewInProgress ||
+      state?.reviews?.length ||
+      currentProgress?.role === 'review',
     );
-    if (
-      state?.reviewer &&
-      (state.reviewer === 'codex' || state.reviewer === 'claude') &&
-      reviewRecorded
-    ) {
+    if (assignedReviewer && reviewRecorded) {
       const reviewingHead =
-        Boolean(state.reviewInProgress) &&
-        state.reviewInProgress === (pull?.head.sha ?? state.head);
-      const active = running && stage === 'reviewing' && reviewingHead;
+        Boolean(state?.reviewInProgress) &&
+        state?.reviewInProgress === (pull?.head.sha ?? state?.head);
+      const active =
+        running &&
+        stage === 'reviewing' &&
+        state?.status === 'reviewing' &&
+        (reviewingHead ||
+          (!state.reviewInProgress && currentProgress?.role === 'review'));
       const fallen = matchingRun && outcome === 'failed' && reviewingHead;
-      if (state.reviewer !== submittedReviewer || active || fallen)
-        addAdventurer(state.reviewer, 'review', active, fallen);
+      if (assignedReviewer !== submittedReviewer || active || fallen)
+        addAdventurer(assignedReviewer, 'review', active, fallen);
     }
 
     const commit =
@@ -938,8 +1239,21 @@ export function makeQuests(
           ? state.reviewer
           : undefined,
       workPull:
-        matchingRun && issue.state === 'open' ? workPull?.number : undefined,
-      adventurers: [...adventurers.values()],
+        (matchingRun || recoveryBadge) && issue.state === 'open'
+          ? workPull?.number
+          : undefined,
+      recoveryBadge,
+      issueRecoveryBadge: issueStop ?? recoveryBadge ?? queuedBadge,
+      issueLeader,
+      issueCIStatus,
+      adventurers:
+        automationRunning &&
+        (!record ||
+          ((stage === 'developing' || stage === 'revising') &&
+            !assignedDeveloper) ||
+          (stage === 'reviewing' && !assignedReviewer))
+          ? []
+          : [...adventurers.values()],
       activities,
       activity,
       issueComments: issue.comments,
@@ -970,9 +1284,9 @@ export function makeQuests(
             ? 'draft'
             : item.state,
       })),
-      runs: [...automation, ...(ci ? [ci] : []), ...earlierCI]
-        .slice(0, 8)
-        .map(runSource),
+      runs: latestWorkflowRuns(
+        [...automation, ...(ci ? [ci] : []), ...earlierCI].map(runSource),
+      ),
     };
     return withPublishedRelease(quest, releases);
   });

@@ -66,6 +66,7 @@ export function Dialog({
   close: () => void;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
+  const bodyRef = useRef<HTMLDivElement>(null);
   const pressedBackdrop = useRef<number | null>(null);
   const releasedBackdrop = useRef(false);
 
@@ -86,7 +87,73 @@ export function Dialog({
   }
 
   useEffect(() => {
-    ref.current?.showModal();
+    const dialog = ref.current;
+    const body = bodyRef.current;
+    if (!dialog || !body) return;
+
+    dialog.showModal();
+    const viewport = window.visualViewport;
+    if (!viewport) return;
+
+    function clearViewport(dialog: HTMLDialogElement) {
+      dialog.removeAttribute('data-constrained-viewport');
+      dialog.style.removeProperty('--dialog-viewport-center');
+      dialog.style.removeProperty('--dialog-viewport-height');
+    }
+
+    let frame = 0;
+    const scheduleUpdate = () => {
+      if (frame) return;
+      frame = window.requestAnimationFrame(() => {
+        frame = 0;
+        const { height, offsetTop, scale } = viewport;
+        const zoomed = Math.abs(scale - 1) > 0.01;
+        // 키보드가 레이아웃 뷰포트까지 줄이면 기존 dvh 제한을 사용합니다.
+        // 가시 영역만 줄어드는 경우에는 Safari의 위아래 이동도 반영합니다.
+        if (!zoomed && height < document.documentElement.clientHeight - 1) {
+          dialog.setAttribute('data-constrained-viewport', '');
+          dialog.style.setProperty(
+            '--dialog-viewport-center',
+            `${offsetTop + height / 2}px`,
+          );
+          dialog.style.setProperty('--dialog-viewport-height', `${height}px`);
+        } else {
+          clearViewport(dialog);
+        }
+
+        const focused = document.activeElement;
+        if (
+          zoomed ||
+          !(focused instanceof HTMLElement) ||
+          !body.contains(focused) ||
+          !focused.matches('input, textarea, [contenteditable="true"]')
+        )
+          return;
+
+        // 페이지까지 스크롤시키지 않고 팝업 본문에서만 입력란을 드러냅니다.
+        const field = focused.getBoundingClientRect();
+        const visible = body.getBoundingClientRect();
+        if (field.top < visible.top || field.height > visible.height) {
+          body.scrollTop += field.top - visible.top;
+        } else if (field.bottom > visible.bottom) {
+          body.scrollTop += field.bottom - visible.bottom;
+        }
+      });
+    };
+
+    scheduleUpdate();
+    viewport.addEventListener('resize', scheduleUpdate);
+    viewport.addEventListener('scroll', scheduleUpdate);
+    window.addEventListener('resize', scheduleUpdate);
+    dialog.addEventListener('focusin', scheduleUpdate);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      viewport.removeEventListener('resize', scheduleUpdate);
+      viewport.removeEventListener('scroll', scheduleUpdate);
+      window.removeEventListener('resize', scheduleUpdate);
+      dialog.removeEventListener('focusin', scheduleUpdate);
+      clearViewport(dialog);
+    };
   }, []);
   return (
     <dialog
@@ -141,7 +208,9 @@ export function Dialog({
           </button>
         )}
       </div>
-      <div className="dialog-body">{children}</div>
+      <div ref={bodyRef} className="dialog-body">
+        {children}
+      </div>
     </dialog>
   );
 }

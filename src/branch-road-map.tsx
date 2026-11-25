@@ -39,30 +39,68 @@ export function placeBranchRoads(
     }
   }
   const visible = [...chosen.values()];
-  const branches = visible.filter((road) => road.role === 'road');
-  const branchNames = new Set(branches.map((road) => road.name));
-  const rows: BranchRoad[][] = [];
   const palaceRoad = roads.find((road) => road.role === 'palace');
   const plazaRoad = visible.find((road) => road.role === 'plaza');
+  const openPulls = new Map(
+    roads.map((road) => [
+      road.name,
+      road.pulls
+        .filter((pull) => !pull.merged)
+        .sort((left, right) => left.number - right.number),
+    ]),
+  );
+  const branches = nonPalace.filter((road) => road.role === 'road');
+  branches.sort(
+    (left, right) =>
+      (openPulls.get(left.name)?.[0]?.number ?? Infinity) -
+        (openPulls.get(right.name)?.[0]?.number ?? Infinity) ||
+      left.name.localeCompare(right.name) ||
+      Number(left.name > right.name) - Number(left.name < right.name),
+  );
+  const branchNames = new Set(branches.map((road) => road.name));
+  const roots: BranchRoad[] = [];
+  const childrenByParent = new Map<string, BranchRoad[]>();
+  for (const road of branches) {
+    if (!road.parent || !branchNames.has(road.parent)) {
+      roots.push(road);
+      continue;
+    }
+    const siblings = childrenByParent.get(road.parent) ?? [];
+    siblings.push(road);
+    childrenByParent.set(road.parent, siblings);
+  }
+
   const facilityOrder = new Map<number, number>();
   function rank(road?: BranchRoad) {
-    for (const pull of road?.pulls ?? []) {
-      if (!pull.merged) facilityOrder.set(pull.number, facilityOrder.size);
-    }
-  }
-  const lanes = new Map<string, number>();
-  function visit(road: BranchRoad, depth: number) {
-    (rows[depth] ??= []).push(road);
-    lanes.set(road.name, lanes.size + 1);
-    rank(road);
-    for (const child of branches) {
-      if (child.parent === road.name) visit(child, depth + 1);
+    if (!road) return;
+    for (const pull of openPulls.get(road.name) ?? []) {
+      facilityOrder.set(pull.number, facilityOrder.size);
     }
   }
   rank(palaceRoad);
   rank(plazaRoad);
-  for (const root of branches) {
-    if (!root.parent || !branchNames.has(root.parent)) visit(root, 0);
+
+  // Keep each subtree together, even when its branch node is hidden by the cap.
+  const rows: BranchRoad[][] = [];
+  const lanes = new Map<string, number>();
+  const visibleDepths = new Map<string, number>();
+  const pending = roots.reverse();
+  while (pending.length > 0) {
+    const road = pending.pop()!;
+    rank(road);
+    if (chosen.has(road.name)) {
+      const parentDepth = road.parent
+        ? visibleDepths.get(road.parent)
+        : undefined;
+      const depth = (parentDepth ?? -1) + 1;
+      visibleDepths.set(road.name, depth);
+      (rows[depth] ??= []).push(road);
+      lanes.set(road.name, lanes.size + 1);
+    }
+    const children = childrenByParent.get(road.name) ?? [];
+    for (let index = children.length - 1; index >= 0; index--) {
+      pending.push(children[index]);
+    }
   }
   return {
     roads,

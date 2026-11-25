@@ -10,6 +10,10 @@ on:
         description: '재개할 이슈 번호'
         required: true
         type: number
+      development_note:
+        description: '수동 개발 재개 시 확인할 소스·테스트 위치와 판단 근거 (선택)'
+        required: false
+        type: string
       review_note:
         description: '수동 재개 시 리뷰어가 재확인할 오류와 재현 조건 (선택)'
         required: false
@@ -21,6 +25,11 @@ on:
 
       ci_feedback:
         description: '완료 단계에서 확인한 현재 HEAD의 CI 오류'
+        required: false
+        type: string
+
+      ci_attempt:
+        description: '자동 수정 대상 CI 실행 번호/시도 번호'
         required: false
         type: string
 
@@ -39,6 +48,7 @@ jobs:
       (github.event_name == 'workflow_dispatch' || github.event.label.name == 'ai:develop' || github.event.label.name == 'ai:develop:claude')
     concurrency:
       group: ai-development-issue-${{ github.event.issue.number || inputs.issue }}
+      queue: max
       cancel-in-progress: false
     runs-on: ubuntu-latest
     timeout-minutes: 45

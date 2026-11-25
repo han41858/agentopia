@@ -1,3 +1,5 @@
+import base64
+import json
 import importlib.util
 import unittest
 from pathlib import Path
@@ -52,7 +54,7 @@ class CompletionTest(unittest.TestCase):
             mutations.append(kwargs["query"])
             pull["draft"] = "convertPullRequestToDraft" in kwargs["query"]
 
-        with patch.object(completion, "eligible", side_effect=lambda *_: not (stop_after_undraft and mutations)), patch.object(
+        with patch.object(completion, "record_event") as journal, patch.object(completion, "eligible", side_effect=lambda *_, **kwargs: not (stop_after_undraft and mutations)), patch.object(
             completion, "ready_state", return_value=state
         ), patch.object(completion, "repo", side_effect=repo), patch.object(completion, "api", side_effect=mutation), patch.object(
             completion.time, "sleep"
@@ -69,11 +71,31 @@ class CompletionTest(unittest.TestCase):
                 merge_error = False
                 completion.complete(1, 7)
             elif wrong_close or rerunning or changed or stale_head or ci != "success" or status != "completed":
-                with self.assertRaises(RuntimeError):
+                retryable = rerunning or ci in {"cancelled", "timed_out", "stale"} or status != "completed" or stale_head
+                with self.assertRaises(completion.RetryCompletion if retryable else RuntimeError):
                     completion.complete(1, 7)
             else:
                 completion.complete(1, 7)
+            if not wrong_close and issue_state["state"] == "closed":
+                self.assertEqual([c.args[3].split(":")[0] for c in journal.call_args_list], ["merge", "closed"])
+                self.assertEqual(journal.call_args.kwargs["status"], "merged")
         return calls
+
+    def test_cancelled_ci_is_retryable(self):
+        self.assertEqual(self.run_case(ci="cancelled"), [])
+
+    def test_main_records_retryable_ci_without_invalidating_review(self):
+        state = {"runId": 7, "head": "a" * 40, "pullNumber": 2}
+        for error, status in [(completion.RetryCompletion("CI timed out"), None),
+                              (RuntimeError("PR changed"), "needs_human")]:
+            with self.subTest(error=error), patch.dict(completion.os.environ, AI_ISSUE="1", AI_REVIEW_RUN="7"), patch.object(
+                completion, "complete", side_effect=error
+            ), patch.object(completion, "ready_state", return_value=state), patch.object(
+                completion, "repo", return_value={"merged_at": None}
+            ), patch.object(completion, "record_event") as journal:
+                with self.assertRaises(type(error)):
+                    completion.main()
+                self.assertEqual(journal.call_args.kwargs["status"], status)
 
     def test_completion_requires_reviewed_developer_label(self):
         issue = {"state": "open", "labels": [{"name": "ai:develop:claude"}]}
@@ -82,6 +104,12 @@ class CompletionTest(unittest.TestCase):
             self.assertFalse(completion.eligible(74, "codex"))
             issue["labels"].append({"name": "ai:stop"})
             self.assertFalse(completion.eligible(74, "claude"))
+
+    def test_close_authorization_uses_same_snapshot_as_fingerprint(self):
+        opened = {"state": "open", "labels": [{"name": "ai:develop"}]}
+        with patch.object(completion, "repo", side_effect=AssertionError("unexpected second issue read")):
+            self.assertTrue(completion.eligible(155, "codex", snapshot=opened))
+            self.assertFalse(completion.eligible(155, "codex", snapshot={**opened, "state": "closed"}))
 
     def test_ci_feedback_uses_failed_attempt_source_annotations(self):
         jobs = {"jobs": [{"id": 9, "conclusion": "failure"}, {"id": 8, "conclusion": "success"}]}
@@ -112,6 +140,32 @@ class CompletionTest(unittest.TestCase):
             self.assertEqual(completion.api("comments", pages=True), [{"id": 1}, {"id": 2}])
             self.assertIn("--paginate", run.call_args.args[0])
             self.assertNotIn("--slurp", run.call_args.args[0])
+
+    def test_replayed_ci_after_closure_preserves_current_checkpoint(self):
+        earlier = {"issue": 1, "runId": 7, "attempt": 1, "status": "ready", "reason": "CI 대기"}
+        latest = dict(earlier, runId=8, status="merged", reason="이슈 해결 완료")
+        encoded = base64.b64encode(json.dumps(earlier).encode()).decode()
+        comment = {"id": 93, "body": f"CI 대기\n\n<!-- agentopia-ai-state:{encoded} -->"}
+        current = earlier
+        writes = []
+
+        def patch_comment(path, *, method, body):
+            self.assertEqual((path, method), ("issues/comments/93", "PATCH"))
+            comment["body"] = body
+            writes.append(body)
+
+        with patch.object(completion, "checkpoint", side_effect=lambda _: (comment, current)), patch.object(
+            completion, "repo", side_effect=patch_comment
+        ):
+            args = (1, earlier, 2, "ci:11/1", "CI 실패")
+            completion.record_event(*args, ci={"id": 11, "run_attempt": 1})
+            current = latest
+            completion.record_event(1, latest, 2, "closed", latest["reason"], status="merged")
+            current = dict(latest, phase="완료")
+            completion.record_event(*args, ci={"id": 11, "run_attempt": 1})
+        self.assertEqual(len(writes), 2)
+        self.assertTrue(comment["body"].startswith("**2차 실행 · 완료"))
+        self.assertEqual(comment["body"].count("CI 실패"), 1)
 
     def test_merge_before_close(self):
         self.assertEqual(self.run_case(), ["pulls/2/merge", "issues/1"])

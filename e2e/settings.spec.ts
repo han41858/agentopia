@@ -1,4 +1,4 @@
-import type { Page } from '@playwright/test';
+import type { Locator, Page } from '@playwright/test';
 import { added, alpha, noPlaza, owner } from './fixtures.ts';
 import { openWorld, settled } from './github.ts';
 import { expect, test } from './test.ts';
@@ -177,6 +177,165 @@ test.describe('GitHub 토큰', () => {
       ),
     ).not.toContain(token);
   });
+});
+
+type VisibleArea = { height: number; offsetTop: number };
+
+async function mockKeyboardViewport(
+  page: Page,
+  area: VisibleArea | null,
+  event: 'resize' | 'scroll' = 'resize',
+) {
+  // 실제 키보드 대신 가시 영역만 바꿉니다. 레이아웃 뷰포트는 그대로 둡니다.
+  await page.evaluate(
+    ({ area, event }) => {
+      const viewport = window.visualViewport;
+      if (!viewport) throw new Error('VisualViewport is required');
+      for (const key of ['height', 'offsetTop'] as const) {
+        if (area) {
+          Object.defineProperty(viewport, key, {
+            configurable: true,
+            value: area[key],
+          });
+        } else {
+          Reflect.deleteProperty(viewport, key);
+        }
+      }
+      viewport.dispatchEvent(new Event(event));
+    },
+    { area, event },
+  );
+}
+
+async function expectInVisibleArea(control: Locator, area: VisibleArea) {
+  await expect
+    .poll(() =>
+      control.evaluate((node, { height, offsetTop }) => {
+        const rect = node.getBoundingClientRect();
+        const body = node.closest('.dialog-body')?.getBoundingClientRect();
+        return (
+          rect.height > 0 &&
+          rect.top >= Math.max(offsetTop, body?.top ?? offsetTop) - 1 &&
+          rect.bottom <=
+            Math.min(offsetTop + height, body?.bottom ?? Infinity) + 1
+        );
+      }, area),
+    )
+    .toBe(true);
+}
+
+async function tapWithoutAutoScroll(page: Page, control: Locator) {
+  const box = await control.boundingBox();
+  if (!box) throw new Error('Expected a touch target');
+  await page.touchscreen.tap(box.x + box.width / 2, box.y + box.height / 2);
+}
+
+test.describe('모바일 팝업의 모의 키보드', () => {
+  test.use({ viewport: { width: 390, height: 844 }, hasTouch: true });
+
+  for (const scenario of [
+    {
+      title: '저장소 추가',
+      label: 'GitHub 계정 또는 저장소',
+      value: owner,
+      action: '목록 보기',
+      offsetTop: 0,
+    },
+    {
+      title: '저장소 추가',
+      label: 'GitHub 계정 또는 저장소',
+      value: added,
+      action: '추가',
+      offsetTop: 0,
+    },
+    {
+      title: 'GitHub 연결',
+      label: 'GitHub 토큰',
+      value: token,
+      action: '토큰 연결',
+      offsetTop: 110,
+    },
+  ]) {
+    test(`${scenario.action}: 입력과 본문 스크롤, 키보드 닫기 후 복원`, async ({
+      page,
+    }) => {
+      await openWorld(page);
+      const toolbar = page.getByRole('button', { name: '상단 도구 열기' });
+      if (await toolbar.isVisible()) await toolbar.tap();
+      await page
+        .getByRole('button', { name: scenario.title, exact: true })
+        .tap();
+
+      const dialog = page.getByRole('dialog', { name: scenario.title });
+      const input = dialog.getByLabel(scenario.label);
+      const close = dialog.getByRole('button', { name: '닫기' });
+      const heading = dialog.getByRole('heading', { name: scenario.title });
+      const original = await dialog.boundingBox();
+      expect(original).not.toBeNull();
+      await input.tap();
+      await expect(input).toBeFocused();
+
+      const area = { height: 156, offsetTop: 0 };
+      await mockKeyboardViewport(page, area);
+      await expectInVisibleArea(dialog, area);
+      if (scenario.offsetTop) {
+        area.offsetTop = scenario.offsetTop;
+        await mockKeyboardViewport(page, area, 'scroll');
+      }
+      await expectInVisibleArea(dialog, area);
+      await expectInVisibleArea(heading, area);
+      await expectInVisibleArea(close, area);
+      await expectInVisibleArea(input, area);
+      await page.keyboard.insertText(scenario.value);
+      await expect(input).toHaveValue(scenario.value);
+
+      // 키보드가 닫혀도 입력란이 포커스를 유지하는 경우를 검사합니다.
+      await mockKeyboardViewport(page, null);
+      await expect.poll(() => dialog.boundingBox()).toEqual(original);
+      await expect(input).toHaveValue(scenario.value);
+      await expect(input).toBeFocused();
+
+      await mockKeyboardViewport(page, area);
+      await expectInVisibleArea(dialog, area);
+      await expectInVisibleArea(input, area);
+      const action = dialog.getByRole('button', {
+        name: scenario.action,
+        exact: true,
+      });
+      const scrolled = await action.evaluate((button) => {
+        const body = button.closest<HTMLElement>('.dialog-body');
+        if (!body) throw new Error('Expected a scrollable dialog body');
+        const before = body.scrollTop;
+        body.scrollTop +=
+          button.getBoundingClientRect().bottom -
+          body.getBoundingClientRect().bottom +
+          2;
+        return body.scrollTop > before;
+      });
+      expect(scrolled).toBe(true);
+      await expect(input).toBeFocused();
+      await expectInVisibleArea(heading, area);
+      await expectInVisibleArea(close, area);
+      await expectInVisibleArea(action, area);
+      await tapWithoutAutoScroll(page, action);
+
+      if (scenario.action === '목록 보기') {
+        await expect(
+          dialog.getByRole('group', { name: '저장소 선택' }),
+        ).toBeVisible();
+        await tapWithoutAutoScroll(page, close);
+        await expect(dialog).toBeHidden();
+      } else if (scenario.action === '추가') {
+        await expect(dialog).toBeHidden();
+        await expect(page.getByRole('region', { name: 'added' })).toBeVisible();
+      } else {
+        await expect(dialog).toBeHidden();
+        await expect(
+          page.getByRole('dialog', { name: '저장소 추가' }),
+        ).toBeVisible();
+      }
+    });
+  }
 });
 
 test.describe('표시 모드', () => {

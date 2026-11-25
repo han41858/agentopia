@@ -54,10 +54,13 @@ svg {
   flex-shrink: 0;
 }
 .world {
+  --legend-edge: clamp(12px, 3vw, 32px);
   min-height: 100dvh;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  grid-template-rows: auto 1fr auto;
+  grid-template-rows: auto 1fr;
+  /* Let the last kingdom scroll clear of the fixed legend. */
+  padding-bottom: calc(116px + var(--legend-edge));
   background-color: #152b22;
   background-image:
     linear-gradient(#a9c79813 1px, transparent 1px),
@@ -69,14 +72,19 @@ svg {
     100% 100%;
 }
 
-.world-header,
-.world-footer {
+.world-header {
   margin: clamp(12px, 3vw, 32px);
 }
 .world-footer {
-  display: flex;
-  justify-content: flex-end;
-  margin-top: 4px;
+  position: fixed;
+  z-index: 1;
+  right: var(--legend-edge);
+  bottom: var(--legend-edge);
+  padding: 8px;
+  border: 1px solid var(--rim);
+  border-radius: 7px;
+  background: var(--panel);
+  pointer-events: none;
 }
 .world-header,
 .header-tools {
@@ -229,13 +237,13 @@ svg {
   padding: 14px clamp(12px, 4vw, 44px) 18px;
 }
 .kingdoms {
-  width: min(100%, 1160px);
+  width: 100%;
   margin-inline: auto;
   display: flex;
   flex-wrap: wrap;
   align-items: flex-start;
   justify-content: center;
-  gap: clamp(12px, 2vw, 24px);
+  gap: clamp(12px, 2vw, 24px) clamp(12px, 2vw, 18px);
 }
 .kingdom-area {
   --courtyard: color-mix(in oklch, var(--land) 20%, transparent);
@@ -287,6 +295,9 @@ svg {
   text-align: center;
 }
 .kingdom-label {
+  /* Use the palace sprite's transparent foot without shrinking the button. */
+  position: relative;
+  inset-block-start: -8px;
   min-width: 0;
   overflow-wrap: anywhere;
 }
@@ -305,16 +316,18 @@ svg {
 .expeditions > li,
 .guild-parties > li {
   flex: 0 0 auto;
-  min-inline-size: min(53px, 100%);
+  min-inline-size: 53px;
   max-width: 100%;
 }
 .expeditions > .guild-branch,
 .guild-parties > .guild-branch {
   display: flex;
-  flex-wrap: wrap;
-  align-items: flex-start;
-  justify-content: center;
-  column-gap: 3px;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+}
+.guild-branch > .expedition {
+  width: auto;
 }
 .guild-parties {
   margin: 0;
@@ -758,6 +771,16 @@ svg {
   display: flex;
   flex-direction: column;
 }
+.dialog[data-constrained-viewport] {
+  position: fixed;
+  inset: var(--dialog-viewport-center) 0 auto;
+  margin: 0 auto;
+  max-height: min(82dvh, 800px, calc(var(--dialog-viewport-height) - 24px));
+  transform: translateY(-50%);
+}
+.dialog[data-constrained-viewport] .dialog-heading {
+  padding-block: 10px;
+}
 .repository-dialog {
   width: min(393px, calc(100% - 32px));
 }
@@ -918,6 +941,12 @@ svg {
   background: #151020;
   color: inherit;
   padding: 9px 11px;
+}
+@media (pointer: coarse) {
+  /* Prevent Safari from zooming in when a settings field receives focus. */
+  .token-form input {
+    font-size: 16px;
+  }
 }
 .repository-options {
   display: grid;
@@ -1122,6 +1151,47 @@ svg {
 .working-party-leader {
   animation: forge-test 1.6s ease-in-out infinite;
 }
+.facility-recovery,
+.monster-recovery {
+  position: absolute;
+  color: #ffe197;
+  background: #46371e;
+  border-radius: 3px;
+  pointer-events: none;
+}
+.facility-recovery {
+  right: -3px;
+  top: -4px;
+}
+.monster-marker-art {
+  position: relative;
+  display: grid;
+  margin-inline: 16px;
+}
+.monster-marker-art > .monster-recovery {
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline-start: 100%;
+}
+.adventurer {
+  position: relative;
+}
+.adventurer > :is(.monster-recovery, .facility-recovery) {
+  top: 0;
+  right: 0;
+  width: 14px;
+  height: 14px;
+}
+:is(.monster-recovery, .facility-recovery)[data-status='stopped'] {
+  color: #f4dbff;
+  background: #553563;
+}
+:is(.monster-recovery, .facility-recovery)[data-status='failed'] {
+  color: #ffaea9;
+  background: #722c2c;
+  fill: currentColor;
+  padding: 2px;
+}
 .facility-core > .aura-opinion {
   position: absolute;
   top: -5px;
@@ -1197,10 +1267,15 @@ svg {
 .kingdom-area:has(.kingdom-workshops) {
   padding-bottom: 12px;
 }
+.kingdom-region:has(.heritage-slot),
 .kingdom-area:has(.heritage-slot) {
-  padding-top: 54px;
-  padding-inline: 40px;
-  min-width: min(100%, 285px);
+  min-width: min(100%, 261px);
+}
+.kingdom-area:has(.heritage-slot) {
+  /* Flatten the arch so the outer monuments still clear the wall. */
+  --kingdom-arch-depth: 56;
+  padding-top: 38px;
+  padding-inline: 28px;
 }
 .heritage-arc {
   display: grid;
@@ -1303,17 +1378,26 @@ svg {
 .branch-roads {
   display: grid;
   justify-items: center;
-  gap: 9px;
-  margin: 3px auto 14px;
+  row-gap: var(--branch-plaza-gap, 6px);
+  margin: 3px auto var(--branch-facility-gap, 14px);
 }
 .branch-roads:empty {
   margin: 0;
+}
+.branch-roads:has(.branch-bridge) {
+  /* Use the transparent space above the bridge; keep it joined to the plaza. */
+  margin-block: -12px var(--branch-facility-gap, 11px);
+}
+.branch-roads:has(.branch-plaza):has(.branch-road-row:only-child) {
+  /* Keep the regular spacing when another tier or a branch list is present. */
+  --branch-plaza-gap: 2px;
+  --branch-facility-gap: 3px;
 }
 .branch-plaza,
 .branch-road-tiers {
   display: grid;
   justify-items: center;
-  gap: 8px;
+  row-gap: 5px;
   width: 100%;
 }
 .branch-plaza {
@@ -1570,20 +1654,6 @@ svg {
 [data-display-mode='simple'] .working-party-leader {
   border-radius: 50%;
 }
-[data-display-mode='simple'] .expedition.blocked::after {
-  content: '!';
-  position: absolute;
-  top: 0;
-  right: 0;
-  display: grid;
-  place-items: center;
-  width: 15px;
-  height: 15px;
-  border-radius: 3px;
-  background: #923e36;
-  color: white;
-  font: bold 12px/1 system-ui;
-}
 [data-display-mode='simple'] .facility-sprite {
   filter: none;
 }
@@ -1723,4 +1793,12 @@ svg {
 }
 .issue-dialog .activity-entry {
   overflow-wrap: anywhere;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  [data-display-mode='simple']
+    .map-viewport
+    :is(.adventurer-glyph.active .adventurer-avatar, .working-party-leader) {
+    animation: forge-test 1.6s ease-in-out infinite !important;
+  }
 }

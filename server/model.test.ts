@@ -110,27 +110,106 @@ test('issue and PR Actions use run start times and distinguish status from concl
   assert.deepEqual(
     quest.runs.map((item) => item.status),
     [
-      'queued',
       'in_progress',
       'success',
       'failure',
       'cancelled',
       'skipped',
+      'queued',
       'completed',
     ],
   );
   assert.deepEqual(
     quest.runs.map((item) => item.startedAt),
     [
+      startedAt,
+      startedAt,
+      startedAt,
+      startedAt,
+      startedAt,
       undefined,
-      startedAt,
-      startedAt,
-      startedAt,
-      startedAt,
-      startedAt,
       undefined,
     ],
   );
+});
+
+test('Actions history sorts mixed runs before limiting the issue and PR lists', () => {
+  const runUrl = (id: number) =>
+    `https://github.com/${commitTrail.slug}/actions/runs/${id}`;
+  const pullRequests = [{ number: pull.number }];
+  const olderAI = Array.from({ length: 8 }, (_, index) =>
+    run(2, {
+      id: 90 - index,
+      html_url: runUrl(90 - index),
+      status: 'completed',
+      conclusion: 'success',
+      pull_requests: pullRequests,
+      run_started_at: '2026-11-19T00:45:00Z',
+    }),
+  );
+  const ai = run(2, {
+    pull_requests: pullRequests,
+    run_started_at: '2026-11-19T01:01:00Z',
+  });
+  const ci = (id: number, time: string, overrides: Partial<Run> = {}) =>
+    run(2, {
+      id,
+      name: 'CI',
+      path: '.github/workflows/ci.yml',
+      html_url: runUrl(id),
+      status: 'completed',
+      conclusion: 'success',
+      pull_requests: pullRequests,
+      run_started_at: `2026-11-19T${time}Z`,
+      ...overrides,
+    });
+  const currentCI = ci(103, '01:23:05', { conclusion: 'failure' });
+  const laterInMinute = ci(104, '01:23:45', {
+    status: 'in_progress',
+    conclusion: null,
+  });
+  const previousHead = ci(105, '01:23:45', {
+    head_sha: mergeSha,
+    conclusion: 'cancelled',
+  });
+  const latest = ci(106, '01:30:00');
+  const runs = [...olderAI, ai, currentCI, laterInMinute, previousHead, latest];
+  const [quest] = makeQuests(
+    commitTrail,
+    [issue(2)],
+    [pull],
+    runs,
+    [comment(2, 'ready')],
+    new Map(),
+    [],
+  );
+  assert.equal(quest.stage, 'failed');
+  assert.equal(quest.evidence?.url, currentCI.html_url);
+  assert.equal(quest.workPull, pull.number);
+  assert.deepEqual(
+    quest.runs.map(({ url }) => url),
+    [
+      latest,
+      laterInMinute,
+      previousHead,
+      currentCI,
+      ai,
+      ...olderAI.slice(0, 3),
+    ].map(({ html_url }) => html_url),
+  );
+
+  const [forge] = makeForges(commitTrail, [pull], runs, new Map());
+  assert.equal(forge.stage, 'failed');
+  assert.deepEqual(
+    forge.runs.map(({ url }) => url),
+    [latest, laterInMinute, currentCI, ai, ...olderAI.slice(0, 4)].map(
+      ({ html_url }) => html_url,
+    ),
+  );
+  const [forgeWithWork] = makeForges(commitTrail, [pull], runs, new Map(), [
+    quest,
+  ]);
+  assert.deepEqual(forgeWithWork.runs, quest.runs);
 });
 
 test('GitHub workflow run metadata survives the issue report API', async (context) => {
@@ -278,6 +357,74 @@ test('monster lifecycle and adventurer activity are independent and use matching
     ],
   );
   assert.equal(work[1].parent, 1);
+});
+
+test('the issue party leader moves only during current CI and rests after CI passes for a ready PR', () => {
+  const runningCI = run(2, {
+    id: 500,
+    path: '.github/workflows/ci.yml',
+    head_branch: pull.head.ref,
+    pull_requests: [{ number: pull.number }],
+  });
+  const completedCI = {
+    ...runningCI,
+    status: 'completed',
+    conclusion: 'success',
+  };
+  const finishedDevelopment = run(2, {
+    status: 'completed',
+    conclusion: 'success',
+  });
+
+  function observe(
+    ci: Run | undefined,
+    development = run(2),
+    status = 'waiting_ci',
+    target = issue(2),
+  ) {
+    const [quest] = makeQuests(
+      commitTrail,
+      [target],
+      [{ ...pull, draft: false }],
+      ci ? [development, ci] : [development],
+      [comment(2, status, { pullNumber: pull.number })],
+      new Map(),
+      [],
+    );
+    assert.equal(quest.stage, 'ci');
+    return [quest.issueCIStatus, quest.issueLeader];
+  }
+
+  assert.deepEqual(observe(undefined), ['waiting', 'resting']);
+  assert.deepEqual(observe({ ...runningCI, status: 'queued' }), [
+    'waiting',
+    'resting',
+  ]);
+  assert.deepEqual(observe(runningCI), ['running', 'active']);
+  assert.deepEqual(observe(runningCI, finishedDevelopment), [
+    'running',
+    'active',
+  ]);
+  assert.deepEqual(observe({ ...runningCI, head_sha: mergeSha }), [
+    'waiting',
+    'resting',
+  ]);
+  assert.deepEqual(
+    observe(runningCI, run(2), 'waiting_ci', { ...issue(2), state: 'closed' }),
+    ['running', undefined],
+  );
+  assert.deepEqual(observe(completedCI, finishedDevelopment, 'ready'), [
+    'passed',
+    'resting',
+  ]);
+  assert.deepEqual(observe(completedCI, finishedDevelopment), [
+    'passed',
+    undefined,
+  ]);
+  assert.deepEqual(
+    observe({ ...completedCI, conclusion: 'skipped' }, finishedDevelopment),
+    ['finished', undefined],
+  );
 });
 
 test('a merged PR is a victory independently of whether its monster has been defeated', () => {
@@ -1241,6 +1388,245 @@ test('parallel cancellations stay in history without hiding development or its r
   assert.equal(latestQuest.evidence?.url, latest.html_url);
 });
 
+test('run aliases normalize without weakening checkpoint validation', () => {
+  const checkpoint = (extras: Record<string, unknown>) =>
+    comment(1, 'failed', extras);
+  const canonical = readState(checkpoint({}), commitTrail);
+  assert.equal(canonical?.runId, 101);
+  for (const run of [101, '101']) {
+    assert.deepEqual(
+      readState(checkpoint({ runId: undefined, run }), commitTrail),
+      canonical,
+    );
+    assert.deepEqual(readState(checkpoint({ run }), commitTrail), canonical);
+  }
+  for (const extras of [
+    { runId: undefined },
+    { runId: '101', run: 101 },
+    { runId: null, run: 101 },
+    { run: null },
+    { run: 102 },
+    ...[0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1, '0101', '101\n', '1e2'].map(
+      (run) => ({ runId: undefined, run }),
+    ),
+    { issue: 2 },
+    { status: 'toString' },
+  ]) {
+    assert.equal(readState(checkpoint(extras), commitTrail), undefined);
+  }
+  assert.equal(readState(checkpoint({}), videx), undefined);
+  assert.equal(
+    readState({ ...checkpoint({}), user: { login: 'guest' } }, commitTrail),
+    undefined,
+  );
+  assert.equal(
+    readState(
+      { ...checkpoint({}), body: 'Codex reached the output token limit.' },
+      commitTrail,
+    ),
+    undefined,
+  );
+});
+
+test('a separate successful run does not clear a failed checkpoint before recovery', () => {
+  const failed = run(78, {
+    id: 45528330850,
+    status: 'completed',
+    conclusion: 'failure',
+    run_started_at: stamp,
+  });
+  const successful = run(78, {
+    id: 45528331272,
+    status: 'completed',
+    conclusion: 'success',
+    run_started_at: '2026-11-19T10:01:00Z',
+  });
+  const reason = 'Codex reached the output token limit.';
+  const failure = comment(78, 'failed', {
+    developer: 'codex',
+    runId: undefined,
+    attempt: undefined,
+    run: failed.id,
+    reason,
+  });
+  const quest = (runs: Run[], ...comments: Comment[]) =>
+    makeQuests(commitTrail, [issue(78)], [], runs, comments, new Map(), [])[0];
+
+  const interrupted = quest([successful, failed], failure);
+  assert.equal(interrupted.stage, 'failed');
+  assert.equal(interrupted.reason, reason);
+  assert.equal(interrupted.evidence?.status, 'failure');
+  assert.deepEqual(
+    interrupted.runs.map(({ status }) => status),
+    ['success', 'failure'],
+  );
+  const missingRun = quest([successful], failure);
+  assert.equal(missingRun.stage, 'failed');
+  assert.equal(missingRun.evidence?.url, failure.html_url);
+
+  const retry = run(78, { id: successful.id + 1 });
+  const resumed = quest(
+    [retry, successful, failed],
+    comment(78, 'developing', { runId: retry.id }),
+    failure,
+  );
+  assert.equal(resumed.stage, 'developing');
+  assert.equal(resumed.evidence?.status, 'developing');
+  assert.equal(resumed.reason, undefined);
+});
+
+test('a pending parallel trigger does not hide the current checkpoint or its Markdown role', () => {
+  const started = run(95, { id: 45580857762, run_started_at: stamp });
+  const pending = run(95, {
+    id: 45580858811,
+    status: 'pending',
+    created_at: '2026-11-19T10:00:01Z',
+    run_started_at: null,
+  });
+  const marker = comment(95, 'developing', {
+    runId: started.id,
+    developer: undefined,
+  });
+  const entries = [
+    '- 10:01 developing · Claude 개발 1/3회차입니다.',
+    '- 10:02 developing · Codex 개발 1/3회차입니다.',
+  ];
+  const markdown = {
+    ...marker,
+    created_at: '2026-11-19T10:00:10Z',
+    updated_at: '2026-11-19T10:02:00Z',
+    body: ['**진행 기록**', '', ...entries, '', marker.body].join('\n'),
+  };
+  const html = {
+    ...markdown,
+    body: [
+      '<details><summary>진행 기록</summary>',
+      '',
+      ...entries,
+      '</details>',
+      '',
+      marker.body,
+    ].join('\n'),
+  };
+  const siblings = [pending, started];
+  const observe = (runs: Run[], ...comments: Comment[]) =>
+    makeQuests(commitTrail, [issue(95)], [], runs, comments, new Map(), [])[0];
+  const activeCodex = { agent: 'codex', roles: ['develop'], active: 'develop' };
+  const partyWithHistory = [
+    { agent: 'claude', roles: ['develop'] },
+    activeCodex,
+  ];
+
+  // Isolate run selection from progress parsing with an explicit role.
+  const explicitRole = observe(
+    siblings,
+    comment(95, 'developing', { runId: started.id, developer: 'codex' }),
+  );
+  assert.equal(explicitRole.stage, 'developing');
+  assert.deepEqual(explicitRole.pulls, []);
+  assert.deepEqual(explicitRole.adventurers, [activeCodex]);
+  assert.equal(observe(siblings).stage, 'queued');
+
+  // Keep earlier participants idle in both progress formats, even when the
+  // pending run has its own checkpoint.
+  const queuedRecord = comment(95, 'queued', { runId: pending.id });
+  for (const quest of [
+    observe(siblings, markdown),
+    observe([started], markdown),
+    observe([started], html),
+    observe(siblings, markdown, queuedRecord),
+  ]) {
+    assert.equal(quest.stage, 'developing');
+    assert.deepEqual(quest.pulls, []);
+    assert.deepEqual(quest.adventurers, partyWithHistory);
+  }
+
+  const retry = {
+    ...started,
+    run_attempt: 2,
+    run_started_at: '2026-11-19T10:03:00Z',
+  };
+  assert.equal(observe([pending, retry], markdown).stage, 'queued');
+  assert.deepEqual(observe([retry], markdown).adventurers, []);
+  for (const unverified of [
+    { ...markdown, user: { login: 'guest' } },
+    { ...markdown, body: `${entries.join('\n')}\n\n${marker.body}` },
+    { ...markdown, body: `Generated by Codex\n\n${marker.body}` },
+    { ...markdown, body: markdown.body.split('<!--')[0] },
+  ]) {
+    assert.deepEqual(observe([started], unverified).adventurers, []);
+  }
+
+  const next = {
+    ...pending,
+    status: 'in_progress',
+    run_started_at: '2026-11-19T10:04:00Z',
+  };
+  const resumed = observe(
+    [next, started],
+    markdown,
+    comment(95, 'developing', { runId: next.id, developer: 'claude' }),
+  );
+  assert.equal(resumed.stage, 'developing');
+  assert.deepEqual(resumed.adventurers, [
+    { agent: 'claude', roles: ['develop'], active: 'develop' },
+  ]);
+});
+
+test('a successful parallel trigger cannot clear a stop before a verified restart', () => {
+  const started = run(95, { id: 45580857762, run_started_at: stamp });
+  const pending = run(95, { id: 45580858811, status: 'pending' });
+  const observe = (runs: Run[], ...comments: Comment[]) =>
+    makeQuests(commitTrail, [issue(95)], [], runs, comments, new Map(), [])[0];
+  const developing = comment(95, 'developing', { runId: started.id });
+  assert.equal(observe([pending, started], developing).stage, 'developing');
+
+  const reason = '사람 확인 요청';
+  const stopped = {
+    ...comment(95, 'needs_human', { runId: started.id, reason }),
+    updated_at: '2026-11-19T10:03:00Z',
+  };
+  const finish = (workflow: Run): Run => ({
+    ...workflow,
+    status: 'completed',
+    conclusion: 'success',
+  });
+  const finished = finish(started);
+  const parallel = finish({ ...pending, run_attempt: 2 });
+  const stale = comment(95, 'developing', { runId: parallel.id, attempt: 1 });
+  const untrusted = {
+    ...comment(95, 'developing', { runId: parallel.id, attempt: 2 }),
+    user: { login: 'guest' },
+  };
+  for (const quest of [
+    observe([finished], stopped, developing),
+    observe([parallel, finished], stopped, developing),
+    observe([parallel], stopped),
+    observe([parallel, finished], stopped, stale, untrusted),
+  ]) {
+    assert.equal(quest.stage, 'attention');
+    assert.equal(quest.reason, reason);
+    assert.deepEqual(quest.issueRecoveryBadge, { kind: 'stopped', reason });
+  }
+
+  const next = run(95, { id: parallel.id + 1, run_attempt: 2 });
+  const resumed = observe(
+    [next, parallel, finished],
+    stopped,
+    comment(95, 'developing', {
+      runId: next.id,
+      attempt: next.run_attempt,
+      developer: 'codex',
+    }),
+  );
+  assert.equal(resumed.stage, 'developing');
+  assert.equal(resumed.reason, undefined);
+  assert.equal(resumed.issueRecoveryBadge, undefined);
+  assert.deepEqual(resumed.adventurers, [
+    { agent: 'codex', roles: ['develop'], active: 'develop' },
+  ]);
+});
+
 test('checkpoint lineage takes precedence over the edit time of an older comment', () => {
   const current = run(1, { run_attempt: 2 });
   const checkpoint = comment(1, 'reviewing', {
@@ -1270,9 +1656,24 @@ test('an active issue without a PR recovers its matching bot checkpoint on refre
   const state = comment(
     1,
     'developing',
-    { developer: 'codex', runId: undefined, run: 101, attempt: 2 },
+    { developer: 'codex', runId: undefined, run: 101, attempt: 2, attempts: 2 },
     'active-checkpoint',
   );
+  const progress = [
+    '<details><summary>진행 기록</summary>',
+    '',
+    '- 15:52 developing · Codex 개발 1/3회차입니다.',
+    '</details>',
+    '',
+  ].join('\n');
+  state.body = `${progress}${state.body}`;
+  const firstAttempt = comment(
+    1,
+    'developing',
+    { attempts: 2 },
+    'active-checkpoint',
+  );
+  firstAttempt.body = `${progress}${firstAttempt.body}`;
   let available = false;
   let targeted = 0;
   let listed = false;
@@ -1297,6 +1698,7 @@ test('an active issue without a PR recovers its matching bot checkpoint on refre
           ? [state]
           : [
               { ...state, user: { login: 'guest' } },
+              firstAttempt,
               comment(1, 'needs_human', { attempt: 1 }, 'active-checkpoint'),
             ],
       );
@@ -1312,6 +1714,8 @@ test('an active issue without a PR recovers its matching bot checkpoint on refre
     assert.equal(result.status, 200);
     const quest = (JSON.parse(result.body) as Report).quests[0];
     assert.equal(quest.stage, 'developing');
+    assert.equal(quest.issueLeader, 'resting');
+    assert.equal(quest.pulls.length, 0);
     return quest.adventurers;
   }
   assert.deepEqual(await refresh(), []);
@@ -1321,4 +1725,446 @@ test('an active issue without a PR recovers its matching bot checkpoint on refre
   listed = true;
   assert.deepEqual(await refresh(), expected);
   assert.equal(targeted, 2);
+});
+
+test('only a matching bot checkpoint assigns the active issue role', () => {
+  const startedAt = '2026-11-19T15:50:00Z';
+  const checkpointCreatedAt = '2026-11-19T15:51:00Z';
+  const lines = [
+    '- 15:52 developing · Codex 개발 1/3회차입니다.',
+    '- 15:55 reviewing · PR #91의 현재 HEAD를 Claude가 검토합니다.',
+  ];
+  function checkpoint(
+    status: Parameters<typeof comment>[1],
+    entries: string[],
+    fields: Parameters<typeof comment>[2] = {},
+  ) {
+    const marker = comment(1, status, {
+      run: 101,
+      runId: undefined,
+      attempt: undefined,
+      attempts: 2,
+      developer: undefined,
+      ...fields,
+    });
+    return {
+      ...marker,
+      created_at: checkpointCreatedAt,
+      updated_at: '2026-11-19T15:56:00Z',
+      body: [
+        '<details><summary>진행 기록</summary>',
+        '',
+        ...entries,
+        '</details>',
+        '',
+        marker.body,
+      ].join('\n'),
+    };
+  }
+
+  const current = run(1, {
+    id: 101,
+    run_attempt: 1,
+    status: 'in_progress',
+    run_started_at: startedAt,
+  });
+  const reviewing = checkpoint('reviewing', lines);
+  const observedPull = {
+    ...pull,
+    number: 91,
+    body: 'Closes #1',
+    head: { ...pull.head, ref: 'ai/issue-1' },
+  };
+  function observe(runs: Run[], comments: Comment[] = [], pulls: Pull[] = []) {
+    return makeQuests(
+      commitTrail,
+      [issue(1)],
+      pulls,
+      runs,
+      comments,
+      new Map(),
+      [],
+    )[0];
+  }
+
+  for (const runs of [
+    [],
+    [{ ...current, status: 'queued' }],
+    [{ ...current, status: 'completed', conclusion: 'skipped' }],
+  ]) {
+    const quest = observe(runs);
+    assert.equal(quest.issueLeader, undefined);
+    assert.deepEqual(quest.adventurers, []);
+  }
+
+  const started = observe([current]);
+  assert.equal(started.issueLeader, 'resting');
+  assert.equal(started.pulls.length, 0);
+  assert.deepEqual(started.adventurers, []);
+
+  for (const comments of [
+    [{ ...reviewing, user: { login: 'guest' } }],
+    [checkpoint('reviewing', lines, { run: 100 })],
+    [
+      checkpoint('developing', []),
+      { ...reviewing, body: reviewing.body.split('<!--')[0] },
+    ],
+  ]) {
+    assert.deepEqual(observe([current], comments).adventurers, []);
+  }
+  assert.deepEqual(
+    observe([{ ...current, run_attempt: 2 }], [reviewing]).adventurers,
+    [],
+  );
+
+  const development = checkpoint('developing', lines.slice(0, 1));
+  for (const created_at of ['2026-11-18T15:51:00Z', undefined]) {
+    const unverified = observe([current], [{ ...development, created_at }]);
+    assert.equal(unverified.issueLeader, 'resting');
+    assert.deepEqual(unverified.adventurers, []);
+  }
+
+  const retry = {
+    ...current,
+    run_attempt: 2,
+    run_started_at: '2026-11-19T15:54:00Z',
+  };
+  const updatedMarker = checkpoint('developing', lines.slice(0, 1), {
+    attempt: 2,
+  });
+  const carriedOver = observe([retry], [updatedMarker]);
+  assert.equal(carriedOver.issueLeader, 'resting');
+  assert.deepEqual(carriedOver.adventurers, []);
+  const freshRetry = observe(
+    [retry],
+    [
+      {
+        ...checkpoint(
+          'developing',
+          ['- 15:55 developing · Claude 개발 1/3회차입니다.'],
+          { attempt: 2 },
+        ),
+        created_at: '2026-11-19T15:54:30Z',
+      },
+    ],
+  );
+  assert.deepEqual(freshRetry.adventurers, [
+    { agent: 'claude', roles: ['develop'], active: 'develop' },
+  ]);
+
+  const developing = observe([current], [development]);
+  assert.equal(developing.pulls.length, 0);
+  assert.deepEqual(developing.adventurers, [
+    { agent: 'codex', roles: ['develop'], active: 'develop' },
+  ]);
+  const resting = [
+    { agent: 'codex', roles: ['develop'] },
+    { agent: 'claude', roles: ['review'] },
+  ];
+  const review = observe([current], [reviewing], [observedPull]);
+  assert.equal(review.stage, 'reviewing');
+  assert.equal(review.pulls[0]?.number, 91);
+  assert.deepEqual(review.adventurers, [
+    resting[0],
+    { ...resting[1], active: 'review' },
+  ]);
+  assert.deepEqual(
+    observe([current], [checkpoint('waiting_ci', lines)]).adventurers,
+    resting,
+  );
+  const finished = observe(
+    [{ ...current, status: 'completed', conclusion: 'success' }],
+    [reviewing],
+  );
+  assert.equal(finished.stage, 'returned');
+  assert.equal(finished.issueLeader, undefined);
+  assert.deepEqual(finished.adventurers, resting);
+
+  const reversed = [
+    '- 15:50 developing · Codex 개발 1/3회차입니다.',
+    '- 15:52 developing · Claude 개발 2/3회차입니다.',
+    '- 15:55 reviewing · PR #91의 현재 HEAD를 Codex가 검토합니다.',
+  ];
+  const active = (record: Comment) =>
+    observe([current], [record]).adventurers?.filter((member) => member.active);
+  assert.deepEqual(active(checkpoint('developing', reversed)), [
+    { agent: 'claude', roles: ['develop'], active: 'develop' },
+  ]);
+  assert.deepEqual(active(checkpoint('reviewing', reversed)), [
+    { agent: 'codex', roles: ['develop', 'review'], active: 'review' },
+  ]);
+  assert.deepEqual(
+    active(checkpoint('reviewing', reversed, { reviewer: 'claude' })),
+    [{ agent: 'claude', roles: ['develop', 'review'], active: 'review' }],
+  );
+});
+
+test('issue stops only on the selected checkpoint and does not stop other PRs', () => {
+  const reason = '자동 수정 한도 도달';
+  const stopped = { kind: 'stopped', reason };
+  const checkpoint = comment(2, 'needs_human', { reason });
+  const sibling = { ...pull, number: 21 };
+  const previous = run(2, { status: 'completed', conclusion: 'failure' });
+  function observe(
+    pulls: Pull[],
+    runs: Run[],
+    comments: Comment[],
+    currentIssue = issue(2),
+  ) {
+    const links = new Map();
+    const quests = makeQuests(
+      commitTrail,
+      [currentIssue],
+      pulls,
+      runs,
+      comments,
+      new Map(),
+      [],
+      links,
+    );
+    return {
+      quest: quests[0],
+      forges: makeForges(commitTrail, pulls, runs, links, quests),
+    };
+  }
+
+  assert.deepEqual(
+    observe([], [previous], [checkpoint]).quest.issueRecoveryBadge,
+    stopped,
+  );
+  assert.equal(
+    observe([], [previous], [checkpoint], { ...issue(2), state: 'closed' })
+      .quest.issueRecoveryBadge,
+    undefined,
+  );
+  assert.equal(
+    observe([], [previous], [comment(2, 'failed', { reason })]).quest
+      .issueRecoveryBadge,
+    undefined,
+  );
+  assert.equal(observe([], [previous], []).quest.issueRecoveryBadge, undefined);
+  assert.equal(
+    observe(
+      [],
+      [previous, run(2, { run_attempt: 2 })],
+      [checkpoint, comment(2, 'developing', { attempt: 2 })],
+    ).quest.issueRecoveryBadge,
+    undefined,
+  );
+
+  const linked = [pull, sibling];
+  const recorded = comment(2, 'needs_human', {
+    pullNumber: pull.number,
+    reason,
+  });
+  const current = observe(linked, [previous], [recorded]);
+  assert.deepEqual(current.quest.issueRecoveryBadge, stopped);
+  assert.deepEqual(
+    current.forges.map((forge) => forge.recoveryBadge),
+    [stopped, undefined],
+  );
+  const moved = observe(
+    [{ ...pull, head: { ...pull.head, sha: mergeSha } }, sibling],
+    [previous],
+    [recorded],
+  );
+  assert.deepEqual(moved.quest.issueRecoveryBadge, stopped);
+  assert.deepEqual(
+    moved.forges.map((forge) => forge.recoveryBadge),
+    [undefined, undefined],
+  );
+  const withoutPullNumber = observe(linked, [previous], [checkpoint]);
+  assert.deepEqual(withoutPullNumber.quest.issueRecoveryBadge, stopped);
+  assert.deepEqual(
+    withoutPullNumber.forges.map((forge) => forge.recoveryBadge),
+    [undefined, undefined],
+  );
+});
+
+test('only a confirmed queued retry marks the issue and its last verified PR as waiting', () => {
+  const failed = run(2, { status: 'completed', conclusion: 'failure' });
+  const pending = run(2, { id: failed.id + 1, status: 'pending' });
+  const checkpoint = comment(2, 'failed', {
+    pullNumber: pull.number,
+    reason: '검사 실패',
+  });
+  function observe(runs: Run[], comments: Comment[], current = pull) {
+    const quests = makeQuests(
+      commitTrail,
+      [issue(2)],
+      [current],
+      runs,
+      comments,
+      new Map(),
+      [],
+    );
+    const [facility] = makeForges(
+      commitTrail,
+      [current],
+      runs,
+      new Map(),
+      quests,
+    );
+    return [
+      quests[0].stage,
+      quests[0].issueRecoveryBadge?.kind,
+      facility.recoveryBadge?.kind,
+    ];
+  }
+  assert.deepEqual(observe([failed], [checkpoint]), [
+    'failed',
+    'failed',
+    'failed',
+  ]);
+  assert.deepEqual(observe([failed, pending], [checkpoint]), [
+    'queued',
+    'waiting',
+    'waiting',
+  ]);
+  assert.deepEqual(observe([pending], []), ['queued', 'pending', undefined]);
+  assert.deepEqual(
+    observe([failed, pending], [checkpoint], {
+      ...pull,
+      head: { ...pull.head, sha: mergeSha },
+    }),
+    ['queued', 'waiting', undefined],
+  );
+  const current = comment(2, 'developing', {
+    runId: pending.id,
+    pullNumber: pull.number,
+  });
+  assert.deepEqual(
+    observe(
+      [failed, { ...pending, status: 'in_progress' }],
+      [current, checkpoint],
+    ),
+    ['developing', undefined, undefined],
+  );
+});
+
+test('PR recovery follows the trusted PR, HEAD and CI attempt through repair', () => {
+  const failed = run(2, {
+    id: 500,
+    path: '.github/workflows/ci.yml',
+    head_branch: pull.head.ref,
+    pull_requests: [{ number: pull.number }],
+    status: 'completed',
+    conclusion: 'failure',
+  });
+  const repair = {
+    sourceHead: sha,
+    ciAttempt: '500/1',
+    runId: 102,
+    attempt: 1,
+    limit: 1,
+  };
+  const checkpoint = {
+    pullNumber: pull.number,
+    phase: 'Codex 개발',
+    recovery: { ciRepair: repair, pending: 'development' },
+  };
+  function forge(
+    status: string,
+    fields: Record<string, unknown>,
+    ci = failed,
+    workflow = run(2),
+    head = sha,
+  ) {
+    const current = { ...pull, head: { ...pull.head, sha: head } };
+    const runs = [workflow, ci];
+    const quests = makeQuests(
+      commitTrail,
+      [issue(2)],
+      [current],
+      runs,
+      [comment(2, status, { head, ...checkpoint, ...fields })],
+      new Map(),
+      [],
+    );
+    const facility = makeForges(
+      commitTrail,
+      [current],
+      runs,
+      new Map(),
+      quests,
+    )[0];
+    assert.deepEqual(quests[0].issueRecoveryBadge, facility.recoveryBadge);
+    return facility;
+  }
+  const active = forge('revising', {});
+  assert.equal(active.stage, 'revising');
+  assert.deepEqual(active.recoveryBadge, {
+    kind: 'repairing',
+    attempt: 1,
+    limit: 1,
+  });
+  assert.equal(
+    forge('revising', { phase: '개발 변경 적용' }).recoveryBadge?.kind,
+    'waiting',
+  );
+  for (const fields of [
+    { pullNumber: 99 },
+    { head: mergeSha },
+    { recovery: { ciRepairs: 1, pending: 'development' } },
+  ]) {
+    assert.equal(forge('revising', fields).recoveryBadge, undefined);
+  }
+  assert.equal(
+    forge('revising', {}, { ...failed, run_attempt: 2 }).recoveryBadge,
+    undefined,
+  );
+  assert.equal(
+    forge('revising', {}, failed, run(2, { id: 103 })).stage,
+    'failed',
+  );
+  const updated = { recovery: { ciRepair: repair, ciReviewHead: mergeSha } };
+  const checking = {
+    ...failed,
+    id: 501,
+    head_sha: mergeSha,
+    status: 'in_progress',
+    conclusion: null,
+  };
+  assert.equal(
+    forge('ready', updated, checking, run(2), mergeSha).recoveryBadge?.kind,
+    'checking',
+  );
+  assert.equal(
+    forge(
+      'ready',
+      updated,
+      { ...checking, status: 'completed', conclusion: 'success' },
+      run(2),
+      mergeSha,
+    ).recoveryBadge,
+    undefined,
+  );
+  for (const status of ['queued', 'waiting', 'in_progress']) {
+    const facility = forge(
+      'ready',
+      updated,
+      { ...checking, status },
+      run(2),
+      mergeSha,
+    );
+    assert.equal(facility.recoveryBadge?.kind, 'checking');
+    assert.equal(facility.ciQueued, status !== 'in_progress');
+  }
+  const retryFailure = forge(
+    'ready',
+    updated,
+    { ...checking, status: 'completed', conclusion: 'failure' },
+    run(2),
+    mergeSha,
+  );
+  assert.equal(retryFailure.recoveryBadge, undefined);
+  assert.equal(retryFailure.stage, 'failed');
+  assert.deepEqual(forge('failed', { reason: '실행 종료' }).recoveryBadge, {
+    kind: 'failed',
+    reason: '실행 종료',
+  });
+  assert.deepEqual(
+    forge('needs_human', { reason: '자동 수정 한도 도달' }).recoveryBadge,
+    { kind: 'stopped', reason: '자동 수정 한도 도달' },
+  );
 });

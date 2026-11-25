@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { objectSizes, monsterSize } from './object-sizes.ts';
 import { WorldArt } from './world-art.tsx';
 import { Hammer, ScrollText, Swords, X } from 'lucide-react';
@@ -91,18 +92,27 @@ export function AdventurerParty({
   detailed = false,
   leader,
   forge = false,
+  showTitles = true,
+  badge,
 }: {
   members: Adventurer[];
   resting: string;
   detailed?: boolean;
   leader?: 'active' | 'resting';
   forge?: boolean;
+  showTitles?: boolean;
+  badge?: ReactNode;
 }) {
   if (!leader && !members.length) return null;
+  const responsible = members.find((member) => member.active || member.fallen);
+  const badgeMember = responsible ?? (leader ? undefined : members.at(-1));
   return (
     <span className={`adventurer-party${detailed ? ' detailed' : ''}`}>
       {leader && (
-        <span className="adventurer" title={partyLeaderLabel(leader)}>
+        <span
+          className="adventurer"
+          title={showTitles ? partyLeaderLabel(leader) : undefined}
+        >
           <PartyLeaderGlyph
             className={
               leader === 'active'
@@ -110,6 +120,7 @@ export function AdventurerParty({
                 : 'resting-party-leader'
             }
           />
+          {!badgeMember && badge}
           {detailed && <strong>{partyLeaderLabel(leader)}</strong>}
         </span>
       )}
@@ -117,7 +128,7 @@ export function AdventurerParty({
         <span
           className="adventurer"
           key={member.agent}
-          title={partyLabel(member, resting)}
+          title={showTitles ? partyLabel(member, resting) : undefined}
         >
           <AdventurerGlyph
             agent={member.agent}
@@ -125,6 +136,7 @@ export function AdventurerParty({
             fallen={member.fallen}
             forge={forge}
           />
+          {member === badgeMember && badge}
           {detailed && (
             <span>
               <strong>{partyLabel(member, resting)}</strong>

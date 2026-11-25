@@ -1,6 +1,7 @@
 import type { Locator, Page } from '@playwright/test';
-import { alpha, alphaReport, noPlaza } from './fixtures.ts';
-import { mockGitHub, openWorld, seedSettings } from './github.ts';
+import type { PullQuest, Quest } from '../server/model.ts';
+import { alpha, alphaReport, emptyReport, noPlaza, owner } from './fixtures.ts';
+import { mockGitHub, openWorld, seedSettings, settled } from './github.ts';
 import { expect, test } from './test.ts';
 
 type Box = { x: number; y: number; width: number; height: number };
@@ -188,6 +189,21 @@ function heritageArtGaps(area: Locator) {
   });
 }
 
+async function switchToSimple(page: Page, touch: boolean) {
+  const modeSwitch = page.locator('.mode-switch');
+  if (touch) {
+    await page.getByRole('button', { name: '상단 도구 열기' }).tap();
+    await modeSwitch.tap();
+    await page.getByRole('button', { name: '상단 도구 접기' }).tap();
+  } else {
+    await modeSwitch.click();
+  }
+  await expect(page.locator('[data-display-mode]')).toHaveAttribute(
+    'data-display-mode',
+    'simple',
+  );
+}
+
 // 터치 화면에서 누르는 요소의 최소 크기(src/styles.css의 --map-hit-size).
 const touchTarget = 44;
 
@@ -227,6 +243,319 @@ test.describe('높은 데스크톱의 왕국 하나', () => {
   });
 });
 
+test.describe('월드맵 배치 순서', () => {
+  test.use({
+    viewport: { width: 1600, height: 1000 },
+    reducedMotion: 'reduce',
+  });
+
+  test('브랜치와 이슈 연결을 따라 같은 순서를 두 모드에서 유지한다', async ({
+    page,
+  }) => {
+    let shuffled = false;
+    let failed = true;
+    const arrange = <T>(items: T[]) =>
+      shuffled ? [...items].reverse() : items;
+
+    await mockGitHub(page);
+    await page.route('**/api/github?**', async (route) => {
+      const params = new URL(route.request().url()).searchParams;
+      if (
+        params.get('repo') !== alpha ||
+        ['owner', 'heritage', 'summary', 'activity', 'repository'].some((key) =>
+          params.has(key),
+        )
+      ) {
+        await route.fallback();
+        return;
+      }
+      const forges = [100, 101, 99].map((number): PullQuest => ({
+        number,
+        title: `배치 테스트 PR ${number}`,
+        url: `https://github.com/${alpha}/pull/${number}`,
+        draft: false,
+        stage: number === 99 ? (failed ? 'failed' : 'ci') : 'idle',
+        issues: number === 99 ? [9, 10] : number === 100 ? [9, 15] : [],
+        runs: [],
+      }));
+      const quests = [20, 10, 2, 9, 15].map((number): Quest => ({
+        ...alphaReport.quests[0],
+        number,
+        title: `배치 테스트 이슈 ${number}`,
+        url: `https://github.com/${alpha}/issues/${number}`,
+        state: 'open',
+        stage: number === 10 && failed ? 'failed' : 'idle',
+        parent: [10, 2, 9].includes(number) ? 20 : undefined,
+        subIssueCount: number === 20 ? 3 : undefined,
+        workPull: undefined,
+        pulls: [],
+        adventurers: [],
+      }));
+      await route.fulfill({
+        json: {
+          ...alphaReport,
+          quests: arrange(quests),
+          forges: arrange(forges),
+          branchInventory: {
+            defaultBranch: 'develop',
+            names: arrange(['main', 'develop', 'a-topic', 'z-topic']),
+            partial: false,
+          },
+          branchPulls: arrange(
+            forges.map(({ number }) => ({
+              number,
+              base: 'develop',
+              head: number === 100 ? 'a-topic' : 'z-topic',
+              merged: false,
+            })),
+          ),
+        },
+      });
+    });
+    await seedSettings(page, [alpha]);
+    await page.goto('/');
+    await settled(page);
+
+    const kingdom = page.getByRole('region', { name: 'alpha', exact: true });
+    const children = kingdom.getByRole('list', {
+      name: '이슈 #20의 하위 이슈',
+    });
+    const issue = (scope: Locator, number: number) =>
+      scope.getByTitle(new RegExp(`^이슈 #${number} · `));
+    const failure = kingdom.locator('[data-road-pr="99"] .facility-recovery');
+
+    async function expectLeftToRight(label: string, markers: Locator[]) {
+      const centers: number[] = [];
+      for (const marker of markers) {
+        await expect(marker).toBeVisible();
+        const [box] = await boxes(marker);
+        centers.push(box.x + box.width / 2);
+      }
+      for (let index = 1; index < centers.length; index++) {
+        expect(
+          centers[index],
+          `${label} 중심 x: ${centers.join(', ')}`,
+        ).toBeGreaterThan(centers[index - 1]);
+      }
+    }
+
+    async function checkPlacement() {
+      await expect(
+        kingdom.locator('.branch-road-lines path').first(),
+      ).toBeAttached();
+      await expectLeftToRight('형제 브랜치 z-topic → a-topic', [
+        kingdom.getByRole('button', { name: '브랜치 z-topic', exact: true }),
+        kingdom.getByRole('button', { name: '브랜치 a-topic', exact: true }),
+      ]);
+      await expectLeftToRight(
+        'PR 99 → 101 → 100',
+        [99, 101, 100].map((number) =>
+          kingdom.locator(`[data-road-pr="${number}"]`),
+        ),
+      );
+      await expectLeftToRight('연결된 이슈 → 미연결 부모 이슈', [
+        issue(kingdom, 15),
+        issue(kingdom, 20),
+      ]);
+      await expectLeftToRight(
+        '같은 PR에 연결된 하위 이슈 9 → 10 → 미연결 이슈 2',
+        [9, 10, 2].map((number) => issue(children, number)),
+      );
+      const [parentBox] = await boxes(issue(kingdom, 20));
+      const [childrenBox] = await boxes(children);
+      const parentBottom = parentBox.y + parentBox.height;
+      expect(
+        childrenBox.y,
+        `부모 이슈 아래 묶음: 부모 하단 y=${parentBottom}, 묶음 상단 y=${childrenBox.y}`,
+      ).toBeGreaterThanOrEqual(parentBottom);
+    }
+
+    await expect(failure).toBeVisible();
+    await checkPlacement();
+
+    shuffled = true;
+    failed = false;
+    await page.locator('.refresh-button').click();
+    await expect(failure).toHaveCount(0);
+    await checkPlacement();
+
+    await switchToSimple(page, false);
+    await checkPlacement();
+  });
+});
+
+test.describe('창 너비에 따른 왕국 줄바꿈', () => {
+  test.use({ reducedMotion: 'reduce' });
+
+  for (const mode of ['world', 'simple'] as const) {
+    test(`${mode}: 넓은 창에서는 왕국 네 개가 한 줄에 놓인다`, async ({
+      page,
+    }) => {
+      const repositories = [1, 2, 3, 4].map(
+        (index) =>
+          `${owner}/worldmap-responsive-layout-regression-fixture-${index}`,
+      );
+      await page.setViewportSize({ width: 3200, height: 800 });
+      await mockGitHub(page);
+      await page.route('**/api/github?**', async (route) => {
+        const params = new URL(route.request().url()).searchParams;
+        if (
+          !repositories.includes(params.get('repo') ?? '') ||
+          ['owner', 'heritage', 'summary', 'activity', 'repository'].some(
+            (key) => params.has(key),
+          )
+        ) {
+          await route.fallback();
+          return;
+        }
+        await route.fulfill({ json: emptyReport });
+      });
+      await seedSettings(page, repositories, mode);
+      await page.goto('/');
+      await settled(page);
+      await expect(page.locator('[data-display-mode]')).toHaveAttribute(
+        'data-display-mode',
+        mode,
+      );
+      const areas = page.locator('.kingdoms > .kingdom-region > .kingdom-area');
+      await expect(areas).toHaveCount(4);
+      await page.evaluate(async () => {
+        await document.fonts.ready;
+      });
+
+      const wide = await boxes(areas);
+      const columnGap = await page.locator('.kingdoms').evaluate((node) => {
+        return Number.parseFloat(getComputedStyle(node).columnGap);
+      });
+      const regions = page.locator('.kingdoms > .kingdom-region');
+      const requiredWidth =
+        (await boxes(regions)).reduce((sum, box) => sum + box.width, 0) +
+        (wide.length - 1) * columnGap;
+      const [wideMap] = await boxes(page.locator('.kingdoms'));
+      expect(columnGap).toBe(18);
+      expect(requiredWidth).toBeLessThanOrEqual(wideMap.width + 1);
+      for (const [index, box] of wide.entries()) {
+        expect(box.y).toBeCloseTo(wide[0].y, 1);
+        if (index > 0) expect(box.x).toBeGreaterThan(wide[index - 1].x);
+      }
+      expect(overlappingPairs(wide)).toEqual([]);
+
+      await page.setViewportSize({ width: 1200, height: 800 });
+      const [narrowMap] = await boxes(page.locator('.kingdoms'));
+      expect(requiredWidth).toBeGreaterThan(narrowMap.width);
+      const narrow = await boxes(areas);
+      expect(narrow[3].y).toBeGreaterThan(narrow[0].y);
+      expect(overlappingPairs(narrow)).toEqual([]);
+
+      await page.setViewportSize({ width: 320, height: 800 });
+      const mobile = await boxes(areas);
+      expect(overlappingPairs(mobile)).toEqual([]);
+      for (const box of mobile) {
+        expect(box.x).toBeGreaterThanOrEqual(0);
+        expect(box.x + box.width).toBeLessThanOrEqual(320);
+      }
+      const overflow = await page.evaluate(
+        () =>
+          document.documentElement.scrollWidth -
+          document.documentElement.clientWidth,
+      );
+      expect(overflow).toBeLessThanOrEqual(0);
+    });
+  }
+});
+
+for (const width of [1280, 390]) {
+  test.describe(`화면 폭 ${width}px · 범례 고정`, () => {
+    test.use({
+      viewport: { width, height: 560 },
+      hasTouch: width < 640,
+      reducedMotion: 'reduce',
+    });
+
+    for (const mode of ['world', 'simple'] as const) {
+      test(`${mode}: 지도를 위아래로 스크롤해도 범례의 화면 가장자리 간격이 같다`, async ({
+        page,
+      }) => {
+        const repositories = Array.from(
+          { length: 24 },
+          (_, index) => `${owner}/legend-scroll-${index}`,
+        );
+        await mockGitHub(page);
+        await page.route('**/api/github?**', async (route) => {
+          const params = new URL(route.request().url()).searchParams;
+          if (
+            !repositories.includes(params.get('repo') ?? '') ||
+            ['owner', 'heritage', 'summary', 'activity', 'repository'].some(
+              (key) => params.has(key),
+            )
+          ) {
+            await route.fallback();
+            return;
+          }
+          await route.fulfill({ json: emptyReport });
+        });
+        await seedSettings(page, repositories, mode);
+        await page.goto('/');
+        await settled(page);
+        await expect(page.locator('[data-display-mode]')).toHaveAttribute(
+          'data-display-mode',
+          mode,
+        );
+        await expect(page.locator('.kingdoms > .kingdom-region')).toHaveCount(
+          repositories.length,
+        );
+
+        const footer = page.locator('.world-footer');
+        const legend = footer.getByRole('list', {
+          name: mode === 'simple' ? '활동 범례' : '기본 파티 구성',
+        });
+        const measure = () =>
+          footer.evaluate((node) => {
+            const { right, bottom } = node.getBoundingClientRect();
+            return {
+              scrollY: window.scrollY,
+              rightGap: document.documentElement.clientWidth - right,
+              bottomGap: document.documentElement.clientHeight - bottom,
+            };
+          });
+
+        const before = await measure();
+        await page.evaluate(() => {
+          window.scrollTo(0, document.documentElement.scrollHeight);
+        });
+        const scrolled = await measure();
+        await expect(legend).toBeInViewport({ ratio: 1 });
+        await page.evaluate(() => {
+          window.scrollTo(0, 0);
+        });
+        const returned = await measure();
+        await expect(legend).toBeInViewport({ ratio: 1 });
+
+        console.log(
+          `범례 위치 (px): ${JSON.stringify({
+            width,
+            mode,
+            before,
+            scrolled,
+            returned,
+          })}`,
+        );
+        expect(before.scrollY).toBe(0);
+        expect(scrolled.scrollY).toBeGreaterThan(0);
+        expect(returned.scrollY).toBe(0);
+        const inset = Math.min(32, Math.max(12, width * 0.03));
+        expect(before.rightGap).toBeCloseTo(inset, 1);
+        expect(before.bottomGap).toBeCloseTo(inset, 1);
+        for (const position of [scrolled, returned]) {
+          expect(position.rightGap).toBeCloseTo(before.rightGap, 1);
+          expect(position.bottomGap).toBeCloseTo(before.bottomGap, 1);
+        }
+        await expect(footer).toHaveCSS('position', 'fixed');
+      });
+    }
+  });
+}
+
 for (const width of [1280, 390, 320]) {
   // 좁은 화면은 터치 기기로 실행해 `pointer: coarse` 전용 스타일까지 확인합니다.
   const touch = width < 640;
@@ -258,6 +587,296 @@ for (const width of [1280, 390, 320]) {
       expect(
         await page.evaluate(() => matchMedia('(pointer: coarse)').matches),
       ).toBe(touch);
+    });
+
+    test('두 모드에서 유산과 긴 저장소 이름 주변의 그림 여백을 줄인다', async ({
+      page,
+    }) => {
+      const area = page.locator('.kingdom-area:has(.branch-bridge)');
+      const withoutBridge = page.locator(
+        '.kingdom-area:not(:has(.branch-bridge))',
+      );
+      await expect(area).toHaveCount(1);
+      await expect(withoutBridge).toHaveCount(1);
+
+      const measure = () =>
+        area.evaluate(async (node) => {
+          const palace = node.querySelector<HTMLImageElement>('.kingdom-crest');
+          const bridge = node.querySelector<HTMLImageElement>('.branch-bridge');
+          const plaza = node.querySelector<HTMLImageElement>(
+            '[data-road-role="plaza"] img',
+          );
+          const button = node.querySelector('.kingdom');
+          const name = node.querySelector('.kingdom-label strong');
+          if (!palace || !bridge || !plaza || !button || !name)
+            throw new Error(
+              '왕궁, 저장소 이름, 다리 또는 개발 광장을 찾지 못했습니다.',
+            );
+          await Promise.all(
+            [palace, bridge, plaza].map((image) => image.decode()),
+          );
+
+          function paintedBounds(image: HTMLImageElement) {
+            const rect = image.getBoundingClientRect();
+            const canvas = document.createElement('canvas');
+            const width = (canvas.width = Math.ceil(rect.width));
+            const height = (canvas.height = Math.ceil(rect.height));
+            const context = canvas.getContext('2d');
+            if (!context)
+              throw new Error('그림의 투명 영역을 측정할 수 없습니다.');
+            context.drawImage(image, 0, 0, width, height);
+            const { data } = context.getImageData(0, 0, width, height);
+            let top = height;
+            let bottom = 0;
+            for (let y = 0; y < height; y++) {
+              for (let x = 0; x < width; x++) {
+                if (data[(y * width + x) * 4 + 3] < 16) continue;
+                top = Math.min(top, y);
+                bottom = y + 1;
+                break;
+              }
+            }
+            if (!bottom)
+              throw new Error('그림의 보이는 영역을 찾지 못했습니다.');
+            return {
+              top: rect.top + (top * rect.height) / height,
+              bottom: rect.top + (bottom * rect.height) / height,
+              size: [rect.width, rect.height],
+            };
+          }
+
+          const palaceArt = paintedBounds(palace);
+          const bridgeArt = paintedBounds(bridge);
+          const plazaArt = paintedBounds(plaza);
+          const label = name.getBoundingClientRect();
+          const hit = button.getBoundingClientRect();
+          // 지도 zoom이 적용된 화면 좌표의 간격을 CSS px로 환산합니다.
+          const mapScale = Number(
+            getComputedStyle(node).getPropertyValue('--map-scale'),
+          );
+          return {
+            above: (label.top - palaceArt.bottom) / mapScale,
+            below: (bridgeArt.top - label.bottom) / mapScale,
+            plazaGap: plazaArt.top - bridgeArt.bottom,
+            lines: name.getClientRects().length,
+            sizes: [palaceArt.size, bridgeArt.size, [hit.width, hit.height]],
+          };
+        });
+
+      for (const mode of ['world', 'simple']) {
+        if (mode === 'simple') await switchToSimple(page, touch);
+        await area.locator('.kingdom-label strong').evaluate((node) => {
+          node.textContent = 'longrepositoryname'.repeat(7);
+        });
+
+        const currentHeritage = await heritageArtGaps(area);
+        const current = await measure();
+        const [currentWithoutBridge] = await boxes(withoutBridge);
+        const previousSpacing = await page.addStyleTag({
+          content: `
+            .kingdom-area:has(.heritage-slot) { padding-top: 52px; }
+            .kingdom-label { inset-block-start: -4px; }
+            .branch-roads:has(.branch-bridge) { margin-block-start: -6px; }
+          `,
+        });
+        const previousHeritage = await heritageArtGaps(area);
+        const previous = await measure();
+        const [previousWithoutBridge] = await boxes(withoutBridge);
+        await previousSpacing.evaluate((node) => {
+          node.parentNode?.removeChild(node);
+        });
+
+        expect(currentHeritage.above).toBeGreaterThan(0);
+        expect(currentHeritage.below).toBeGreaterThan(0);
+        expect(previousHeritage.above - currentHeritage.above).toBeGreaterThan(
+          1,
+        );
+        expect(currentHeritage.below).toBeCloseTo(previousHeritage.below, 1);
+        expect(current.lines).toBeGreaterThan(1);
+        expect(current.lines).toBe(previous.lines);
+        expect(current.above).toBeGreaterThan(0);
+        expect(current.below).toBeGreaterThan(0);
+        expect(previous.above - current.above).toBeCloseTo(4, 1);
+        expect(previous.below - current.below).toBeCloseTo(2, 1);
+        expect(current.plazaGap).toBeCloseTo(previous.plazaGap, 1);
+        expect(current.sizes).toEqual(previous.sizes);
+        expect(currentWithoutBridge.height).toBe(previousWithoutBridge.height);
+      }
+    });
+
+    if (!touch) {
+      test('같은 장면에서 성벽 크기와 왕국 사이 가로 간격이 줄어든다', async ({
+        page,
+      }, testInfo) => {
+        const walls = page.locator('.kingdoms .kingdom-wall');
+        const heritageWall = page.locator(
+          '.kingdom-area:has(.heritage-slot) > .kingdom-wall',
+        );
+        const regions = page.locator('.kingdoms > .kingdom-region');
+        await expect(walls).toHaveCount(2);
+        await expect(heritageWall).toHaveCount(1);
+        await page.evaluate(async () => {
+          await document.fonts.ready;
+        });
+
+        const measure = async () => {
+          const [wall] = await boxes(heritageWall);
+          const [leftWall, rightWall] = await boxes(walls);
+          const [left, right] = await boxes(regions);
+          expect(right.y).toBeCloseTo(left.y, 1);
+          return {
+            width: wall.width,
+            height: wall.height,
+            wallGap: rightWall.x - (leftWall.x + leftWall.width),
+            regionGap: right.x - (left.x + left.width),
+          };
+        };
+
+        for (const mode of ['world', 'simple']) {
+          if (mode === 'simple') await switchToSimple(page, touch);
+          const after = await measure();
+          const baseline = await page.addStyleTag({
+            content: `
+              .kingdoms { column-gap: clamp(12px, 2vw, 24px); }
+              .kingdom-region:has(.heritage-slot),
+              .kingdom-area:has(.heritage-slot) { min-width: min(100%, 285px); }
+              .kingdom-area:has(.heritage-slot) {
+                --kingdom-arch-depth: 104;
+                padding-top: 52px;
+                padding-inline: 40px;
+              }
+              .kingdom-label { inset-block-start: -4px; }
+              .branch-roads { row-gap: 6px; margin-block-end: 14px; }
+              .branch-roads:empty { margin: 0; }
+              .branch-roads:has(.branch-bridge) { margin-block: -6px 11px; }
+            `,
+          });
+          const before = await measure();
+          await baseline.evaluate((node) => {
+            node.parentNode?.removeChild(node);
+          });
+
+          await testInfo.attach(`kingdom-spacing-${mode}`, {
+            body: JSON.stringify(
+              { viewportWidth: width, before, after },
+              null,
+              2,
+            ),
+            contentType: 'application/json',
+          });
+          expect(before.regionGap).toBeCloseTo(24, 1);
+          expect(after.regionGap).toBeCloseTo(18, 1);
+          expect(after.wallGap).toBeLessThan(before.wallGap);
+          expect(after.width).toBeLessThan(before.width);
+          const singleTier = page.locator(
+            '.kingdom-area:has(.heritage-slot) .branch-road-row:only-child',
+          );
+          const expectedReduction = (await singleTier.count()) ? 28 : 20;
+          expect(before.height - after.height).toBeCloseTo(
+            expectedReduction,
+            0,
+          );
+        }
+      });
+    }
+
+    test('두 모드에서 도로가 짧아져도 분기와 PR 시설에 연결된다', async ({
+      page,
+    }) => {
+      const kingdom = page.getByRole('region', { name: 'alpha', exact: true });
+      const measure = () =>
+        kingdom.evaluate(async (node) => {
+          // ResizeObserver가 새 배치에 맞춰 도로 경로를 갱신할 때까지 기다립니다.
+          await new Promise<void>((resolve) => {
+            requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+          });
+          const plaza = node.querySelector('[data-road-role="plaza"]');
+          const branches = [
+            ...node.querySelectorAll(
+              '.branch-junction, [data-road-role="road"]',
+            ),
+          ].map((element) => element.getBoundingClientRect());
+          const facilities = [...node.querySelectorAll('.facility-marker')].map(
+            (element) => element.getBoundingClientRect(),
+          );
+          if (!plaza || !branches.length || !facilities.length)
+            throw new Error('광장, 브랜치 또는 연결 시설을 찾지 못했습니다.');
+          const plazaBox = plaza.getBoundingClientRect();
+          const targets = [plazaBox, ...branches, ...facilities];
+          const paths = [
+            ...node.querySelectorAll<SVGPathElement>('.branch-road-lines path'),
+          ];
+          const connections = paths.map((path) => {
+            const matrix = path.getScreenCTM();
+            if (!matrix)
+              throw new Error('연결선의 화면 좌표를 찾지 못했습니다.');
+            return [0, path.getTotalLength()].map((distance) => {
+              const point = path
+                .getPointAtLength(distance)
+                .matrixTransform(matrix);
+              return targets.findIndex(
+                (box) =>
+                  point.x >= box.left - 1 &&
+                  point.x <= box.right + 1 &&
+                  point.y >= box.top - 1 &&
+                  point.y <= box.bottom + 1,
+              );
+            });
+          });
+          return {
+            branchGap:
+              Math.min(...branches.map((box) => box.top)) - plazaBox.bottom,
+            facilityGap:
+              Math.min(...facilities.map((box) => box.top)) - plazaBox.bottom,
+            length: paths.reduce((sum, path) => sum + path.getTotalLength(), 0),
+            connections,
+            firstFacility: 1 + branches.length,
+            sizes: targets.map(({ width, height }) => [width, height]),
+          };
+        });
+
+      for (const mode of ['world', 'simple']) {
+        if (mode === 'simple') await switchToSimple(page, touch);
+        await expect(kingdom.locator('.facility-marker')).toHaveCount(3);
+        await expect(kingdom.locator('[data-road-role="road"]')).toHaveCount(3);
+        await expect(
+          kingdom.locator('.branch-road-lines path').first(),
+        ).toBeAttached();
+        const current = await measure();
+        const previousSpacing = await page.addStyleTag({
+          content: `
+            .branch-roads { row-gap: 9px; }
+            .branch-roads:has(.branch-bridge) { margin-block-end: 14px; }
+            .branch-road-tiers { row-gap: 8px; }
+          `,
+        });
+        const previous = await measure();
+        await previousSpacing.evaluate((node) => {
+          node.parentNode?.removeChild(node);
+        });
+
+        expect(current.branchGap).toBeGreaterThan(0);
+        expect(current.branchGap).toBeLessThan(previous.branchGap);
+        expect(current.facilityGap).toBeLessThan(previous.facilityGap);
+        expect(current.length).toBeGreaterThan(0);
+        expect(current.length).toBeLessThan(previous.length);
+        expect(current.connections).toEqual(previous.connections);
+        expect(current.connections.flat()).toContain(0);
+        const connectedFacilities = new Set(
+          current.connections
+            .flat()
+            .filter((target) => target >= current.firstFacility),
+        );
+        expect(connectedFacilities.size).toBe(3);
+        expect(current.sizes).toEqual(previous.sizes);
+        expect(
+          overlappingPairs(
+            await boxes(
+              kingdom.locator('[data-road-role="road"], .facility-marker'),
+            ),
+          ),
+        ).toEqual([]);
+      }
     });
 
     test('요소가 화면 밖으로 나가거나 서로 겹치지 않는다', async ({ page }) => {
@@ -354,13 +973,10 @@ for (const width of [1280, 390, 320]) {
         await previousSpacing.evaluate((node) => {
           node.parentNode?.removeChild(node);
         });
-        for (const reduction of [
-          previous.above - gaps.above,
-          previous.below - gaps.below,
-        ]) {
-          expect(reduction).toBeGreaterThanOrEqual(4);
-          expect(reduction).toBeLessThanOrEqual(8);
-        }
+        expect(previous.above - gaps.above).toBeGreaterThanOrEqual(20);
+        expect(previous.above - gaps.above).toBeLessThanOrEqual(24);
+        expect(previous.below - gaps.below).toBeGreaterThanOrEqual(4);
+        expect(previous.below - gaps.below).toBeLessThanOrEqual(8);
       }
     });
 
@@ -391,22 +1007,31 @@ for (const width of [1280, 390, 320]) {
       await expect(area.locator('.heritage-slot[data-tier="5"]')).toHaveCount(
         4,
       );
-      const gaps = await heritageArtGaps(area);
-      expect(gaps.above).toBeGreaterThan(0);
-      // 유산 그림의 아래쪽에 칠해지는 1px 그림자도 왕궁에 닿지 않습니다.
-      expect(gaps.below).toBeGreaterThan(1);
+      for (const mode of ['world', 'simple']) {
+        if (mode === 'simple') await switchToSimple(page, touch);
+        const gaps = await heritageArtGaps(area);
+        expect(gaps.above).toBeGreaterThan(0);
+        // 유산 그림 아래 1px 그림자도 왕궁에 닿지 않습니다.
+        expect(gaps.below).toBeGreaterThan(1);
 
-      const slotBoxes = await boxes(slots);
-      expect(
-        overlappingPairs([
-          ...slotBoxes,
-          ...(await boxes(area.locator('.kingdom'))),
-        ]),
-      ).toEqual([]);
-      if (touch) {
-        for (const box of slotBoxes) {
-          expect(box.width).toBeGreaterThanOrEqual(touchTarget - 0.1);
-          expect(box.height).toBeGreaterThanOrEqual(touchTarget - 0.1);
+        const slotBoxes = await boxes(slots);
+        expect(
+          overlappingPairs([
+            ...slotBoxes,
+            ...(await boxes(area.locator('.kingdom'))),
+          ]),
+        ).toEqual([]);
+        const overflow = await page.evaluate(
+          () =>
+            document.documentElement.scrollWidth -
+            document.documentElement.clientWidth,
+        );
+        expect(overflow).toBeLessThanOrEqual(0);
+        if (touch) {
+          for (const box of slotBoxes) {
+            expect(box.width).toBeGreaterThanOrEqual(touchTarget - 0.1);
+            expect(box.height).toBeGreaterThanOrEqual(touchTarget - 0.1);
+          }
         }
       }
     });

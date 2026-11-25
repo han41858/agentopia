@@ -26,10 +26,17 @@ for (const agent of ['codex', 'claude']) {
                     .filter((x) => x.type === 'function_call_output')
                     .slice(-count)
                     .map((x) => x.output)
-                : body.messages.at(-1).content.map((x) => x.content);
+                : body.messages
+                    .at(-1)
+                    .content.filter((x) => x.type === 'tool_result')
+                    .map((x) => x.content);
             assert.equal(results.length, count);
             assert.equal(
-              results.filter((x) => x.startsWith('Not executed')).length,
+              results.filter((x) =>
+                x.startsWith(
+                  '이번 요청의 읽기 한도에 도달해 실행하지 않았습니다.',
+                ),
+              ).length,
               budget === 'per turn'
                 ? requests === 2
                   ? 1
@@ -192,7 +199,7 @@ test('Claude corrects an invalid review using the same evidence before publicati
       const body = JSON.parse(options.body);
       if (requests === 2) {
         assert.equal(body.tool_choice.type, 'none');
-        assert.match(body.messages.at(-1).content, /Validation/);
+        assert.match(body.messages.at(-1).content, /검증 오류/);
       }
       return Response.json({
         stop_reason: 'end_turn',
@@ -202,8 +209,7 @@ test('Claude corrects an invalid review using the same evidence before publicati
             text: JSON.stringify({
               status: 'pass',
               findings: [],
-              summary:
-                requests === 1 ? 'a'.repeat(1000) : '검토를 완료했습니다.',
+              summary: requests === 1 ? '' : '검토를 완료했습니다.',
             }),
           },
         ],
@@ -232,13 +238,13 @@ for (const correctionValid of [true, false]) {
       request: async (_, options) => {
         const body = JSON.parse(options.body);
         requests++;
-        assert.match(body.instructions, /at most 6 findings/);
+        assert.match(body.instructions, /findings는 최대 6건/);
         if (requests === 2) {
           assert.equal(body.tool_choice, 'none');
           assert.deepEqual(body.input.slice(1, -1), priorOutput);
           assert.match(
             body.input.at(-1).content,
-            /same evidence and verdict.*Validation:/,
+            /같은 근거와 판정.*검증 오류:/,
           );
         }
         const text = JSON.stringify({
@@ -374,7 +380,7 @@ for (const [agent, summary, count, diagnostic, retryValid] of [
       request: async (_, options) => {
         calls++;
         const body = JSON.parse(options.body);
-        assert.match(body.instructions ?? body.system, /at most 1 exact edits/);
+        assert.match(body.instructions ?? body.system, /편집은 최대 1건/);
         if (calls === 2) {
           assert.equal(body.tool_choice.type ?? body.tool_choice, 'none');
           assert.match(
@@ -418,8 +424,12 @@ for (const [agent, summary, count, diagnostic, retryValid] of [
   });
 }
 
-for (const repeat of [false, true]) {
-  test(`Claude preserves a human stop when clarifying a checkpoint (repeated: ${repeat})`, async () => {
+for (const [summary, repeat] of [
+  ['(중간 확인 단계)', false],
+  ['progress', true],
+  ['in_progress', false],
+]) {
+  test(`Claude preserves a human stop when clarifying ${summary} (repeated: ${repeat})`, async () => {
     let calls = 0;
     const models = createModels({
       keys: { claude: 'mock' },
@@ -435,7 +445,7 @@ for (const repeat of [false, true]) {
           calls === 1 || repeat
             ? {
                 status: 'needs_human',
-                summary: '(중간 확인 단계)',
+                summary,
                 findings: [],
               }
             : { status: 'pass', summary: '검토 완료', findings: [] };
@@ -491,6 +501,8 @@ for (const correctedVerdict of ['pass', 'changes_requested']) {
           });
         }
         assert.equal(body.tool_choice.type, 'none');
+        if (calls === 2)
+          assert.match(body.messages.at(-1).content.at(-1).text, /최종 결과/);
         if (calls === 3)
           assert.match(body.messages.at(-1).content, /pass에 지적 사항/);
         const result = {
@@ -522,6 +534,92 @@ for (const [agent, mode] of [
   ['codex', 'development'],
   ['claude', 'review'],
 ]) {
+  test(`${agent} reserves a read and a verdict when UI evidence is missing at the exploration limit`, async () => {
+    const path = 'e2e/kingdom.spec.ts';
+    const reads = [];
+    let calls = 0;
+    const models = createModels({
+      keys: { [agent]: 'mock' },
+      modelNames: { [agent]: 'mock' },
+      limits: { ...config.limits, turns: 4, reviewTurns: 4, toolCallsTotal: 2 },
+      log: () => {},
+      request: async (_, options) => {
+        calls++;
+        const body = JSON.parse(options.body);
+        const codex = agent === 'codex';
+        if (calls === 1 || calls === 3) {
+          assert.equal(body.tool_choice, undefined);
+          if (calls === 3)
+            assert.match(
+              (body.input ?? body.messages).at(-1).content,
+              /e2e\/kingdom\.spec\.ts/,
+            );
+          const args = { path: calls === 1 ? 'src/view.ts' : path, line: 1 };
+          return Response.json(
+            codex
+              ? {
+                  status: 'completed',
+                  output: [
+                    {
+                      type: 'function_call',
+                      call_id: 'read' + calls,
+                      name: 'read_file',
+                      arguments: JSON.stringify(args),
+                    },
+                  ],
+                }
+              : {
+                  stop_reason: 'tool_use',
+                  content: [
+                    {
+                      type: 'tool_use',
+                      id: 'read' + calls,
+                      name: 'read_file',
+                      input: args,
+                    },
+                  ],
+                },
+          );
+        }
+        assert.equal(codex ? body.tool_choice : body.tool_choice.type, 'none');
+        const text = JSON.stringify(
+          mode === 'review'
+            ? { status: 'pass', summary: '검토 완료', findings: [] }
+            : {
+                status: 'completed',
+                summary: '화면 수정',
+                title: '🐛 화면: 표시 수정',
+                edits: [{ path: 'src/view.ts', before: 'a', after: 'b' }],
+              },
+        );
+        return Response.json(
+          codex
+            ? {
+                status: 'completed',
+                output: [
+                  { type: 'message', content: [{ type: 'output_text', text }] },
+                ],
+              }
+            : { stop_reason: 'end_turn', content: [{ type: 'text', text }] },
+        );
+      },
+    });
+    const result = await models.run({
+      agent,
+      mode,
+      instructions: 'Check',
+      context: 'Test',
+      missingUiSpec: () => (reads.includes(path) ? '' : path),
+      inspect: (_, input) => {
+        reads.push(input.path);
+        return '1: test';
+      },
+    });
+    assert.equal(result.status, mode === 'review' ? 'pass' : 'completed');
+    assert.deepEqual(reads, ['src/view.ts', path]);
+    assert.equal(calls, 4);
+  });
+
   test(`${agent} cannot finish UI changes after ignoring the spec read reminder`, async () => {
     let calls = 0;
     const models = createModels({
@@ -563,9 +661,10 @@ for (const [agent, mode] of [
       mode,
       instructions: 'Check',
       context: 'Test',
-      needsUiSpec: () => true,
+      missingUiSpec: () => 'e2e/kingdom.spec.ts',
     });
     assert.equal(result.status, 'needs_human');
+    assert.match(result.summary, /e2e\/kingdom\.spec\.ts/);
     assert.equal(calls, 2);
   });
 }

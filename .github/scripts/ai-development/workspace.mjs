@@ -7,16 +7,20 @@ const maxFileBytes = 1024 * 1024;
 const protectedNames = /^(?:\.git|node_modules)$/i;
 const environmentFile = /^\.env(?:\.|$)/i;
 
-function outputPage(text, start, span) {
+function outputPage(text, start, span, fromEnd = false) {
   const lines = text.split('\n');
-  const offset = Math.max(0, start - 1);
+  const offset = Math.max(0, fromEnd ? lines.length - span : start - 1);
   const result = lines
     .slice(offset, offset + span)
     .map((line, index) => `${offset + index + 1}: ${line.slice(0, 1500)}`);
   // The next page offset describes the lines actually served, including long minified lines.
-  while (result.join('\n').length > 5500) result.pop();
+  while (result.join('\n').length > 5500) {
+    if (fromEnd) result.shift();
+    else result.pop();
+  }
+  if (fromEnd) return result.join('\n');
   if (offset + result.length < lines.length)
-    result.push(`Next line: ${offset + result.length + 1}`);
+    result.push(`다음 줄: ${offset + result.length + 1}`);
   return result.join('\n');
 }
 
@@ -183,7 +187,14 @@ export async function formatChanges(changes, work) {
 }
 
 function isInspectable(path) {
-  return isEditable(path) || path === 'AGENTS.md' || path === 'e2e/github.ts';
+  return (
+    isEditable(path) ||
+    path === 'AGENTS.md' ||
+    path === 'e2e/github.ts' ||
+    path === 'e2e/fixtures.ts' ||
+    path === '.github/scripts/ai-development/run.mjs' ||
+    path === '.github/scripts/ai-completion.py'
+  );
 }
 
 export function snapshot(base, head) {
@@ -208,7 +219,8 @@ export function snapshot(base, head) {
   };
   const diff = () =>
     git('diff', '--no-ext-diff', '--no-textconv', base, head, '--');
-  let readUiSpec = false;
+  const readUiSpecs = new Set();
+  const uiSpecPath = /^e2e\/[\w.-]+\.spec\.ts$/;
   return {
     files,
     read,
@@ -218,39 +230,46 @@ export function snapshot(base, head) {
         .filter((path) => isEditable(path) && files.get(path) === '100644')
         .map((path) => ({ path, text: read(path) }));
     },
-    needsUiSpec(paths) {
-      if (readUiSpec) return false;
+    missingUiSpec(paths) {
       const changed =
         paths ??
         git('diff', '--name-only', '--no-renames', '-z', base, head).split(
           '\0',
         );
-      return changed.some((path) =>
-        /^(src|server|api|assets|e2e)\//.test(path),
-      );
+      const changedSpecs = changed.filter((path) => uiSpecPath.test(path));
+      const unread = changedSpecs.filter((path) => !readUiSpecs.has(path));
+      if (unread.length) return unread.join(', ');
+      if (
+        readUiSpecs.size === 0 &&
+        changed.some((path) => /^(src|server|api|assets|e2e)\//.test(path))
+      ) {
+        const candidates = [...files.keys()].filter((path) =>
+          uiSpecPath.test(path),
+        );
+        return `변경 동작에 해당하는 테스트 (후보: ${candidates.join(', ')})`;
+      }
+      return '';
     },
     inspect(name, input) {
       if (name === 'read_diff') return outputPage(diff(), input.line, 120);
       if (name === 'read_file' || name === 'find_in_file') {
         if (!isInspectable(input.path))
-          return 'Path outside the allowed source and documentation.';
+          return '허용된 소스 및 문서 범위를 벗어난 경로입니다.';
         const source = read(input.path);
         if (name === 'find_in_file') {
-          if (!input.text.trim()) return 'Provide a nonempty literal.';
+          if (!input.text.trim())
+            return '검색할 문자열을 한 글자 이상 입력하세요.';
           const hits = [];
           for (const [index, line] of source.split('\n').entries()) {
             if (line.includes(input.text))
               hits.push(`${index + 1}: ${line.trim().slice(0, 220)}`);
             if (hits.length === 16) break;
           }
-          return hits.join('\n') || 'No matching lines.';
+          return hits.join('\n') || '일치하는 줄이 없습니다.';
         }
-        const page = outputPage(source, input.line, 120);
-        if (
-          /^e2e\/[\w.-]+\.spec\.ts$/.test(input.path) &&
-          /^\d+: [^\n]*\S/m.test(page)
-        )
-          readUiSpec = true;
+        const page = outputPage(source, input.line, 120, input.line === -1);
+        if (uiSpecPath.test(input.path) && /^\d+: [^\n]*\S/m.test(page))
+          readUiSpecs.add(input.path);
         return page;
       }
       const paths = [...files.keys()].filter(
@@ -261,7 +280,7 @@ export function snapshot(base, head) {
       const offset = Math.max(0, input.offset);
       const page = paths.slice(offset, offset + 80);
       if (offset + page.length < paths.length)
-        page.push(`Next offset: ${offset + page.length}`);
+        page.push(`다음 offset: ${offset + page.length}`);
       return page.join('\n');
     },
   };
