@@ -95,6 +95,7 @@ export function buildBranchRoads(
       Number(right.role === 'plaza') - Number(left.role === 'plaza') ||
       Number(right.pulls.some((pull) => !pull.merged)) -
         Number(left.pulls.some((pull) => !pull.merged)) ||
-      left.name.localeCompare(right.name),
+      left.name.localeCompare(right.name) ||
+      Number(left.name > right.name) - Number(left.name < right.name),
   );
 }
