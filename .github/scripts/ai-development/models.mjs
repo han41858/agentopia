@@ -62,7 +62,7 @@ const tools = {
   },
   read_file: {
     description:
-      'Git이 추적하는 UTF-8 텍스트를 줄 번호와 함께 읽습니다. 처음부터 읽으려면 line을 1로 지정하세요.',
+      'Git이 추적하는 UTF-8 텍스트를 줄 번호와 함께 읽습니다. line에 시작 줄을 지정하세요. 다음 페이지는 결과의 ‘다음 줄’을, 파일 끝은 -1을 사용하세요.',
     input: object({ path: string, line: integer }),
   },
   read_diff: {
@@ -491,7 +491,8 @@ export function createModels({
       const taskInstructions =
         instructions +
         '\n' +
-        (mode === 'review' ? reviewFormat : developmentFormat);
+        (mode === 'review' ? reviewFormat : developmentFormat) +
+        '\n긴 파일은 find_in_file로 관련 위치를 찾은 뒤 필요한 부분만 read_file로 읽으세요. 끝부분이 필요하면 line=-1로 바로 확인하세요. 허용된 파일의 미확인 구간은 사용자에게 붙여 달라고 요청하기 전에 직접 조회하세요.';
       let correction;
       let promptedForSpec = false;
       let reviewCanPass = true;

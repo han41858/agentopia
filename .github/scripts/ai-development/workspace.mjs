@@ -7,14 +7,18 @@ const maxFileBytes = 1024 * 1024;
 const protectedNames = /^(?:\.git|node_modules)$/i;
 const environmentFile = /^\.env(?:\.|$)/i;
 
-function outputPage(text, start, span) {
+function outputPage(text, start, span, fromEnd = false) {
   const lines = text.split('\n');
-  const offset = Math.max(0, start - 1);
+  const offset = Math.max(0, fromEnd ? lines.length - span : start - 1);
   const result = lines
     .slice(offset, offset + span)
     .map((line, index) => `${offset + index + 1}: ${line.slice(0, 1500)}`);
   // The next page offset describes the lines actually served, including long minified lines.
-  while (result.join('\n').length > 5500) result.pop();
+  while (result.join('\n').length > 5500) {
+    if (fromEnd) result.shift();
+    else result.pop();
+  }
+  if (fromEnd) return result.join('\n');
   if (offset + result.length < lines.length)
     result.push(`다음 줄: ${offset + result.length + 1}`);
   return result.join('\n');
@@ -254,7 +258,7 @@ export function snapshot(base, head) {
           }
           return hits.join('\n') || '일치하는 줄이 없습니다.';
         }
-        const page = outputPage(source, input.line, 120);
+        const page = outputPage(source, input.line, 120, input.line === -1);
         if (uiSpecPath.test(input.path) && /^\d+: [^\n]*\S/m.test(page))
           readUiSpecs.add(input.path);
         return page;
