@@ -167,6 +167,27 @@ test.describe('왕국 기본 표시', () => {
 
       quest = {
         ...quest,
+        stage: 'ci',
+        issueLeader: 'resting',
+        adventurers: [],
+      };
+      await page.reload();
+      await expect(marker).toHaveAccessibleName(
+        /GitHub Actions · CI 대기 중 · 파티장$/,
+      );
+      await expect(leader).toBeVisible();
+      await expect(moving).toHaveCount(0);
+
+      quest = { ...quest, issueLeader: 'active' };
+      await page.reload();
+      await expect(marker).toHaveAccessibleName(
+        /GitHub Actions · CI 실행 중 · 파티장$/,
+      );
+      await expect(party).toBeVisible();
+      await expect(leader).toHaveCount(0);
+
+      quest = {
+        ...quest,
         stage: 'returned',
         issueLeader: undefined,
         adventurers: [developers, reviewers],

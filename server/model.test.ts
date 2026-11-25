@@ -1436,7 +1436,7 @@ test('an active issue without a PR recovers its matching bot checkpoint on refre
   const state = comment(
     1,
     'developing',
-    { runId: undefined, run: 101, attempt: 2, attempts: 2 },
+    { developer: 'codex', runId: undefined, run: 101, attempt: 2, attempts: 2 },
     'active-checkpoint',
   );
   const progress = [
@@ -1508,6 +1508,8 @@ test('an active issue without a PR recovers its matching bot checkpoint on refre
 });
 
 test('only a matching bot checkpoint assigns the active issue role', () => {
+  const startedAt = '2026-11-19T15:50:00Z';
+  const checkpointCreatedAt = '2026-11-19T15:51:00Z';
   const lines = [
     '- 15:52 developing · Codex 개발 1/3회차입니다.',
     '- 15:55 reviewing · PR #91의 현재 HEAD를 Claude가 검토합니다.',
@@ -1522,10 +1524,13 @@ test('only a matching bot checkpoint assigns the active issue role', () => {
       runId: undefined,
       attempt: undefined,
       attempts: 2,
+      developer: undefined,
       ...fields,
     });
     return {
       ...marker,
+      created_at: checkpointCreatedAt,
+      updated_at: '2026-11-19T15:56:00Z',
       body: [
         '<details><summary>진행 기록</summary>',
         '',
@@ -1537,7 +1542,12 @@ test('only a matching bot checkpoint assigns the active issue role', () => {
     };
   }
 
-  const current = run(1, { id: 101, run_attempt: 1, status: 'in_progress' });
+  const current = run(1, {
+    id: 101,
+    run_attempt: 1,
+    status: 'in_progress',
+    run_started_at: startedAt,
+  });
   const reviewing = checkpoint('reviewing', lines);
   const observedPull = {
     ...pull,
@@ -1587,10 +1597,42 @@ test('only a matching bot checkpoint assigns the active issue role', () => {
     [],
   );
 
-  const developing = observe(
-    [current],
-    [checkpoint('developing', lines.slice(0, 1))],
+  const development = checkpoint('developing', lines.slice(0, 1));
+  for (const created_at of ['2026-11-18T15:51:00Z', undefined]) {
+    const unverified = observe([current], [{ ...development, created_at }]);
+    assert.equal(unverified.issueLeader, 'resting');
+    assert.deepEqual(unverified.adventurers, []);
+  }
+
+  const retry = {
+    ...current,
+    run_attempt: 2,
+    run_started_at: '2026-11-19T15:54:00Z',
+  };
+  const updatedMarker = checkpoint('developing', lines.slice(0, 1), {
+    attempt: 2,
+  });
+  const carriedOver = observe([retry], [updatedMarker]);
+  assert.equal(carriedOver.issueLeader, 'resting');
+  assert.deepEqual(carriedOver.adventurers, []);
+  const freshRetry = observe(
+    [retry],
+    [
+      {
+        ...checkpoint(
+          'developing',
+          ['- 15:55 developing · Claude 개발 1/3회차입니다.'],
+          { attempt: 2 },
+        ),
+        created_at: '2026-11-19T15:54:30Z',
+      },
+    ],
   );
+  assert.deepEqual(freshRetry.adventurers, [
+    { agent: 'claude', roles: ['develop'], active: 'develop' },
+  ]);
+
+  const developing = observe([current], [development]);
   assert.equal(developing.pulls.length, 0);
   assert.deepEqual(developing.adventurers, [
     { agent: 'codex', roles: ['develop'], active: 'develop' },

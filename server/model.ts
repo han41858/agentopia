@@ -216,6 +216,7 @@ export type Comment = {
   user?: { login: string };
   issue_url: string;
   html_url: string;
+  created_at?: string;
   updated_at: string;
 };
 export type Release = Source & { stage: 'complete'; sha?: string; at?: string };
@@ -253,6 +254,7 @@ const automationStages: Record<string, Stage> = {
   revising: 'revising',
   recovering: 'revising',
   reviewing: 'reviewing',
+  waiting_ci: 'ci',
   ready: 'ci',
   merging: 'merging',
   merged: 'complete',
@@ -399,6 +401,15 @@ function roleProgress({ comment }: StateRecord): RoleProgress[] {
     }
   }
   return records;
+}
+
+function progressBelongsToAttempt(record: StateRecord, run: Run) {
+  if (!stateMatchesRun(record.state, run)) return false;
+  const started = Date.parse(run.run_started_at ?? '');
+  const created = Date.parse(record.comment.created_at ?? '');
+  // Editing a checkpoint can replace its marker without replacing its log.
+  // HH:mm entries cannot date individual lines in a reused comment.
+  return Number.isFinite(started) && created >= started;
 }
 
 type IssueAutomation = {
@@ -883,9 +894,10 @@ export function makeQuests(
       run.conclusion !== 'skipped';
     const running = automationRunning && matchingRun;
     const progress = record ? roleProgress(record) : [];
-    const currentProgress = matchingRun
-      ? progress.findLast((entry) => entry.status === state?.status)
-      : undefined;
+    const currentProgress =
+      record && run && progressBelongsToAttempt(record, run)
+        ? progress.findLast((entry) => entry.status === state?.status)
+        : undefined;
     const assignedDeveloper =
       state?.developer === 'codex' || state?.developer === 'claude'
         ? state.developer
@@ -1151,7 +1163,13 @@ export function makeQuests(
       issueRecoveryBadge: issueStop ?? recoveryBadge,
       issueLeader,
       adventurers:
-        automationRunning && !record ? [] : [...adventurers.values()],
+        automationRunning &&
+        (!record ||
+          ((stage === 'developing' || stage === 'revising') &&
+            !assignedDeveloper) ||
+          (stage === 'reviewing' && !assignedReviewer))
+          ? []
+          : [...adventurers.values()],
       activities,
       activity,
       issueComments: issue.comments,
