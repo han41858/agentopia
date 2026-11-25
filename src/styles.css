@@ -1179,8 +1179,8 @@ svg {
 .adventurer > :is(.monster-recovery, .facility-recovery) {
   top: 0;
   right: 0;
-  width: 12px;
-  height: 12px;
+  width: 14px;
+  height: 14px;
 }
 :is(.monster-recovery, .facility-recovery)[data-status='stopped'] {
   color: #f4dbff;

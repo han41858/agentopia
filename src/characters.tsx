@@ -104,6 +104,8 @@ export function AdventurerParty({
   badge?: ReactNode;
 }) {
   if (!leader && !members.length) return null;
+  const responsible = members.find((member) => member.active || member.fallen);
+  const badgeMember = responsible ?? (leader ? undefined : members.at(-1));
   return (
     <span className={`adventurer-party${detailed ? ' detailed' : ''}`}>
       {leader && (
@@ -118,11 +120,11 @@ export function AdventurerParty({
                 : 'resting-party-leader'
             }
           />
-          {!members.length && badge}
+          {!badgeMember && badge}
           {detailed && <strong>{partyLeaderLabel(leader)}</strong>}
         </span>
       )}
-      {members.map((member, index) => (
+      {members.map((member) => (
         <span
           className="adventurer"
           key={member.agent}
@@ -134,7 +136,7 @@ export function AdventurerParty({
             fallen={member.fallen}
             forge={forge}
           />
-          {index === members.length - 1 && badge}
+          {member === badgeMember && badge}
           {detailed && (
             <span>
               <strong>{partyLabel(member, resting)}</strong>

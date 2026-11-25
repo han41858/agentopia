@@ -93,7 +93,7 @@ function recoveryTooltip(title: string, badge?: RecoveryBadge) {
   const name = {
     pending: '실행 대기',
     waiting: '재시도 대기',
-    failed: '최종 실패',
+    failed: '실행 실패',
     repairing: '자동 수정 중',
     checking: '수정 후 CI 재검사 중',
     stopped: '사람 확인 필요',

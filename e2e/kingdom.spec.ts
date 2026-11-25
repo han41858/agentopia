@@ -74,7 +74,7 @@ test.describe('왕국 기본 표시', () => {
           name: new RegExp(`^${id} · `),
         });
         const expected =
-          id === 'PR #12' ? `${id} · ${title} · 최종 실패` : `${id} · ${title}`;
+          id === 'PR #12' ? `${id} · ${title} · 실행 실패` : `${id} · ${title}`;
         await expect(marker).toHaveAttribute('title', expected);
         await expect(marker.locator('[title], svg title')).toHaveCount(0);
         await marker.click();
@@ -330,7 +330,10 @@ for (const viewport of ['desktop', 'mobile']) {
                 ...quest,
                 stage: 'attention',
                 pulls: [],
-                adventurers,
+                adventurers: [
+                  { agent: 'codex', roles: ['develop'], fallen: true },
+                  { agent: 'claude', roles: ['review'] },
+                ],
                 issueRecoveryBadge: stopped,
               };
             if (quest.number === 2 || quest.number === 3)
@@ -410,7 +413,9 @@ for (const viewport of ['desktop', 'mobile']) {
 
         const characters = marker.locator('.adventurer');
         const anchor = (await characters.count())
-          ? characters.last()
+          ? name === '이슈 #4'
+            ? characters.first()
+            : characters.last()
           : marker.locator(
               kind === 'monster' ? '.monster-glyph' : '.facility-sprite',
             );
@@ -430,7 +435,7 @@ for (const viewport of ['desktop', 'mobile']) {
       await expect(
         failed.locator('.monster-marker-art .lucide-square'),
       ).toBeVisible();
-      await expect(failed).toHaveAttribute('title', /최종 실패 · 테스트 실패/);
+      await expect(failed).toHaveAttribute('title', /실행 실패 · 테스트 실패/);
 
       await expect(kingdom.locator('svg.monster-recovery')).toHaveCount(4);
       const markers = await kingdom
