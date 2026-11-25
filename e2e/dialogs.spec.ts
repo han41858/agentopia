@@ -1,4 +1,6 @@
 import type { Locator } from '@playwright/test';
+import { makeQuests, repositoryRegion } from '../server/model.ts';
+import type { Comment, Run } from '../server/model.ts';
 import { alpha, alphaReport } from './fixtures.ts';
 import { mockGitHub, openWorld, seedSettings, settled } from './github.ts';
 import { expect, test } from './test.ts';
@@ -619,6 +621,122 @@ test.describe('상세 창', () => {
     ).toHaveText(['0', '6', '0', '0']);
     expect(github.queries('summary')).toEqual([
       { repo: alpha, summary: 'issue', number: '2' },
+    ]);
+  });
+
+  test('몬스터: 별도 성공은 실패 표시를 지우지 않고 재개 기록은 지운다', async ({
+    page,
+  }) => {
+    const at = '2026-11-22T01:00:00Z';
+    const issueUrl = `https://github.com/${alpha}/issues/78`;
+    const title = '개발 자동화 상태 확인';
+    const reason = 'Codex reached the output token limit.';
+    const run = (id: number, overrides: Partial<Run> = {}): Run => ({
+      id,
+      run_attempt: 1,
+      path: '.github/workflows/ai-development.yml',
+      name: 'AI development',
+      display_title: 'AI development for Issue #78',
+      status: 'completed',
+      conclusion: 'failure',
+      html_url: `https://github.com/${alpha}/actions/runs/${id}`,
+      head_sha: 'a'.repeat(40),
+      head_branch: 'dev',
+      event: 'issues',
+      created_at: at,
+      updated_at: at,
+      run_started_at: at,
+      pull_requests: [],
+      ...overrides,
+    });
+    const failed = run(45528330850);
+    const successful = run(45528331272, {
+      conclusion: 'success',
+      run_started_at: '2026-11-22T01:01:00Z',
+    });
+    const retry = run(successful.id + 1, {
+      status: 'in_progress',
+      conclusion: null,
+      run_started_at: '2026-11-22T01:02:00Z',
+    });
+    const checkpoint = (
+      id: number,
+      state: Record<string, unknown>,
+    ): Comment => ({
+      body: `<!-- alpha-ai-state:${Buffer.from(
+        JSON.stringify({ issue: 78, developer: 'codex', ...state }),
+      ).toString('base64')} -->`,
+      user: { login: 'github-actions[bot]' },
+      issue_url: `https://api.github.com/repos/${alpha}/issues/78`,
+      html_url: `${issueUrl}#issuecomment-${id}`,
+      updated_at: at,
+    });
+    const failure = checkpoint(1, { status: 'failed', run: failed.id, reason });
+    const recovery = checkpoint(2, { status: 'developing', runId: retry.id });
+    let resumed = false;
+    await mockGitHub(page);
+    await seedSettings(page, [alpha]);
+    await page.route('**/api/github?**', async (route) => {
+      if (!new URL(route.request().url()).searchParams.has('branches')) {
+        await route.fallback();
+        return;
+      }
+      const quests = makeQuests(
+        repositoryRegion(alpha),
+        [{ number: 78, state: 'open', title, html_url: issueUrl, labels: [] }],
+        [],
+        resumed ? [retry, successful, failed] : [successful, failed],
+        resumed ? [recovery, failure] : [failure],
+        new Map(),
+        [],
+      );
+      await route.fulfill({ json: { ...alphaReport, quests } });
+    });
+    await page.goto('/');
+    await settled(page);
+
+    const marker = page.getByRole('button', { name: /^이슈 #78 / });
+    const markerPaint = () =>
+      marker.evaluate((node) =>
+        [node, ...node.querySelectorAll('svg, svg *')].flatMap((part) =>
+          [null, '::before', '::after'].map((pseudo) => {
+            const style = getComputedStyle(part, pseudo);
+            return [
+              style.outline,
+              style.borderColor,
+              style.boxShadow,
+              style.filter,
+              style.stroke,
+              style.strokeWidth,
+            ];
+          }),
+        ),
+      );
+    await expect(marker).toBeVisible();
+    const failedPaint = await markerPaint();
+    await marker.click();
+    const dialog = page.getByRole('dialog', { name: '이슈 #78' });
+    await expect(dialog.getByRole('img', { name: '실행 실패' })).toBeVisible();
+    await expect(dialog.getByText(reason)).toBeVisible();
+    await expect(dialog.locator('.workflow-run-status')).toHaveText([
+      'success',
+      'failure',
+    ]);
+    await dialog.getByRole('button', { name: '닫기' }).click();
+
+    resumed = true;
+    await page.getByRole('button', { name: '새로 고침' }).click();
+    await settled(page);
+    await page.mouse.move(0, 0);
+    await expect.poll(markerPaint).not.toEqual(failedPaint);
+    await marker.click();
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByRole('img', { name: '실행 실패' })).toHaveCount(0);
+    await expect(dialog.getByText(reason)).toHaveCount(0);
+    await expect(dialog.locator('.workflow-run-status')).toHaveText([
+      'in_progress',
+      'success',
+      'failure',
     ]);
   });
 

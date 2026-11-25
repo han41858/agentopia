@@ -309,19 +309,19 @@ export function readState(comment: Comment, region: Region) {
     .match(/^([a-zA-Z0-9+/=]+) -->\s*$/);
   if (!marker) return;
   try {
-    const state = JSON.parse(
+    const { run: alias, ...state } = JSON.parse(
       Buffer.from(marker[1], 'base64').toString('utf8'),
     ) as AutomationState & { run?: unknown };
     const run =
-      typeof state.run === 'string' && /^[1-9]\d*$/.test(state.run)
-        ? Number(state.run)
-        : state.run;
+      typeof alias === 'string' && String(Number(alias)) === alias
+        ? Number(alias)
+        : alias;
     const runId = state.runId === undefined ? run : state.runId;
     if (
       typeof runId === 'number' &&
       Number.isSafeInteger(runId) &&
       runId > 0 &&
-      (state.run === undefined || run === runId) &&
+      (alias === undefined || run === runId) &&
       (state.attempt === undefined ||
         (Number.isSafeInteger(state.attempt) && state.attempt > 0)) &&
       state.issue === Number(comment.issue_url.split('/').pop()) &&
@@ -396,12 +396,20 @@ export function selectIssueAutomation(
           Date.parse(b.comment.updated_at) - Date.parse(a.comment.updated_at),
       )[0];
 
-    // A parallel trigger can be cancelled before it writes any checkpoint.
+    // A parallel trigger can exit without writing a checkpoint. A newer
+    // success alone does not establish recovery from a recorded failure.
     const run = candidates.find(
       (candidate) =>
         candidate.conclusion !== 'skipped' &&
         (candidate.conclusion !== 'cancelled' ||
-          entry.records.some(({ state }) => stateMatchesRun(state, candidate))),
+          entry.records.some(({ state }) =>
+            stateMatchesRun(state, candidate),
+          )) &&
+        !(
+          record?.state.status === 'failed' &&
+          candidate.id > record.state.runId &&
+          candidate.conclusion === 'success'
+        ),
     );
     if (
       record &&
