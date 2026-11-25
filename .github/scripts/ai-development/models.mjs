@@ -752,7 +752,7 @@ API requests remaining, including this one: ${turnLimit - turn + 1}. Read tools 
               {
                 role: 'user',
                 content:
-                  'Read the relevant e2e/*.spec.ts using read_file. Compare its locators and assertions with the changed behavior, including role, accessible name and interaction. Then return the complete plan or review verdict. Request changes for stale or missing coverage.',
+                  'Use read_file on every edited e2e/*.spec.ts and the specs covering the affected UI. Compare its locators and assertions with the changed behavior, including role, accessible name and interaction. Then return the complete plan or review verdict. Request changes for stale or missing coverage.',
               },
             );
             continue;

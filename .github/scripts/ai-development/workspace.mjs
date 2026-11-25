@@ -213,7 +213,8 @@ export function snapshot(base, head) {
   };
   const diff = () =>
     git('diff', '--no-ext-diff', '--no-textconv', base, head, '--');
-  let readUiSpec = false;
+  const readUiSpecs = new Set();
+  const uiSpecPath = /^e2e\/[\w.-]+\.spec\.ts$/;
   return {
     files,
     read,
@@ -224,14 +225,16 @@ export function snapshot(base, head) {
         .map((path) => ({ path, text: read(path) }));
     },
     needsUiSpec(paths) {
-      if (readUiSpec) return false;
       const changed =
         paths ??
         git('diff', '--name-only', '--no-renames', '-z', base, head).split(
           '\0',
         );
-      return changed.some((path) =>
-        /^(src|server|api|assets|e2e)\//.test(path),
+      const changedSpecs = changed.filter((path) => uiSpecPath.test(path));
+      if (changedSpecs.some((path) => !readUiSpecs.has(path))) return true;
+      return (
+        readUiSpecs.size === 0 &&
+        changed.some((path) => /^(src|server|api|assets|e2e)\//.test(path))
       );
     },
     inspect(name, input) {
@@ -251,11 +254,8 @@ export function snapshot(base, head) {
           return hits.join('\n') || 'No matching lines.';
         }
         const page = outputPage(source, input.line, 120);
-        if (
-          /^e2e\/[\w.-]+\.spec\.ts$/.test(input.path) &&
-          /^\d+: [^\n]*\S/m.test(page)
-        )
-          readUiSpec = true;
+        if (uiSpecPath.test(input.path) && /^\d+: [^\n]*\S/m.test(page))
+          readUiSpecs.add(input.path);
         return page;
       }
       const paths = [...files.keys()].filter(

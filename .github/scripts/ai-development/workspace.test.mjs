@@ -114,6 +114,11 @@ test('UI checks require an actual spec page independently in development and rev
   work.inspect('read_file', { path: 'e2e/dialogs.spec.ts', line: 80 });
   assert.equal(work.needsUiSpec(paths), false);
   assert.equal(review.needsUiSpec(paths), true);
+  const changed = [...paths, 'e2e/dialogs.spec.ts', 'e2e/kingdom.spec.ts'];
+  assert.equal(work.needsUiSpec(changed), true);
+  work.inspect('read_file', { path: 'e2e/kingdom.spec.ts', line: 1 });
+  assert.equal(work.needsUiSpec(changed), false);
+  assert.equal(review.needsUiSpec(changed), true);
 });
 
 test('formats proposals before publication and drops format-only no-ops', async () => {
