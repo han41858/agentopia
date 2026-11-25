@@ -100,6 +100,8 @@ export type Quest = {
   released?: boolean;
   victory?: boolean;
   adventurers?: Adventurer[];
+  issueLeader?: 'active' | 'resting';
+  issueCIStatus?: 'waiting' | 'running' | 'passed' | 'finished';
   activities?: ActivityCounts;
   activity?: ActivityProfile;
   reopened?: boolean;
@@ -215,6 +217,7 @@ export type Comment = {
   user?: { login: string };
   issue_url: string;
   html_url: string;
+  created_at?: string;
   updated_at: string;
 };
 export type Release = Source & { stage: 'complete'; sha?: string; at?: string };
@@ -252,6 +255,7 @@ const automationStages: Record<string, Stage> = {
   revising: 'revising',
   recovering: 'revising',
   reviewing: 'reviewing',
+  waiting_ci: 'ci',
   ready: 'ci',
   merging: 'merging',
   merged: 'complete',
@@ -358,6 +362,56 @@ export function readState(comment: Comment, region: Region) {
 }
 
 type StateRecord = { state: AutomationState; comment: Comment };
+
+type RoleProgress = {
+  status: 'developing' | 'revising' | 'reviewing';
+  agent: Agent;
+  role: AdventurerRole;
+};
+
+function roleProgress({ comment }: StateRecord): RoleProgress[] {
+  // Only read the progress list in the comment that supplied the checkpoint.
+  const lists = (comment.body ?? '').matchAll(
+    /<details>\s*<summary>진행 기록<\/summary>([\s\S]*?)<\/details>/g,
+  );
+  const records: RoleProgress[] = [];
+  for (const [, list] of lists) {
+    for (const line of list.split(/\r?\n/)) {
+      const development =
+        /^- \d{2}:\d{2} (developing|revising) · (Codex|Claude) 개발 \d+\/\d+회차입니다\.$/.exec(
+          line.trim(),
+        );
+      if (development) {
+        records.push({
+          status: development[1] === 'developing' ? 'developing' : 'revising',
+          agent: development[2] === 'Codex' ? 'codex' : 'claude',
+          role: 'develop',
+        });
+        continue;
+      }
+      const review =
+        /^- \d{2}:\d{2} reviewing · PR #\d+의 현재 HEAD를 (Codex|Claude)가 검토합니다\.$/.exec(
+          line.trim(),
+        );
+      if (review)
+        records.push({
+          status: 'reviewing',
+          agent: review[1] === 'Codex' ? 'codex' : 'claude',
+          role: 'review',
+        });
+    }
+  }
+  return records;
+}
+
+function progressBelongsToAttempt(record: StateRecord, run: Run) {
+  if (!stateMatchesRun(record.state, run)) return false;
+  const started = Date.parse(run.run_started_at ?? '');
+  const created = Date.parse(record.comment.created_at ?? '');
+  // Editing a checkpoint can replace its marker without replacing its log.
+  // HH:mm entries cannot date individual lines in a reused comment.
+  return Number.isFinite(started) && created >= started;
+}
 
 type IssueAutomation = {
   runs: Run[];
@@ -834,18 +888,38 @@ export function makeQuests(
       : [];
     const branch =
       pull && pullIssue(pull, region) === issue.number ? pull.head.ref : '';
-    const developer =
+    const matchingRun = Boolean(run && state && stateMatchesRun(state, run));
+    const automationRunning =
+      issue.state === 'open' &&
+      run?.status === 'in_progress' &&
+      run.conclusion !== 'skipped';
+    const running = automationRunning && matchingRun;
+    const progress = record ? roleProgress(record) : [];
+    const currentProgress =
+      record && run && progressBelongsToAttempt(record, run)
+        ? progress.findLast((entry) => entry.status === state?.status)
+        : undefined;
+    const assignedDeveloper =
       state?.developer === 'codex' || state?.developer === 'claude'
         ? state.developer
-        : branch.endsWith('-codex')
-          ? 'codex'
-          : branch.endsWith('-claude')
-            ? 'claude'
-            : undefined;
-    const reviewer =
+        : !state?.developer && currentProgress?.role === 'develop'
+          ? currentProgress.agent
+          : undefined;
+    const assignedReviewer =
       state?.reviewer === 'codex' || state?.reviewer === 'claude'
         ? state.reviewer
-        : pull && pullLinks.get(pull.number)?.reviewer;
+        : !state?.reviewer && currentProgress?.role === 'review'
+          ? currentProgress.agent
+          : undefined;
+    const developer =
+      assignedDeveloper ??
+      (branch.endsWith('-codex')
+        ? 'codex'
+        : branch.endsWith('-claude')
+          ? 'claude'
+          : undefined);
+    const reviewer =
+      assignedReviewer ?? (pull && pullLinks.get(pull.number)?.reviewer);
     let stage: Stage = state ? automationStages[state.status] : 'idle';
     let evidence: Source | undefined =
       state && record
@@ -944,8 +1018,26 @@ export function makeQuests(
         ? pullRecoveryBadge(state, recordedPull, ci, run)
         : undefined;
     const adventurers = new Map<Agent, Adventurer>();
-    const matchingRun = Boolean(run && state && stateMatchesRun(state, run));
-    const running = matchingRun && run?.status === 'in_progress';
+    const issueCIStatus =
+      stage !== 'ci'
+        ? undefined
+        : ci?.status === 'in_progress'
+          ? 'running'
+          : ci?.status !== 'completed'
+            ? 'waiting'
+            : ci.conclusion === 'success'
+              ? 'passed'
+              : 'finished';
+    const readyToMerge =
+      state?.status === 'ready' && issueCIStatus === 'passed';
+    const issueLeader =
+      issue.state !== 'open'
+        ? undefined
+        : issueCIStatus === 'running'
+          ? 'active'
+          : automationRunning || readyToMerge
+            ? 'resting'
+            : undefined;
     const addAdventurer = (
       agent: Agent,
       role: AdventurerRole,
@@ -958,6 +1050,12 @@ export function makeQuests(
       if (fallen) member.fallen = true;
       adventurers.set(agent, member);
     };
+    for (const entry of progress) {
+      const assigned =
+        entry.role === 'develop' ? assignedDeveloper : assignedReviewer;
+      if (entry !== currentProgress || !assigned || entry.agent === assigned)
+        addAdventurer(entry.agent, entry.role, false);
+    }
     const developmentRecorded = Boolean(
       branch ||
       (state &&
@@ -970,13 +1068,14 @@ export function makeQuests(
           'merged',
         ].includes(state.status)),
     );
-    if (developer && developmentRecorded)
+    if (developer && developmentRecorded && (!running || assignedDeveloper))
       addAdventurer(
         developer,
         'develop',
         running &&
+          developer === assignedDeveloper &&
           recoveryBadge?.kind !== 'waiting' &&
-          state?.status !== 'recovering' &&
+          state?.status === stage &&
           (stage === 'developing' || stage === 'revising'),
         matchingRun &&
           outcome === 'failed' &&
@@ -997,20 +1096,23 @@ export function makeQuests(
         addAdventurer(agent, 'review', false);
     }
     const reviewRecorded = Boolean(
-      state?.reviewInProgress || state?.reviews?.length,
+      state?.reviewInProgress ||
+      state?.reviews?.length ||
+      currentProgress?.role === 'review',
     );
-    if (
-      state?.reviewer &&
-      (state.reviewer === 'codex' || state.reviewer === 'claude') &&
-      reviewRecorded
-    ) {
+    if (assignedReviewer && reviewRecorded) {
       const reviewingHead =
-        Boolean(state.reviewInProgress) &&
-        state.reviewInProgress === (pull?.head.sha ?? state.head);
-      const active = running && stage === 'reviewing' && reviewingHead;
+        Boolean(state?.reviewInProgress) &&
+        state?.reviewInProgress === (pull?.head.sha ?? state?.head);
+      const active =
+        running &&
+        stage === 'reviewing' &&
+        state?.status === 'reviewing' &&
+        (reviewingHead ||
+          (!state.reviewInProgress && currentProgress?.role === 'review'));
       const fallen = matchingRun && outcome === 'failed' && reviewingHead;
-      if (state.reviewer !== submittedReviewer || active || fallen)
-        addAdventurer(state.reviewer, 'review', active, fallen);
+      if (assignedReviewer !== submittedReviewer || active || fallen)
+        addAdventurer(assignedReviewer, 'review', active, fallen);
     }
 
     const commit =
@@ -1074,7 +1176,16 @@ export function makeQuests(
           : undefined,
       recoveryBadge,
       issueRecoveryBadge: issueStop ?? recoveryBadge,
-      adventurers: [...adventurers.values()],
+      issueLeader,
+      issueCIStatus,
+      adventurers:
+        automationRunning &&
+        (!record ||
+          ((stage === 'developing' || stage === 'revising') &&
+            !assignedDeveloper) ||
+          (stage === 'reviewing' && !assignedReviewer))
+          ? []
+          : [...adventurers.values()],
       activities,
       activity,
       issueComments: issue.comments,

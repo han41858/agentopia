@@ -359,6 +359,74 @@ test('monster lifecycle and adventurer activity are independent and use matching
   assert.equal(work[1].parent, 1);
 });
 
+test('the issue party leader moves only during current CI and rests after CI passes for a ready PR', () => {
+  const runningCI = run(2, {
+    id: 500,
+    path: '.github/workflows/ci.yml',
+    head_branch: pull.head.ref,
+    pull_requests: [{ number: pull.number }],
+  });
+  const completedCI = {
+    ...runningCI,
+    status: 'completed',
+    conclusion: 'success',
+  };
+  const finishedDevelopment = run(2, {
+    status: 'completed',
+    conclusion: 'success',
+  });
+
+  function observe(
+    ci: Run | undefined,
+    development = run(2),
+    status = 'waiting_ci',
+    target = issue(2),
+  ) {
+    const [quest] = makeQuests(
+      commitTrail,
+      [target],
+      [{ ...pull, draft: false }],
+      ci ? [development, ci] : [development],
+      [comment(2, status, { pullNumber: pull.number })],
+      new Map(),
+      [],
+    );
+    assert.equal(quest.stage, 'ci');
+    return [quest.issueCIStatus, quest.issueLeader];
+  }
+
+  assert.deepEqual(observe(undefined), ['waiting', 'resting']);
+  assert.deepEqual(observe({ ...runningCI, status: 'queued' }), [
+    'waiting',
+    'resting',
+  ]);
+  assert.deepEqual(observe(runningCI), ['running', 'active']);
+  assert.deepEqual(observe(runningCI, finishedDevelopment), [
+    'running',
+    'active',
+  ]);
+  assert.deepEqual(observe({ ...runningCI, head_sha: mergeSha }), [
+    'waiting',
+    'resting',
+  ]);
+  assert.deepEqual(
+    observe(runningCI, run(2), 'waiting_ci', { ...issue(2), state: 'closed' }),
+    ['running', undefined],
+  );
+  assert.deepEqual(observe(completedCI, finishedDevelopment, 'ready'), [
+    'passed',
+    'resting',
+  ]);
+  assert.deepEqual(observe(completedCI, finishedDevelopment), [
+    'passed',
+    undefined,
+  ]);
+  assert.deepEqual(
+    observe({ ...completedCI, conclusion: 'skipped' }, finishedDevelopment),
+    ['finished', undefined],
+  );
+});
+
 test('a merged PR is a victory independently of whether its monster has been defeated', () => {
   const merged = {
     ...pull,
@@ -1436,9 +1504,24 @@ test('an active issue without a PR recovers its matching bot checkpoint on refre
   const state = comment(
     1,
     'developing',
-    { developer: 'codex', runId: undefined, run: 101, attempt: 2 },
+    { developer: 'codex', runId: undefined, run: 101, attempt: 2, attempts: 2 },
     'active-checkpoint',
   );
+  const progress = [
+    '<details><summary>진행 기록</summary>',
+    '',
+    '- 15:52 developing · Codex 개발 1/3회차입니다.',
+    '</details>',
+    '',
+  ].join('\n');
+  state.body = `${progress}${state.body}`;
+  const firstAttempt = comment(
+    1,
+    'developing',
+    { attempts: 2 },
+    'active-checkpoint',
+  );
+  firstAttempt.body = `${progress}${firstAttempt.body}`;
   let available = false;
   let targeted = 0;
   let listed = false;
@@ -1463,6 +1546,7 @@ test('an active issue without a PR recovers its matching bot checkpoint on refre
           ? [state]
           : [
               { ...state, user: { login: 'guest' } },
+              firstAttempt,
               comment(1, 'needs_human', { attempt: 1 }, 'active-checkpoint'),
             ],
       );
@@ -1478,6 +1562,8 @@ test('an active issue without a PR recovers its matching bot checkpoint on refre
     assert.equal(result.status, 200);
     const quest = (JSON.parse(result.body) as Report).quests[0];
     assert.equal(quest.stage, 'developing');
+    assert.equal(quest.issueLeader, 'resting');
+    assert.equal(quest.pulls.length, 0);
     return quest.adventurers;
   }
   assert.deepEqual(await refresh(), []);
@@ -1487,6 +1573,178 @@ test('an active issue without a PR recovers its matching bot checkpoint on refre
   listed = true;
   assert.deepEqual(await refresh(), expected);
   assert.equal(targeted, 2);
+});
+
+test('only a matching bot checkpoint assigns the active issue role', () => {
+  const startedAt = '2026-11-19T15:50:00Z';
+  const checkpointCreatedAt = '2026-11-19T15:51:00Z';
+  const lines = [
+    '- 15:52 developing · Codex 개발 1/3회차입니다.',
+    '- 15:55 reviewing · PR #91의 현재 HEAD를 Claude가 검토합니다.',
+  ];
+  function checkpoint(
+    status: Parameters<typeof comment>[1],
+    entries: string[],
+    fields: Parameters<typeof comment>[2] = {},
+  ) {
+    const marker = comment(1, status, {
+      run: 101,
+      runId: undefined,
+      attempt: undefined,
+      attempts: 2,
+      developer: undefined,
+      ...fields,
+    });
+    return {
+      ...marker,
+      created_at: checkpointCreatedAt,
+      updated_at: '2026-11-19T15:56:00Z',
+      body: [
+        '<details><summary>진행 기록</summary>',
+        '',
+        ...entries,
+        '</details>',
+        '',
+        marker.body,
+      ].join('\n'),
+    };
+  }
+
+  const current = run(1, {
+    id: 101,
+    run_attempt: 1,
+    status: 'in_progress',
+    run_started_at: startedAt,
+  });
+  const reviewing = checkpoint('reviewing', lines);
+  const observedPull = {
+    ...pull,
+    number: 91,
+    body: 'Closes #1',
+    head: { ...pull.head, ref: 'ai/issue-1' },
+  };
+  function observe(runs: Run[], comments: Comment[] = [], pulls: Pull[] = []) {
+    return makeQuests(
+      commitTrail,
+      [issue(1)],
+      pulls,
+      runs,
+      comments,
+      new Map(),
+      [],
+    )[0];
+  }
+
+  for (const runs of [
+    [],
+    [{ ...current, status: 'queued' }],
+    [{ ...current, status: 'completed', conclusion: 'skipped' }],
+  ]) {
+    const quest = observe(runs);
+    assert.equal(quest.issueLeader, undefined);
+    assert.deepEqual(quest.adventurers, []);
+  }
+
+  const started = observe([current]);
+  assert.equal(started.issueLeader, 'resting');
+  assert.equal(started.pulls.length, 0);
+  assert.deepEqual(started.adventurers, []);
+
+  for (const comments of [
+    [{ ...reviewing, user: { login: 'guest' } }],
+    [checkpoint('reviewing', lines, { run: 100 })],
+    [
+      checkpoint('developing', []),
+      { ...reviewing, body: reviewing.body.split('<!--')[0] },
+    ],
+  ]) {
+    assert.deepEqual(observe([current], comments).adventurers, []);
+  }
+  assert.deepEqual(
+    observe([{ ...current, run_attempt: 2 }], [reviewing]).adventurers,
+    [],
+  );
+
+  const development = checkpoint('developing', lines.slice(0, 1));
+  for (const created_at of ['2026-11-18T15:51:00Z', undefined]) {
+    const unverified = observe([current], [{ ...development, created_at }]);
+    assert.equal(unverified.issueLeader, 'resting');
+    assert.deepEqual(unverified.adventurers, []);
+  }
+
+  const retry = {
+    ...current,
+    run_attempt: 2,
+    run_started_at: '2026-11-19T15:54:00Z',
+  };
+  const updatedMarker = checkpoint('developing', lines.slice(0, 1), {
+    attempt: 2,
+  });
+  const carriedOver = observe([retry], [updatedMarker]);
+  assert.equal(carriedOver.issueLeader, 'resting');
+  assert.deepEqual(carriedOver.adventurers, []);
+  const freshRetry = observe(
+    [retry],
+    [
+      {
+        ...checkpoint(
+          'developing',
+          ['- 15:55 developing · Claude 개발 1/3회차입니다.'],
+          { attempt: 2 },
+        ),
+        created_at: '2026-11-19T15:54:30Z',
+      },
+    ],
+  );
+  assert.deepEqual(freshRetry.adventurers, [
+    { agent: 'claude', roles: ['develop'], active: 'develop' },
+  ]);
+
+  const developing = observe([current], [development]);
+  assert.equal(developing.pulls.length, 0);
+  assert.deepEqual(developing.adventurers, [
+    { agent: 'codex', roles: ['develop'], active: 'develop' },
+  ]);
+  const resting = [
+    { agent: 'codex', roles: ['develop'] },
+    { agent: 'claude', roles: ['review'] },
+  ];
+  const review = observe([current], [reviewing], [observedPull]);
+  assert.equal(review.stage, 'reviewing');
+  assert.equal(review.pulls[0]?.number, 91);
+  assert.deepEqual(review.adventurers, [
+    resting[0],
+    { ...resting[1], active: 'review' },
+  ]);
+  assert.deepEqual(
+    observe([current], [checkpoint('waiting_ci', lines)]).adventurers,
+    resting,
+  );
+  const finished = observe(
+    [{ ...current, status: 'completed', conclusion: 'success' }],
+    [reviewing],
+  );
+  assert.equal(finished.stage, 'returned');
+  assert.equal(finished.issueLeader, undefined);
+  assert.deepEqual(finished.adventurers, resting);
+
+  const reversed = [
+    '- 15:50 developing · Codex 개발 1/3회차입니다.',
+    '- 15:52 developing · Claude 개발 2/3회차입니다.',
+    '- 15:55 reviewing · PR #91의 현재 HEAD를 Codex가 검토합니다.',
+  ];
+  const active = (record: Comment) =>
+    observe([current], [record]).adventurers?.filter((member) => member.active);
+  assert.deepEqual(active(checkpoint('developing', reversed)), [
+    { agent: 'claude', roles: ['develop'], active: 'develop' },
+  ]);
+  assert.deepEqual(active(checkpoint('reviewing', reversed)), [
+    { agent: 'codex', roles: ['develop', 'review'], active: 'review' },
+  ]);
+  assert.deepEqual(
+    active(checkpoint('reviewing', reversed, { reviewer: 'claude' })),
+    [{ agent: 'claude', roles: ['develop', 'review'], active: 'review' }],
+  );
 });
 
 test('issue stops only on the selected checkpoint and does not stop other PRs', () => {

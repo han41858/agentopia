@@ -1,3 +1,4 @@
+import type { Quest } from '../server/model.ts';
 import { alpha, alphaReport } from './fixtures.ts';
 import { openWorld } from './github.ts';
 import { expect, labels, test } from './test.ts';
@@ -88,6 +89,124 @@ test.describe('왕국 기본 표시', () => {
       await expect(working).toHaveAccessibleName(/Codex · 개발 중/);
       await expect(working.locator('.adventurer').first()).toBeAttached();
       await expect(working.locator('[title], svg title')).toHaveCount(0);
+    });
+  }
+
+  for (const mode of ['world', 'simple'] as const) {
+    test(`${mode} 모드에서 이슈 파티는 실행 시작부터 종료까지 현재 역할을 표시한다`, async ({
+      page,
+    }) => {
+      await openWorld(page, [alpha], mode);
+      const base = alphaReport.quests.find(({ number }) => number === 4)!;
+      const codex = { agent: 'codex', roles: ['develop'] } as const;
+      const claude = { agent: 'claude', roles: ['review'] } as const;
+      const developers = { agent: codex.agent, roles: [...codex.roles] };
+      const reviewers = { agent: claude.agent, roles: [...claude.roles] };
+      let quest: Quest = {
+        ...base,
+        pulls: [],
+        stage: 'queued',
+        adventurers: [],
+      };
+      await page.route('**/api/github?**', async (route) => {
+        const params = new URL(route.request().url()).searchParams;
+        if (params.get('repo') !== alpha || params.has('heritage')) {
+          await route.fallback();
+          return;
+        }
+        await route.fulfill({
+          json: {
+            ...alphaReport,
+            quests: alphaReport.quests.map((item) =>
+              item.number === quest.number ? quest : item,
+            ),
+          },
+        });
+      });
+
+      const marker = page.getByRole('button', { name: /^이슈 #4 · / });
+      const party = marker.locator('.expedition-number + .adventurer-party');
+      const leader = party.locator('.resting-party-leader');
+      const moving = party.locator('.adventurer-glyph.active');
+      await page.reload();
+      await expect(page.locator('[data-display-mode]')).toHaveAttribute(
+        'data-display-mode',
+        mode,
+      );
+      await expect(marker).toHaveAccessibleName(/작업 대기 중/);
+      await expect(party).toHaveCount(0);
+
+      quest = { ...quest, stage: 'developing', issueLeader: 'resting' };
+      await page.reload();
+      await expect(marker).toHaveAccessibleName(/GitHub Actions · 파티장/);
+      await expect(leader).toBeVisible();
+      await expect(party.locator('.adventurer-glyph')).toHaveCount(0);
+
+      quest = {
+        ...quest,
+        adventurers: [{ ...developers, active: 'develop' }],
+      };
+      await page.reload();
+      await expect(marker).toHaveAccessibleName(/Codex · 개발 중/);
+      await expect(moving).toHaveCount(1);
+      await expect(moving).toHaveClass(/codex active develop/);
+
+      quest = {
+        ...quest,
+        stage: 'reviewing',
+        adventurers: [developers, { ...reviewers, active: 'review' }],
+      };
+      await page.reload();
+      await expect(marker).toHaveAccessibleName(
+        /Codex · 대기 · Claude · 리뷰 중/,
+      );
+      await expect(leader).toBeVisible();
+      await expect(moving).toHaveCount(1);
+      await expect(moving).toHaveClass(/claude active review/);
+      await expect(party.locator('.adventurer-glyph.codex')).toBeVisible();
+
+      quest = {
+        ...quest,
+        stage: 'ci',
+        issueCIStatus: 'waiting',
+        issueLeader: 'resting',
+        adventurers: [],
+      };
+      await page.reload();
+      await expect(marker).toHaveAccessibleName(
+        /GitHub Actions · CI 대기 중 · 파티장$/,
+      );
+      await expect(leader).toBeVisible();
+      await expect(moving).toHaveCount(0);
+
+      quest = { ...quest, issueCIStatus: 'running', issueLeader: 'active' };
+      await page.reload();
+      await expect(marker).toHaveAccessibleName(
+        /GitHub Actions · CI 실행 중 · 파티장$/,
+      );
+      await expect(party).toBeVisible();
+      await expect(leader).toHaveCount(0);
+
+      quest = { ...quest, issueCIStatus: 'passed', issueLeader: 'resting' };
+      await page.reload();
+      await expect(marker).toHaveAccessibleName(
+        /GitHub Actions · CI 성공 · 파티장$/,
+      );
+      await expect(leader).toBeVisible();
+      await expect(moving).toHaveCount(0);
+
+      quest = {
+        ...quest,
+        stage: 'returned',
+        issueCIStatus: undefined,
+        issueLeader: undefined,
+        adventurers: [developers, reviewers],
+      };
+      await page.reload();
+      await expect(marker).toHaveAccessibleName(/작업 종료/);
+      await expect(leader).toHaveCount(0);
+      await expect(moving).toHaveCount(0);
+      await expect(party.locator('.adventurer-glyph')).toHaveCount(2);
     });
   }
 
