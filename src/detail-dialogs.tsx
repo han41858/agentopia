@@ -25,6 +25,7 @@ import {
   IssuePullEntries,
 } from './activity-browser.tsx';
 import type { IssueActivityKind } from './activity-browser.tsx';
+import { SubIssueSection } from './sub-issues.tsx';
 import './workflow-runs.css';
 
 function WorkflowRuns({
@@ -121,6 +122,15 @@ export function QuestDetail({
         <p>GitHub 종료 사유 · 작업하지 않기로 함</p>
       )}
       {quest.stateReason === 'duplicate' && <p>GitHub 종료 사유 · 중복</p>}
+      {quest.subIssues && (
+        <SubIssueSection
+          key={`${region.slug}:${quest.number}`}
+          region={region.slug}
+          number={quest.number}
+          token={token}
+          initial={quest.subIssues}
+        />
+      )}
       {(quest.reason || quest.detail) && (
         <div className={`reason ${alerts.has(quest.stage) ? 'danger' : ''}`}>
           {quest.reason && <p>{quest.reason}</p>}

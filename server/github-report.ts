@@ -19,6 +19,7 @@ import type {
   Release,
   Report,
   Run,
+  SubIssueList,
 } from './model.ts';
 import {
   publicReportTtl,
@@ -29,6 +30,7 @@ import {
 import { readAuthenticatedHistory, readTags } from './github-tags.ts';
 import type { GitHubRelease } from './github-tags.ts';
 import { nativePullLinks } from './github-pull-links.ts';
+import { readSubIssuePage, subIssueEntry } from './github-sub-issues.ts';
 
 export const publicReports = new Map<
   string,
@@ -223,18 +225,24 @@ export async function getReport(
   if (parentCandidates.length > 8) warnings.add('하위 Issue 일부');
 
   const parents = new Map<number, number>();
+  const subIssuesByParent = new Map<number, SubIssueList>();
   const subIssueTasks = parentCandidates.slice(0, 8).map(async (parent) => {
-    const children = await optional(
+    const result = await optional(
       '하위 Issue',
-      get<Issue[]>(
-        `/issues/${parent.number}/sub_issues?per_page=100`,
-        undefined,
-        120_000,
-      ),
-      [],
+      readSubIssuePage(get, parent.number),
+      undefined,
     );
-    if ((parent.sub_issues_summary?.total ?? 0) > children.length)
-      warnings.add('하위 Issue 일부');
+    const children = result?.children ?? [];
+    const nextPage = result?.hasNext
+      ? 2
+      : !result || (parent.sub_issues_summary?.total ?? 0) > children.length
+        ? 1
+        : undefined;
+    if (nextPage !== undefined) warnings.add('하위 Issue 일부');
+    subIssuesByParent.set(parent.number, {
+      items: children.map(subIssueEntry),
+      nextPage,
+    });
     for (const child of children) {
       if (
         !child.html_url
@@ -348,11 +356,20 @@ export async function getReport(
   );
   const forges = makeForges(region, pulls, runs, pullLinks, quests);
   return {
-    quests: quests.map((quest) =>
-      quest.state === 'open' && reopened.has(quest.number)
-        ? { ...quest, reopened: true }
-        : quest,
-    ),
+    quests: quests.map((quest) => ({
+      ...quest,
+      reopened:
+        quest.state === 'open' && reopened.has(quest.number)
+          ? true
+          : quest.reopened,
+      subIssues: subIssuesByParent.get(quest.number) ?? {
+        items: [],
+        nextPage:
+          issues.get(quest.number)?.sub_issues_summary?.total === 0
+            ? undefined
+            : 1,
+      },
+    })),
     forges,
     branchPulls: pulls.flatMap((pull) =>
       (pull.state === 'open' || pull.merged_at) &&

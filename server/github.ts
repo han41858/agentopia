@@ -9,6 +9,7 @@ import {
 } from './github-activity.ts';
 import type { ActivitySummaryField } from './github-activity.ts';
 import { repositoryHeritage } from './github-heritage.ts';
+import { readSubIssues } from './github-sub-issues.ts';
 
 import { withRefreshCache } from './refresh-cache.ts';
 
@@ -51,6 +52,21 @@ export async function githubResponse(
     const region = repositoryRegion(slug);
     if (url.searchParams.get('heritage') === '1')
       return reply(200, await repositoryHeritage(region, authorization));
+    const subIssues = url.searchParams.get('subIssues');
+    if (subIssues !== null) {
+      const page = url.searchParams.get('page') ?? '1';
+      if (!/^[1-9]\d{0,11}$/.test(subIssues) || !/^[1-9]\d{0,5}$/.test(page))
+        return reply(400, { error: '조회할 서브 이슈를 확인해 주세요.' });
+      return reply(
+        200,
+        await readSubIssues(
+          region,
+          Number(subIssues),
+          Number(page),
+          authorization,
+        ),
+      );
+    }
     const summary = url.searchParams.get('summary');
     if (summary !== null) {
       const number = url.searchParams.get('number') ?? '';
