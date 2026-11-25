@@ -118,6 +118,13 @@ function RecoveryGlyph({
   return <Icon className={className} size={16} aria-hidden="true" />;
 }
 
+const issueCILabels: Record<NonNullable<Quest['issueCIStatus']>, string> = {
+  waiting: 'GitHub Actions · CI 대기 중',
+  running: markerStageLabels.ci,
+  passed: 'GitHub Actions · CI 성공',
+  finished: 'GitHub Actions · CI 종료',
+};
+
 export function MonsterMarker({
   quest,
   boss,
@@ -147,9 +154,7 @@ export function MonsterMarker({
     tooltip,
     defeated ? '이슈 닫힘' : quest.reopened ? '이슈 다시 열림' : '이슈 열림',
     quest.stage === 'ci'
-      ? quest.issueLeader === 'active'
-        ? markerStageLabels.ci
-        : 'GitHub Actions · CI 대기 중'
+      ? issueCILabels[quest.issueCIStatus ?? 'waiting']
       : quest.stage !== 'idle'
         ? markerStageLabels[quest.stage]
         : undefined,

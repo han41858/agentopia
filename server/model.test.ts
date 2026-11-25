@@ -359,6 +359,74 @@ test('monster lifecycle and adventurer activity are independent and use matching
   assert.equal(work[1].parent, 1);
 });
 
+test('the issue party leader moves only during current CI and rests after CI passes for a ready PR', () => {
+  const runningCI = run(2, {
+    id: 500,
+    path: '.github/workflows/ci.yml',
+    head_branch: pull.head.ref,
+    pull_requests: [{ number: pull.number }],
+  });
+  const completedCI = {
+    ...runningCI,
+    status: 'completed',
+    conclusion: 'success',
+  };
+  const finishedDevelopment = run(2, {
+    status: 'completed',
+    conclusion: 'success',
+  });
+
+  function observe(
+    ci: Run | undefined,
+    development = run(2),
+    status = 'waiting_ci',
+    target = issue(2),
+  ) {
+    const [quest] = makeQuests(
+      commitTrail,
+      [target],
+      [{ ...pull, draft: false }],
+      ci ? [development, ci] : [development],
+      [comment(2, status, { pullNumber: pull.number })],
+      new Map(),
+      [],
+    );
+    assert.equal(quest.stage, 'ci');
+    return [quest.issueCIStatus, quest.issueLeader];
+  }
+
+  assert.deepEqual(observe(undefined), ['waiting', 'resting']);
+  assert.deepEqual(observe({ ...runningCI, status: 'queued' }), [
+    'waiting',
+    'resting',
+  ]);
+  assert.deepEqual(observe(runningCI), ['running', 'active']);
+  assert.deepEqual(observe(runningCI, finishedDevelopment), [
+    'running',
+    'active',
+  ]);
+  assert.deepEqual(observe({ ...runningCI, head_sha: mergeSha }), [
+    'waiting',
+    'resting',
+  ]);
+  assert.deepEqual(
+    observe(runningCI, run(2), 'waiting_ci', { ...issue(2), state: 'closed' }),
+    ['running', undefined],
+  );
+  assert.deepEqual(observe(completedCI, finishedDevelopment, 'ready'), [
+    'passed',
+    'resting',
+  ]);
+  assert.deepEqual(observe(completedCI, finishedDevelopment), [
+    'passed',
+    undefined,
+  ]);
+  assert.deepEqual(
+    observe({ ...completedCI, conclusion: 'skipped' }, finishedDevelopment),
+    ['finished', undefined],
+  );
+});
+
 test('a merged PR is a victory independently of whether its monster has been defeated', () => {
   const merged = {
     ...pull,

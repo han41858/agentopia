@@ -101,6 +101,7 @@ export type Quest = {
   victory?: boolean;
   adventurers?: Adventurer[];
   issueLeader?: 'active' | 'resting';
+  issueCIStatus?: 'waiting' | 'running' | 'passed' | 'finished';
   activities?: ActivityCounts;
   activity?: ActivityProfile;
   reopened?: boolean;
@@ -1017,12 +1018,26 @@ export function makeQuests(
         ? pullRecoveryBadge(state, recordedPull, ci, run)
         : undefined;
     const adventurers = new Map<Agent, Adventurer>();
+    const issueCIStatus =
+      stage !== 'ci'
+        ? undefined
+        : ci?.status === 'in_progress'
+          ? 'running'
+          : ci?.status !== 'completed'
+            ? 'waiting'
+            : ci.conclusion === 'success'
+              ? 'passed'
+              : 'finished';
+    const readyToMerge =
+      state?.status === 'ready' && issueCIStatus === 'passed';
     const issueLeader =
-      issue.state === 'open' && stage === 'ci' && ci?.status === 'in_progress'
-        ? 'active'
-        : automationRunning
-          ? 'resting'
-          : undefined;
+      issue.state !== 'open'
+        ? undefined
+        : issueCIStatus === 'running'
+          ? 'active'
+          : automationRunning || readyToMerge
+            ? 'resting'
+            : undefined;
     const addAdventurer = (
       agent: Agent,
       role: AdventurerRole,
@@ -1162,6 +1177,7 @@ export function makeQuests(
       recoveryBadge,
       issueRecoveryBadge: issueStop ?? recoveryBadge,
       issueLeader,
+      issueCIStatus,
       adventurers:
         automationRunning &&
         (!record ||
