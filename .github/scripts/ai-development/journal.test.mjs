@@ -8,6 +8,7 @@ const progressBody = (input) =>
 test('one comment retains a failed run through review, merge, close and late CI delivery', () => {
   const first = {
     issue: 194,
+    head: 'a'.repeat(40),
     runId: 50,
     attempt: 1,
     pullNumber: 196,
@@ -51,6 +52,13 @@ test('one comment retains a failed run through review, merge, close and late CI 
   assert.match(
     body,
     /1차 실행[^]*테스트 실패[^]*UI 검사 실패[^]*2차 실행[^]*리뷰 승인[^]*PR 머지 확인[^]*이슈 종료 확인/,
+  );
+  assert.ok(
+    body.includes(
+      '[`aaaaaaa`](https://github.com/example/kingdom/commit/' +
+        'a'.repeat(40) +
+        ')',
+    ),
   );
   assert.match(body, /pull\/196#issuecomment-42/);
   assert.match(body, /actions\/runs\/80\/attempts\/2/);

@@ -364,6 +364,7 @@ async function main() {
     const record =
       !comment ||
       state.status !== lastStatus ||
+      reason === '개발 커밋을 게시했습니다.' ||
       ['needs_human', 'failed', 'ready'].includes(status) ||
       reviewId ||
       state.pullNumber !== lastPullNumber;

@@ -265,6 +265,8 @@ def complete(issue, run_id):
                 if undrafted:
                     restore_if_unchanged(confirmed, current)
                 raise
+        record_event(issue, state, number, f"ci:{latest['id']}/{latest['run_attempt']}:success",
+                         "CI 통과", ci=latest)
     confirmed = repo(f"pulls/{number}")
     if not merged_target(confirmed, head):
         raise RuntimeError("Cannot confirm the reviewed HEAD merged into dev.")
