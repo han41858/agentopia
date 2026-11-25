@@ -107,18 +107,18 @@ test('UI checks require an actual spec page independently in development and rev
   const work = gitSnapshot('HEAD', 'HEAD');
   const review = gitSnapshot('HEAD', 'HEAD');
   const paths = ['src/detail-dialogs.tsx'];
-  assert.equal(work.needsUiSpec(['docs/development.md']), false);
+  assert.equal(work.missingUiSpec(['docs/development.md']), '');
   work.inspect('list_files', { query: 'dialogs', offset: 0 });
   work.inspect('read_file', { path: 'e2e/dialogs.spec.ts', line: 100000 });
-  assert.equal(work.needsUiSpec(paths), true);
+  assert.match(work.missingUiSpec(paths), /e2e\//);
   work.inspect('read_file', { path: 'e2e/dialogs.spec.ts', line: 80 });
-  assert.equal(work.needsUiSpec(paths), false);
-  assert.equal(review.needsUiSpec(paths), true);
+  assert.equal(work.missingUiSpec(paths), '');
+  assert.match(review.missingUiSpec(paths), /e2e\//);
   const changed = [...paths, 'e2e/dialogs.spec.ts', 'e2e/kingdom.spec.ts'];
-  assert.equal(work.needsUiSpec(changed), true);
+  assert.equal(work.missingUiSpec(changed), 'e2e/kingdom.spec.ts');
   work.inspect('read_file', { path: 'e2e/kingdom.spec.ts', line: 1 });
-  assert.equal(work.needsUiSpec(changed), false);
-  assert.equal(review.needsUiSpec(changed), true);
+  assert.equal(work.missingUiSpec(changed), '');
+  assert.match(review.missingUiSpec(changed), /e2e\//);
 });
 
 test('formats proposals before publication and drops format-only no-ops', async () => {
@@ -207,7 +207,7 @@ test('literal lookup locates UI text without counting as a full UI spec read', (
     work.inspect('read_file', { path: 'e2e/fixtures.ts', line: 1 }),
     /Expected title/,
   );
-  assert.equal(work.needsUiSpec([path]), true);
+  assert.match(work.missingUiSpec([path]), /e2e\//);
   assert.match(
     work.inspect('find_in_file', {
       path: '.github/workflows/ci.yml',

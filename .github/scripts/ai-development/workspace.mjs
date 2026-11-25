@@ -230,18 +230,25 @@ export function snapshot(base, head) {
         .filter((path) => isEditable(path) && files.get(path) === '100644')
         .map((path) => ({ path, text: read(path) }));
     },
-    needsUiSpec(paths) {
+    missingUiSpec(paths) {
       const changed =
         paths ??
         git('diff', '--name-only', '--no-renames', '-z', base, head).split(
           '\0',
         );
       const changedSpecs = changed.filter((path) => uiSpecPath.test(path));
-      if (changedSpecs.some((path) => !readUiSpecs.has(path))) return true;
-      return (
+      const unread = changedSpecs.filter((path) => !readUiSpecs.has(path));
+      if (unread.length) return unread.join(', ');
+      if (
         readUiSpecs.size === 0 &&
         changed.some((path) => /^(src|server|api|assets|e2e)\//.test(path))
-      );
+      ) {
+        const candidates = [...files.keys()].filter((path) =>
+          uiSpecPath.test(path),
+        );
+        return `변경 동작에 해당하는 테스트 (후보: ${candidates.join(', ')})`;
+      }
+      return '';
     },
     inspect(name, input) {
       if (name === 'read_diff') return outputPage(diff(), input.line, 120);
