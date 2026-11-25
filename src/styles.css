@@ -573,9 +573,11 @@ svg {
   background: #15212f;
   color: #f2cd93;
 }
-.refresh-button:hover,
-.header-bookmark:hover .header-bookmark-face {
-  border-color: var(--gold);
+@media (hover: hover) {
+  .refresh-button:hover,
+  .header-bookmark:hover .header-bookmark-face {
+    border-color: var(--gold);
+  }
 }
 .header-bookmark {
   /* Keep the shared countdown running across breakpoint and disclosure changes. */
@@ -1469,9 +1471,10 @@ svg {
 .map-viewport button {
   --map-highlight-fill: color-mix(in srgb, var(--accent) 14%, transparent);
   --map-highlight-outline: 2px solid #fae9a7;
+  --tap-press-fill: var(--map-highlight-fill);
 }
 .map-viewport .expedition[data-highlight] {
-  background: var(--map-highlight-fill);
+  background-color: var(--map-highlight-fill);
   outline: var(--map-highlight-outline);
   outline-offset: 1px;
 }
@@ -1798,6 +1801,22 @@ svg {
   .branch-road-more {
     width: min(100%, var(--map-hit-size));
     height: var(--map-hit-size);
+  }
+}
+
+@media (any-pointer: coarse) {
+  button {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /* Keep the press tint behind the icon and separate from selection outlines. */
+  button[data-touch-pressed]:not(:disabled, .header-bookmark),
+  .header-bookmark[data-touch-pressed]:enabled .header-bookmark-face {
+    --press-fill: var(
+      --tap-press-fill,
+      color-mix(in srgb, var(--gold) 14%, transparent)
+    );
+    background-image: linear-gradient(var(--press-fill), var(--press-fill));
   }
 }
 

@@ -1216,9 +1216,174 @@ for (const width of [1280, 390, 320]) {
     });
 
     if (touch) {
+      test('두 모드에서 버튼과 지도 표식의 눌림 효과가 터치 후 남지 않는다', async ({
+        page,
+        browserName,
+      }) => {
+        const cdp =
+          browserName === 'chromium'
+            ? await page.context().newCDPSession(page)
+            : undefined;
+        const bookmark = page.locator('.header-bookmark');
+        const face = bookmark.locator('.header-bookmark-face');
+        const issue = page.getByRole('button', { name: /^이슈 #1 / });
+        const facility = page.getByRole('button', { name: /PR #11/ });
+
+        async function startPress(
+          session: NonNullable<typeof cdp>,
+          button: Locator,
+        ) {
+          // 버튼이 이동 중이면 실제 탭과 마찬가지로 멈출 때까지 기다립니다.
+          await button.tap({ trial: true });
+          const { x, y, hitsButton } = await button.evaluate((node) => {
+            const surface = node.querySelector('.header-bookmark-face') ?? node;
+            const box = surface.getBoundingClientRect();
+            const x = Math.round(box.left + box.width / 2);
+            const y = Math.round(box.top + box.height / 2);
+            return {
+              x,
+              y,
+              hitsButton: node.contains(document.elementFromPoint(x, y)),
+            };
+          });
+          expect(
+            hitsButton,
+            `터치 좌표 (${x}, ${y})가 버튼을 가리켜야 합니다.`,
+          ).toBe(true);
+          await session.send('Input.dispatchTouchEvent', {
+            type: 'touchStart',
+            touchPoints: [{ x, y }],
+          });
+        }
+
+        for (const mode of ['world', 'simple']) {
+          if (mode === 'simple') {
+            await bookmark.tap();
+            await page.locator('.mode-switch').tap();
+            await bookmark.tap();
+          }
+          await expect(page.locator('[data-display-mode]')).toHaveAttribute(
+            'data-display-mode',
+            mode,
+          );
+
+          for (const { button, surface, dialogName } of [
+            { button: bookmark, surface: face, dialogName: null },
+            { button: issue, surface: issue, dialogName: '이슈 #1' },
+            { button: facility, surface: facility, dialogName: 'PR #11' },
+          ]) {
+            await button.scrollIntoViewIfNeeded();
+            await expect(button).toHaveCSS(
+              '-webkit-tap-highlight-color',
+              'rgba(0, 0, 0, 0)',
+            );
+            const resting = await surface.evaluate(
+              (node) => getComputedStyle(node).backgroundImage,
+            );
+
+            // Playwright의 tap은 손을 떼기 전의 상태를 관찰할 수 없습니다.
+            if (cdp) {
+              await startPress(cdp, button);
+              await expect(surface).not.toHaveCSS('background-image', resting);
+              await cdp.send('Input.dispatchTouchEvent', {
+                type: 'touchCancel',
+                touchPoints: [],
+              });
+              await expect(surface).toHaveCSS('background-image', resting);
+              await expect(page.getByRole('dialog')).toBeHidden();
+              await expect(bookmark).toHaveAttribute('aria-expanded', 'false');
+            }
+
+            await button.tap();
+            if (dialogName) {
+              const dialog = page.getByRole('dialog', { name: dialogName });
+              await expect(dialog).toBeVisible();
+              await dialog.getByRole('button', { name: '닫기' }).tap();
+              await expect(dialog).toBeHidden();
+            } else {
+              await expect(bookmark).toHaveAttribute('aria-expanded', 'true');
+              await expect(surface).toHaveCSS('background-image', resting);
+              await bookmark.tap();
+              await expect(bookmark).toHaveAttribute('aria-expanded', 'false');
+            }
+            await expect(surface).toHaveCSS('background-image', resting);
+          }
+
+          if (cdp) {
+            // 이슈 #1과 PR #11은 연결돼 있어 어느 쪽을 포커스해도 관계가 드러납니다.
+            for (const [selected, related] of [
+              [issue, facility],
+              [facility, issue],
+            ]) {
+              await selected.focus();
+              for (const { marker, highlight } of [
+                { marker: selected, highlight: 'selected' },
+                { marker: related, highlight: 'related' },
+              ]) {
+                await expect(marker).toHaveAttribute(
+                  'data-highlight',
+                  highlight,
+                );
+                const resting = await marker.evaluate((node) => {
+                  const {
+                    backgroundImage,
+                    backgroundColor,
+                    outline,
+                    outlineOffset,
+                  } = getComputedStyle(node);
+                  return {
+                    backgroundImage,
+                    backgroundColor,
+                    outline,
+                    outlineOffset,
+                  };
+                });
+                const expectHighlight = async () => {
+                  await expect(marker).toHaveAttribute(
+                    'data-highlight',
+                    highlight,
+                  );
+                  await expect(marker).toHaveCSS(
+                    'background-color',
+                    resting.backgroundColor,
+                  );
+                  await expect(marker).toHaveCSS('outline', resting.outline);
+                  await expect(marker).toHaveCSS(
+                    'outline-offset',
+                    resting.outlineOffset,
+                  );
+                };
+
+                await startPress(cdp, marker);
+                await expect(marker).not.toHaveCSS(
+                  'background-image',
+                  resting.backgroundImage,
+                );
+                await expectHighlight();
+                await cdp.send('Input.dispatchTouchEvent', {
+                  type: 'touchCancel',
+                  touchPoints: [],
+                });
+                await expect(marker).toHaveCSS(
+                  'background-image',
+                  resting.backgroundImage,
+                );
+                await expectHighlight();
+                await expect(page.getByRole('dialog')).toBeHidden();
+              }
+            }
+          }
+        }
+      });
+
       test('두 모드에서 이슈 링크와 활동 펼침 및 닫기를 터치할 수 있다', async ({
         page,
       }) => {
+        await page
+          .context()
+          .route('https://github.com/**/issues/1', (route) =>
+            route.fulfill({ body: 'GitHub issue' }),
+          );
         for (const mode of ['world', 'simple']) {
           if (mode === 'simple') {
             await page.getByRole('button', { name: '상단 도구 열기' }).tap();
@@ -1238,6 +1403,16 @@ for (const width of [1280, 390, 320]) {
           await expect(title).toBeInViewport();
           await expect(title).toHaveAttribute('href', /issues\/1$/);
           await expect(title).toHaveAttribute('target', '_blank');
+          await expect(title).not.toHaveCSS(
+            '-webkit-tap-highlight-color',
+            'rgba(0, 0, 0, 0)',
+          );
+          const [github] = await Promise.all([
+            page.waitForEvent('popup'),
+            title.tap(),
+          ]);
+          await github.waitForURL(/\/issues\/1$/);
+          await github.close();
 
           const commits = dialog.getByRole('button', { name: '고유 커밋 3개' });
           const commit = dialog.getByRole('link', { name: 'a1b2c3d' });
@@ -1427,6 +1602,9 @@ for (const width of [1280, 390, 320]) {
 
         await page.keyboard.press('Tab');
         await expect(open).toBeFocused();
+        const bookmarkFace = open.locator('.header-bookmark-face');
+        await expect(bookmarkFace).toHaveCSS('outline-style', 'solid');
+        await expect(bookmarkFace).toHaveCSS('outline-width', '2px');
         await page.keyboard.press('Tab');
         expect(
           await controls.evaluate((node) =>
@@ -1443,9 +1621,10 @@ for (const width of [1280, 390, 320]) {
           'GitHub 연결',
         ]) {
           await page.keyboard.press('Tab');
-          await expect(
-            page.getByRole('button', { name, exact: true }),
-          ).toBeFocused();
+          const button = page.getByRole('button', { name, exact: true });
+          await expect(button).toBeFocused();
+          await expect(button).toHaveCSS('outline-style', 'solid');
+          await expect(button).toHaveCSS('outline-width', '2px');
         }
         await page.keyboard.press('Escape');
         await expect(open).toBeFocused();

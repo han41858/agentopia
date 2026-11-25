@@ -44,6 +44,7 @@ import { KingdomRegion } from './kingdom-region.tsx';
 import type { RoadTarget } from './kingdom-region.tsx';
 import { useRegionRefresh } from './use-region-refresh.ts';
 import type { RefreshJobs, RefreshUsage } from './use-region-refresh.ts';
+import { installTouchPress } from './touch-press.ts';
 import './styles.css';
 
 const narrowHeaderQuery = '(max-width: 640px)';
@@ -107,6 +108,8 @@ function App() {
   );
   const headerTools = useRef<HTMLDivElement>(null);
   const bookmark = useRef<HTMLButtonElement>(null);
+
+  useEffect(installTouchPress, []);
 
   useEffect(() => {
     const media = window.matchMedia(narrowHeaderQuery);
