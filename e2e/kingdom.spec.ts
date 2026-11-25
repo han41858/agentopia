@@ -177,6 +177,11 @@ for (const viewport of ['desktop', 'mobile']) {
                 adventurers,
                 issueRecoveryBadge: stopped,
               };
+            if (quest.number === 2 || quest.number === 3)
+              return {
+                ...quest,
+                issueRecoveryBadge: quest.number === 2 ? stopped : repairing,
+              };
             return quest;
           }),
           forges: alphaReport.forges!.map((pull) => {
@@ -257,6 +262,53 @@ for (const viewport of ['desktop', 'mobile']) {
               target!.x + target!.width <= badgeBox!.x ||
               badgeBox!.y + badgeBox!.height <= target!.y ||
               target!.y + target!.height <= badgeBox!.y,
+          ).toBe(true);
+        }
+      }
+
+      const kingdom = page.getByRole('region', { name: 'alpha' });
+      await expect(kingdom.locator('svg.monster-recovery')).toHaveCount(4);
+      const markers = await kingdom
+        .locator('.monster-marker, .facility-marker')
+        .evaluateAll((elements) => {
+          const bounds = (element: Element) => {
+            const { left, top, right, bottom } =
+              element.getBoundingClientRect();
+            return { left, top, right, bottom };
+          };
+          return elements.map((element) => {
+            const badge = element.querySelector('svg.monster-recovery');
+            return {
+              name: element.textContent?.trim(),
+              box: bounds(element),
+              badge: badge ? bounds(badge) : null,
+            };
+          });
+        });
+      await testInfo.attach(`${mode} 이슈 배지와 이슈·PR 마커 경계 상자`, {
+        body: JSON.stringify(markers, null, 2),
+        contentType: 'application/json',
+      });
+
+      for (const marker of markers) {
+        const { badge, box, name } = marker;
+        if (!badge) continue;
+        const label = `${mode} ${name} 배지`;
+        expect(badge.right, label).toBeGreaterThan(badge.left);
+        expect(badge.bottom, label).toBeGreaterThan(badge.top);
+        expect(badge.left, label).toBeGreaterThanOrEqual(box.left);
+        expect(badge.top, label).toBeGreaterThanOrEqual(box.top);
+        expect(badge.right, label).toBeLessThanOrEqual(box.right);
+        expect(badge.bottom, label).toBeLessThanOrEqual(box.bottom);
+
+        for (const other of markers) {
+          if (other === marker) continue;
+          expect(
+            badge.right <= other.box.left ||
+              other.box.right <= badge.left ||
+              badge.bottom <= other.box.top ||
+              other.box.bottom <= badge.top,
+            `${label}와 ${other.name} 마커는 겹치지 않는다`,
           ).toBe(true);
         }
       }

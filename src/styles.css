@@ -1156,10 +1156,12 @@ svg {
 .monster-marker-art {
   position: relative;
   display: grid;
+  /* Reserve the badge lane without moving the centered sprite when it appears. */
+  padding-inline: 16px;
 }
 .monster-recovery {
   inset-block-start: 0;
-  inset-inline-start: 100%;
+  inset-inline-end: 0;
 }
 [data-recovery='stopped'] :is(.facility-recovery, .monster-recovery) {
   color: #ffd4ce;
