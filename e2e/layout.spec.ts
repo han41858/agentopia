@@ -589,21 +589,47 @@ for (const width of [1280, 390]) {
           }
           await route.fulfill({ json: emptyReport });
         });
-        await seedSettings(page, repositories, mode);
+        await seedSettings(page, [alpha, ...repositories], mode);
         await page.goto('/');
         await settled(page);
-        await expect(page.locator('[data-display-mode]')).toHaveAttribute(
-          'data-display-mode',
-          mode,
-        );
+        const displayMode = page.locator('[data-display-mode]');
+        await expect(displayMode).toHaveAttribute('data-display-mode', mode);
         await expect(page.locator('.kingdoms > .kingdom-region')).toHaveCount(
-          repositories.length,
+          repositories.length + 1,
         );
 
         const footer = page.locator('.world-footer');
-        const legend = footer.getByRole('list', {
-          name: mode === 'simple' ? '활동 범례' : '기본 파티 구성',
-        });
+        const legendFor = (currentMode: 'world' | 'simple') =>
+          footer.getByRole('list', {
+            name: currentMode === 'simple' ? '활동 범례' : '기본 파티 구성',
+          });
+        const legend = legendFor(mode);
+        const expectLegendStyle = async (currentMode: 'world' | 'simple') => {
+          const simple = currentMode === 'simple';
+          await expect(footer).toHaveCSS(
+            'background-color',
+            simple ? 'rgb(27, 22, 44)' : 'rgb(102, 104, 106)',
+          );
+          await expect(footer).toHaveCSS('background-image', 'none');
+          await expect(footer).toHaveCSS('opacity', '1');
+          const rows = legendFor(currentMode).getByRole('listitem');
+          const names = [simple ? 'GitHub' : '파티장', 'Codex', 'Claude'];
+          await expect(rows).toHaveText(names);
+          for (const index of names.keys()) {
+            const row = rows.nth(index);
+            await expect(row).toHaveCSS(
+              'color',
+              simple ? 'rgb(238, 233, 247)' : 'rgb(242, 242, 242)',
+            );
+            const icon = row.locator('img');
+            await expect(icon).toBeVisible();
+            await expect(icon).toHaveCSS('opacity', '1');
+            if (simple) {
+              await expect(icon).toHaveCSS('width', '24px');
+              await expect(icon).toHaveCSS('height', '24px');
+            }
+          }
+        };
         const measure = () =>
           footer.evaluate((node) => {
             const { right, bottom } = node.getBoundingClientRect();
@@ -620,6 +646,7 @@ for (const width of [1280, 390]) {
         });
         const scrolled = await measure();
         await expect(legend).toBeInViewport({ ratio: 1 });
+        await expectLegendStyle(mode);
         await page.evaluate(() => {
           window.scrollTo(0, 0);
         });
@@ -646,6 +673,26 @@ for (const width of [1280, 390]) {
           expect(position.bottomGap).toBeCloseTo(before.bottomGap, 1);
         }
         await expect(footer).toHaveCSS('position', 'fixed');
+
+        if (mode === 'world') {
+          const idleAvatar = page
+            .locator(
+              '.kingdoms .adventurer-glyph:not(.active) .adventurer-avatar',
+            )
+            .first();
+          await expect(idleAvatar).toHaveCSS('opacity', '0.67');
+
+          if (width < 640) {
+            await page.locator('.header-bookmark').tap();
+          }
+          await page.getByRole('button', { name: '간단 모드' }).click();
+          await expect(displayMode).toHaveAttribute(
+            'data-display-mode',
+            'simple',
+          );
+          await expect(legendFor('simple')).toBeInViewport({ ratio: 1 });
+          await expectLegendStyle('simple');
+        }
       });
     }
   });

@@ -1609,6 +1609,15 @@ svg {
   border-color: #8ea6b5;
   color: white;
 }
+[data-display-mode='world'] .world-footer {
+  background: #66686a;
+}
+[data-display-mode='world'] .world-footer .expedition-legend > li {
+  color: #f2f2f2;
+}
+[data-display-mode='world'] .world-footer .expedition-legend img {
+  opacity: 1;
+}
 [data-display-mode='simple'] .world {
   background: #18232c;
 }
