@@ -494,6 +494,37 @@ async function main() {
     try {
       return await models.run(request);
     } catch (error) {
+      // Development tools are read-only; a failed response never publishes edits.
+      const kind = error.outputLimitReached
+        ? 'output'
+        : error.requestTimedOut
+          ? 'timeout'
+          : null;
+      if (
+        request.mode === 'development' &&
+        kind &&
+        recovery.pending === 'development' &&
+        !state.reviewInProgress &&
+        (recovery.modelRecoveries ?? 0) < 2
+      ) {
+        await checkBase(state.base);
+        recovery.modelRecoveries = (recovery.modelRecoveries ?? 0) + 1;
+        const nextStep =
+          kind === 'output'
+            ? '출력 한도로 잘린 변경안을 폐기하고 더 짧은 편집으로 다시 작성합니다.'
+            : '응답 시간 초과 후 작업 브랜치와 PR을 확인했습니다. 확인된 HEAD에서 재시도합니다.';
+        await save('recovering', nextStep);
+        return runModel({
+          ...request,
+          instructions:
+            request.instructions +
+            '\n' +
+            nextStep +
+            (kind === 'output'
+              ? ' 파일 전체 교체 대신 필요한 부분만 짧은 before/after로 작성하고 설명을 줄이세요. 전체 요구사항과 검증 범위는 유지하세요.'
+              : ''),
+        });
+      }
       // No publication is attempted by the model client.
       state.modelRetryRequired = true;
       delete recovery.pending;

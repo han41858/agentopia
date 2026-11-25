@@ -13,6 +13,8 @@ import { test } from 'node:test';
 
 for (const testCase of [
   'duplicate',
+  'output-recovery',
+  'output-exhausted',
   'review-revision',
   'review-revision-delayed-pr',
   'review-limit',
@@ -186,6 +188,15 @@ for (const testCase of [
       }
       if (claudeDeveloper ? anthropic : openai) {
         developmentCalls++;
+        if (
+          scenario === 'output-exhausted' ||
+          (scenario === 'output-recovery' && developmentCalls === 1)
+        )
+          return Response.json({
+            status: 'incomplete',
+            incomplete_details: { reason: 'max_output_tokens' },
+          });
+
         if (scenario === 'development-human') {
           const context = JSON.parse(body.input[0].content);
           if (!resumed) {
@@ -513,6 +524,13 @@ for (const testCase of [
     });
 
     const runner = new URL('./run.mjs?case=' + testCase, import.meta.url);
+    if (scenario === 'output-exhausted') {
+      await assert.rejects(import(runner + '?exhausted'));
+      assert.equal(saved().recovery.modelRecoveries, 2);
+      assert.equal(developmentCalls, 3);
+      assert.equal(commits, 0);
+      return;
+    }
     if (scenario === 'repeated-stale-edit' || scenario === 'blocked-edit') {
       await assert.rejects(import(runner + '?first'));
       assert.equal(saved().status, 'failed');
@@ -809,7 +827,7 @@ for (const testCase of [
     assert.equal(saved().reviews[0].head, saved().head);
     assert.equal(
       developmentCalls,
-      ['before', 'stale-edit'].includes(scenario) ? 2 : 1,
+      ['before', 'stale-edit', 'output-recovery'].includes(scenario) ? 2 : 1,
     );
     assert.equal(commits, 1);
     assert.equal(creations, 1);
