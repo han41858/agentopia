@@ -19,6 +19,7 @@ import type {
   Release,
   Report,
   Run,
+  SubIssueList,
 } from './model.ts';
 import {
   publicReportTtl,
@@ -26,21 +27,15 @@ import {
   GitHubError,
   client,
 } from './github-client.ts';
-import { readTags } from './github-tags.ts';
+import { readAuthenticatedHistory, readTags } from './github-tags.ts';
+import type { GitHubRelease } from './github-tags.ts';
 import { nativePullLinks } from './github-pull-links.ts';
+import { readSubIssuePage, subIssueEntry } from './github-sub-issues.ts';
 
 export const publicReports = new Map<
   string,
   { requestedAt: number; pending: boolean; value: Promise<Report> }
 >();
-
-type GitHubRelease = {
-  tag_name: string;
-  html_url: string;
-  draft: boolean;
-  prerelease: boolean;
-  published_at: string | null;
-};
 
 export const pageSize = 50;
 
@@ -81,13 +76,28 @@ export async function getReport(
     }
   }
 
-  const history = includeHistory
-    ? optional(
-        '릴리스',
-        get<GitHubRelease[]>('/releases?per_page=30', undefined, 45_000),
-        [],
-      )
-    : Promise.resolve([]);
+  const authenticatedHistory =
+    includeHistory && token
+      ? optional('태그', readAuthenticatedHistory(region, token), undefined)
+      : undefined;
+  const restReleases = (fallback: GitHubRelease[] = []) =>
+    optional(
+      '릴리스',
+      get<GitHubRelease[]>('/releases?per_page=30', undefined, 45_000),
+      fallback,
+    );
+  const history = authenticatedHistory
+    ? authenticatedHistory.then((result) => {
+        if (result?.tagsFailed) warnings.add('태그');
+        if (result && !result.releasesFailed && !result.releasesTruncated)
+          return result.releases;
+        // Preserve the REST window when the creation-ordered page is cut off.
+        // An older draft may have been published more recently than this page.
+        return restReleases(result?.releases);
+      })
+    : includeHistory
+      ? restReleases()
+      : Promise.resolve([]);
   const latestPublishedTag = history.then(
     (rows) =>
       rows
@@ -95,35 +105,31 @@ export async function getReport(
         .sort((a, b) => b.published_at!.localeCompare(a.published_at!))[0]
         ?.tag_name,
   );
-  const [issuePage, pullPage, workflow, releasePage, tagResult] =
-    await Promise.all([
-      get<Issue[]>(
-        `/issues${recent}&state=all&sort=updated&direction=desc`,
-      ).catch((error) => {
-        if (!(error instanceof GitHubError) || error.status !== 410)
-          throw error;
-        warnings.add('이슈 비활성화');
-        return [];
-      }),
-      optional(
-        'PR',
-        get<Pull[]>(`/pulls${recent}&state=all&sort=updated&direction=desc`),
-        [],
-      ),
-      optional(
-        'Actions',
-        get<{ workflow_runs: Run[] }>('/actions/runs?per_page=100'),
-        { workflow_runs: [] },
-      ),
-      history,
-      includeHistory
-        ? optional(
-            '태그',
-            readTags(region, token, force, latestPublishedTag),
-            undefined,
-          )
-        : undefined,
-    ]);
+  const current = Promise.all([
+    get<Issue[]>(
+      `/issues${recent}&state=all&sort=updated&direction=desc`,
+    ).catch((error) => {
+      if (!(error instanceof GitHubError) || error.status !== 410) throw error;
+      warnings.add('이슈 비활성화');
+      return [];
+    }),
+    optional(
+      'PR',
+      get<Pull[]>(`/pulls${recent}&state=all&sort=updated&direction=desc`),
+      [],
+    ),
+    optional(
+      'Actions',
+      get<{ workflow_runs: Run[] }>('/actions/runs?per_page=100'),
+      { workflow_runs: [] },
+    ),
+  ]);
+  const tagsTask =
+    authenticatedHistory ??
+    (includeHistory
+      ? optional('태그', readTags(region, force, latestPublishedTag), undefined)
+      : undefined);
+  const [issuePage, pullPage, workflow] = await current;
   const runs = [...workflow.workflow_runs].sort((a, b) => b.id - a.id);
   const issues = new Map(
     issuePage
@@ -219,18 +225,24 @@ export async function getReport(
   if (parentCandidates.length > 8) warnings.add('하위 Issue 일부');
 
   const parents = new Map<number, number>();
+  const subIssuesByParent = new Map<number, SubIssueList>();
   const subIssueTasks = parentCandidates.slice(0, 8).map(async (parent) => {
-    const children = await optional(
+    const result = await optional(
       '하위 Issue',
-      get<Issue[]>(
-        `/issues/${parent.number}/sub_issues?per_page=100`,
-        undefined,
-        120_000,
-      ),
-      [],
+      readSubIssuePage(get, parent.number),
+      undefined,
     );
-    if ((parent.sub_issues_summary?.total ?? 0) > children.length)
-      warnings.add('하위 Issue 일부');
+    const children = result?.children ?? [];
+    const nextPage = result?.hasNext
+      ? 2
+      : !result || (parent.sub_issues_summary?.total ?? 0) > children.length
+        ? 1
+        : undefined;
+    if (nextPage !== undefined) warnings.add('하위 Issue 일부');
+    subIssuesByParent.set(parent.number, {
+      items: children.map(subIssueEntry),
+      nextPage,
+    });
     for (const child of children) {
       if (
         !child.html_url
@@ -282,6 +294,8 @@ export async function getReport(
       });
     }),
   );
+  // Current-work lookups do not need publication history until attribution.
+  const [releasePage, tagResult] = await Promise.all([history, tagsTask]);
   const tags = tagResult?.tags ?? [];
   if (tagResult?.dateLookupFailed) warnings.add('태그 커밋 시각');
   const tagCommits = new Map(tags.map((tag) => [tag.name, tag.sha]));
@@ -342,11 +356,20 @@ export async function getReport(
   );
   const forges = makeForges(region, pulls, runs, pullLinks, quests);
   return {
-    quests: quests.map((quest) =>
-      quest.state === 'open' && reopened.has(quest.number)
-        ? { ...quest, reopened: true }
-        : quest,
-    ),
+    quests: quests.map((quest) => ({
+      ...quest,
+      reopened:
+        quest.state === 'open' && reopened.has(quest.number)
+          ? true
+          : quest.reopened,
+      subIssues: subIssuesByParent.get(quest.number) ?? {
+        items: [],
+        nextPage:
+          issues.get(quest.number)?.sub_issues_summary?.total === 0
+            ? undefined
+            : 1,
+      },
+    })),
     forges,
     branchPulls: pulls.flatMap((pull) =>
       (pull.state === 'open' || pull.merged_at) &&

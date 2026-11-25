@@ -331,10 +331,8 @@ svg {
 }
 .guild-parties {
   margin: 0;
-  padding: 0 0 0 4px;
   justify-content: center;
   max-width: 100%;
-  border-inline-start: 2px solid #948666;
 }
 .expedition {
   position: relative;
@@ -575,9 +573,11 @@ svg {
   background: #15212f;
   color: #f2cd93;
 }
-.refresh-button:hover,
-.header-bookmark:hover .header-bookmark-face {
-  border-color: var(--gold);
+@media (hover: hover) {
+  .refresh-button:hover,
+  .header-bookmark:hover .header-bookmark-face {
+    border-color: var(--gold);
+  }
 }
 .header-bookmark {
   /* Keep the shared countdown running across breakpoint and disclosure changes. */
@@ -833,6 +833,14 @@ svg {
 }
 .dialog h3 {
   margin-bottom: 9px;
+}
+.issue-dialog .dialog-body {
+  scrollbar-gutter: stable both-edges;
+}
+.issue-dialog .issue-title {
+  text-align: center;
+  overflow-wrap: anywhere;
+  line-height: 1.4;
 }
 .dialog h4 {
   margin: 20px 0 9px;
@@ -1463,9 +1471,10 @@ svg {
 .map-viewport button {
   --map-highlight-fill: color-mix(in srgb, var(--accent) 14%, transparent);
   --map-highlight-outline: 2px solid #fae9a7;
+  --tap-press-fill: var(--map-highlight-fill);
 }
 .map-viewport .expedition[data-highlight] {
-  background: var(--map-highlight-fill);
+  background-color: var(--map-highlight-fill);
   outline: var(--map-highlight-outline);
   outline-offset: 1px;
 }
@@ -1500,6 +1509,9 @@ svg {
 .branch-road-lines path[data-active='true'] {
   stroke: #ffdfa0;
   stroke-width: 3.5px;
+}
+.branch-road-lines path[data-dimmed='true'] {
+  opacity: 0.55;
 }
 .branch-road-details {
   display: grid;
@@ -1607,6 +1619,15 @@ svg {
   background: #354653;
   border-color: #8ea6b5;
   color: white;
+}
+[data-display-mode='world'] .world-footer {
+  background-color: rgb(255 255 255 / 20%);
+}
+[data-display-mode='world'] .world-footer .expedition-legend > li {
+  color: #f2f2f2;
+}
+[data-display-mode='world'] .world-footer .expedition-legend img {
+  opacity: 1;
 }
 [data-display-mode='simple'] .world {
   background: #18232c;
@@ -1780,6 +1801,22 @@ svg {
   .branch-road-more {
     width: min(100%, var(--map-hit-size));
     height: var(--map-hit-size);
+  }
+}
+
+@media (any-pointer: coarse) {
+  button {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /* Keep the press tint behind the icon and separate from selection outlines. */
+  button[data-touch-pressed]:not(:disabled, .header-bookmark),
+  .header-bookmark[data-touch-pressed]:enabled .header-bookmark-face {
+    --press-fill: var(
+      --tap-press-fill,
+      color-mix(in srgb, var(--gold) 14%, transparent)
+    );
+    background-image: linear-gradient(var(--press-fill), var(--press-fill));
   }
 }
 

@@ -13,6 +13,22 @@ import { test } from 'node:test';
 
 for (const testCase of [
   'duplicate',
+  'journal-before-write',
+  'journal-after-write',
+  'pr-service-before',
+  'pr-service-after',
+  'review-service-before',
+  'review-service-after',
+  'review-service-delayed',
+  'review-service-late-visible',
+  'review-service-drift',
+  'legacy-rejection',
+  'journal-unavailable',
+  'journal-conflicting',
+  'output-recovery',
+  'timeout-recovery',
+  'timeout-stop',
+  'output-exhausted',
   'review-revision',
   'review-revision-delayed-pr',
   'review-limit',
@@ -47,12 +63,20 @@ for (const testCase of [
   'upstream-extra',
   'interrupted-review',
   'interrupted-commit',
+  'interrupted-created-pr',
+  'interrupted-before-commit',
+  'interrupted-before-pr',
+  'merged-resume',
   'merge-conflict',
   'adjacent-line',
   'edited-issue',
   'edited-pr',
 ])
   test(`issue recovery: ${testCase}`, async (t) => {
+    const originalTimeout = globalThis.setTimeout;
+    t.mock.method(globalThis, 'setTimeout', (callback, delay, ...args) =>
+      originalTimeout(callback, delay === 30_000 ? 0 : delay, ...args),
+    );
     const delayedPull = testCase === 'review-revision-delayed-pr';
     const scenario = delayedPull ? 'review-revision' : testCase;
     const root = mkdtempSync(join(tmpdir(), 'agentopia-smoke-'));
@@ -168,6 +192,17 @@ for (const testCase of [
       postedReview,
       reviews = 0,
       blocked = scenario === 'initial-stop';
+    if (scenario.startsWith('timeout-')) {
+      const timeout = AbortSignal.timeout.bind(AbortSignal);
+      t.mock.method(AbortSignal, 'timeout', (ms) =>
+        ms === 180_000 && developmentCalls === 0
+          ? AbortSignal.abort(new DOMException('timed out', 'TimeoutError'))
+          : timeout(ms),
+      );
+    }
+    let journalPosts = 0;
+    let prPosts = 0;
+    let reviewPosts = 0;
     t.mock.method(globalThis, 'fetch', async (url, options) => {
       const { hostname, pathname, searchParams } = new URL(url);
       const body = options.body && JSON.parse(options.body);
@@ -186,6 +221,20 @@ for (const testCase of [
       }
       if (claudeDeveloper ? anthropic : openai) {
         developmentCalls++;
+        if (scenario.startsWith('timeout-') && developmentCalls === 1) {
+          blocked = scenario === 'timeout-stop';
+          options.signal.throwIfAborted();
+          assert.fail('expected provider timeout');
+        }
+        if (
+          scenario === 'output-exhausted' ||
+          (scenario === 'output-recovery' && developmentCalls === 1)
+        )
+          return Response.json({
+            status: 'incomplete',
+            incomplete_details: { reason: 'max_output_tokens' },
+          });
+
         if (scenario === 'development-human') {
           const context = JSON.parse(body.input[0].content);
           if (!resumed) {
@@ -218,6 +267,7 @@ for (const testCase of [
         if (
           commits &&
           [
+            'legacy-rejection',
             'review-limit',
             'review-revision',
             'review-no-change',
@@ -312,7 +362,11 @@ for (const testCase of [
           (scenario === 'blocked-ci-drift' && reviewCalls === 2) ||
           scenario === 'review-limit' ||
           (reviewCalls === 1 &&
-            ['review-revision', 'review-no-change'].includes(scenario))
+            [
+              'legacy-rejection',
+              'review-revision',
+              'review-no-change',
+            ].includes(scenario))
         )
           return modelResponse({
             status: 'changes_requested',
@@ -337,6 +391,8 @@ for (const testCase of [
       assert.equal(hostname, 'api.github.com');
       if (pathname === '/graphql') {
         assert.equal(options.headers.authorization, 'Bearer mock-publisher');
+        if (scenario === 'interrupted-before-commit' && !resumed)
+          throw Error('not accepted');
         const input = body.variables.input;
         if (scenario === 'issue-title-fallback')
           assert.equal(
@@ -435,7 +491,10 @@ for (const testCase of [
         }
         if (options.method === 'GET')
           return Response.json(
-            pr && searchParams.get('state') === 'open' ? [pr] : [],
+            pr &&
+              searchParams.get('state') === (pr.merged_at ? 'closed' : 'open')
+              ? [pr]
+              : [],
           );
         assert.equal(options.headers.authorization, 'Bearer mock-publisher');
         if (scenario === 'issue-title-fallback')
@@ -447,20 +506,45 @@ for (const testCase of [
         assert.equal(body.base, 'dev');
         assert.equal(body.head, branch);
         assert.equal(pr, undefined);
+        if (scenario === 'interrupted-before-pr' && !resumed)
+          throw Error('not accepted');
+        prPosts++;
+        if (scenario === 'pr-service-before' && prPosts === 1)
+          return Response.json({}, { status: 500 });
         creations++;
         pr = {
           number: 23,
+          title: body.title,
           draft: true,
           body: body.body,
           head: { ref: branch, sha: head, repo: { full_name: repository } },
-          base: { ref: 'dev' },
+          base: { ref: 'dev', repo: { full_name: repository } },
         };
+        if (scenario === 'interrupted-created-pr' && !resumed)
+          throw Error('lost response');
+        if (scenario === 'pr-service-after' && prPosts === 1)
+          return Response.json({}, { status: 500 });
         return Response.json(pr);
       }
       if (path === '/issues/23/comments') {
         if (
+          scenario === 'review-service-late-visible' &&
           options.method === 'GET' &&
-          scenario === 'interrupted-visible-review' &&
+          postedReview &&
+          saved().recovery.reviewPublication?.delayedRetryReserved
+        )
+          return Response.json([
+            {
+              id: 23,
+              user: { login: 'github-actions[bot]' },
+              body: postedReview,
+            },
+          ]);
+        if (
+          options.method === 'GET' &&
+          ['interrupted-visible-review', 'review-service-after'].includes(
+            scenario,
+          ) &&
           postedReview
         )
           return Response.json([
@@ -481,8 +565,29 @@ for (const testCase of [
           body.body,
           claudeDeveloper ? /Generated by Codex/ : /Generated by Claude/,
         );
+        reviewPosts++;
+        if (scenario === 'review-service-late-visible') {
+          if (reviewPosts === 2) {
+            postedReview = body.body;
+            reviews++;
+          }
+          return Response.json({}, { status: 502 });
+        }
+        if (
+          ['review-service-delayed', 'review-service-drift'].includes(
+            scenario,
+          ) &&
+          reviewPosts <= 2
+        )
+          return Response.json({}, { status: 503 });
+        if (scenario === 'legacy-rejection' && !resumed)
+          return Response.json({}, { status: 500 });
+        if (scenario === 'review-service-before' && reviewPosts === 1)
+          return Response.json({}, { status: 500 });
         reviews++;
         postedReview = body.body;
+        if (scenario === 'review-service-after' && reviewPosts === 1)
+          return Response.json({}, { status: 502 });
         if (
           ['interrupted-review-record', 'interrupted-visible-review'].includes(
             scenario,
@@ -498,7 +603,19 @@ for (const testCase of [
             : [],
         );
       if (path === '/issues/15/comments' || path === '/issues/comments/15') {
+        const firstPost = options.method === 'POST' && ++journalPosts === 1;
+        if (firstPost && scenario === 'journal-conflicting') {
+          last = '다른 갱신\n' + body.body;
+          return Response.json({}, { status: 503 });
+        }
+        if (
+          scenario === 'journal-unavailable' ||
+          (firstPost && scenario === 'journal-before-write')
+        )
+          return Response.json({}, { status: 500 });
         last = body.body;
+        if (firstPost && scenario === 'journal-after-write')
+          return Response.json({}, { status: 500 });
         const state = JSON.parse(
           Buffer.from(
             body.body.match(/agentopia-ai-state:([^ ]+)/)[1],
@@ -506,6 +623,12 @@ for (const testCase of [
           ),
         );
         assert.equal(state.issue, 15);
+        if (
+          scenario === 'review-service-drift' &&
+          !advances &&
+          state.recovery?.reviewPublication?.delayedRetryReserved
+        )
+          advance();
         states.push(state.status);
         return Response.json({ id: 15 });
       }
@@ -513,6 +636,56 @@ for (const testCase of [
     });
 
     const runner = new URL('./run.mjs?case=' + testCase, import.meta.url);
+    if (['journal-unavailable', 'journal-conflicting'].includes(scenario)) {
+      await assert.rejects(
+        import(runner + '?first'),
+        /진행 댓글을 안전하게 저장/,
+      );
+      assert.equal(journalPosts, scenario === 'journal-unavailable' ? 2 : 1);
+      assert.equal(developmentCalls, 0);
+      assert.equal(commits, 0);
+      if (scenario === 'journal-conflicting')
+        assert.ok(last.startsWith('다른 갱신'));
+      return;
+    }
+    if (scenario === 'legacy-rejection') {
+      await assert.rejects(import(runner + '?first'));
+      const old = saved();
+      assert.equal(
+        old.recovery.reviewPublication.result.status,
+        'changes_requested',
+      );
+      delete old.recovery.reviewPublication.body;
+      delete old.recovery.reviewPublication.retryable;
+      last = last.replace(
+        /agentopia-ai-state:[^ ]+/,
+        'agentopia-ai-state:' +
+          Buffer.from(JSON.stringify(old)).toString('base64'),
+      );
+      writeFileSync(
+        event,
+        JSON.stringify({
+          repository: { full_name: repository },
+          sender: { login: 'tester' },
+          inputs: { development_note: 'CI에서 확인한 결함' },
+        }),
+      );
+      process.env.GITHUB_RUN_ID = '2';
+      resumed = true;
+      await import(runner + '?manual');
+      assert.equal(saved().status, 'ready');
+      assert.equal(commits, 2);
+      assert.equal(reviewCalls, 2);
+      assert.equal(saved().reviews[0].head, head);
+      return;
+    }
+    if (scenario === 'output-exhausted') {
+      await assert.rejects(import(runner + '?exhausted'));
+      assert.equal(saved().recovery.modelRecoveries, 2);
+      assert.equal(developmentCalls, 3);
+      assert.equal(commits, 0);
+      return;
+    }
     if (scenario === 'repeated-stale-edit' || scenario === 'blocked-edit') {
       await assert.rejects(import(runner + '?first'));
       assert.equal(saved().status, 'failed');
@@ -533,6 +706,44 @@ for (const testCase of [
     )
       await assert.rejects(import(runner + '?first'));
     else await import(runner + '?first');
+    if (scenario.startsWith('review-service-')) {
+      assert.equal(saved().status, 'ready');
+      assert.equal(reviews, 1);
+      assert.equal(reviewCalls, scenario === 'review-service-drift' ? 2 : 1);
+      assert.equal(saved().reviews[0].head, head);
+      assert.equal(
+        reviewPosts,
+        {
+          'review-service-before': 2,
+          'review-service-after': 1,
+          'review-service-delayed': 3,
+          'review-service-late-visible': 2,
+          'review-service-drift': 3,
+        }[scenario],
+      );
+      return;
+    }
+    if (scenario.startsWith('pr-service-')) {
+      assert.equal(saved().status, 'ready');
+      assert.equal(prPosts, scenario === 'pr-service-after' ? 1 : 2);
+      assert.equal(developmentCalls, 1);
+      assert.equal(creations, 1);
+      return;
+    }
+    if (scenario.startsWith('journal-')) {
+      assert.equal(saved().status, 'ready');
+      assert.equal(journalPosts, scenario === 'journal-after-write' ? 1 : 2);
+      assert.equal(developmentCalls, 1);
+      assert.equal(commits, 1);
+      return;
+    }
+    if (scenario === 'timeout-stop') {
+      assert.equal(saved().status, 'needs_human');
+      assert.equal(saved().failureCode, 'stop_requested');
+      assert.equal(developmentCalls, 1);
+      assert.equal(commits, 0);
+      return;
+    }
     if (scenario === 'development-human') {
       assert.equal(saved().status, 'needs_human');
       writeFileSync(
@@ -735,6 +946,32 @@ for (const testCase of [
       assert.equal(commits, revised ? 2 : 1);
       return;
     }
+    if (scenario === 'merged-resume') {
+      pr.merged_at = '2026-11-25T00:00:00Z';
+      pr.merge_commit_sha = 'b'.repeat(40);
+      await manualResume();
+      assert.match(saved().reason, /머지/);
+      assert.equal(developmentCalls, 1);
+      assert.equal(reviewCalls, 1);
+      return;
+    }
+    if (
+      ['interrupted-before-commit', 'interrupted-before-pr'].includes(scenario)
+    ) {
+      await manualResume();
+      assert.equal(
+        developmentCalls,
+        scenario === 'interrupted-before-commit' ? 2 : 1,
+      );
+      assert.equal(reviewCalls, 1);
+      return;
+    }
+    if (['interrupted-created-pr', 'interrupted-commit'].includes(scenario)) {
+      await manualResume();
+      assert.equal(developmentCalls, 1);
+      assert.equal(reviewCalls, 1);
+      return;
+    }
     if (scenario === 'interrupted-visible-review') {
       await manualResume();
       assert.equal(reviewCalls, 1);
@@ -809,7 +1046,11 @@ for (const testCase of [
     assert.equal(saved().reviews[0].head, saved().head);
     assert.equal(
       developmentCalls,
-      ['before', 'stale-edit'].includes(scenario) ? 2 : 1,
+      ['before', 'stale-edit', 'output-recovery', 'timeout-recovery'].includes(
+        scenario,
+      )
+        ? 2
+        : 1,
     );
     assert.equal(commits, 1);
     assert.equal(creations, 1);

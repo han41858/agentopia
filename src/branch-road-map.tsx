@@ -5,7 +5,7 @@ import { createPortal } from 'react-dom';
 import { useDisplayMode } from './display-mode.tsx';
 import { WorldArt, spriteUrl } from './world-art.tsx';
 import { measureRoadLayout } from './road-layout.ts';
-import type { Layout } from './road-layout.ts';
+import type { Layout, Path } from './road-layout.ts';
 import { branchCenters, buildBranchRoads } from '../server/branch-roads.ts';
 import type {
   BranchInventory,
@@ -224,6 +224,36 @@ export function BranchRoadMap({
       trace(road.name);
   }
 
+  const inspectingEndpoint =
+    highlightedIssue !== undefined || highlightedPull !== undefined;
+  function isActive(path: Path) {
+    if (path.issue !== undefined) {
+      if (highlightedIssue !== undefined)
+        return path.issue === highlightedIssue;
+      if (highlightedPull !== undefined) return path.pull === highlightedPull;
+    }
+    return (
+      active === path.from ||
+      (path.pull === undefined
+        ? focusedBranches.has(path.from)
+        : focusedPulls.has(path.pull))
+    );
+  }
+  const paths = (layout?.paths ?? [])
+    .filter((path) => {
+      if (path.issue !== undefined && active && !inspectingEndpoint)
+        return path.from === active;
+      return !path.secondary || isActive(path);
+    })
+    .map((path) => ({ path, selected: isActive(path) }));
+  const dimOthers =
+    inspectingEndpoint &&
+    paths.some(
+      ({ path, selected }) =>
+        selected && path.pull !== undefined && path.issue !== undefined,
+    );
+  if (dimOthers) paths.sort((a, b) => Number(a.selected) - Number(b.selected));
+
   function roadButton(road: BranchRoad) {
     const lane = placement.lanes.get(road.name);
     return (
@@ -310,36 +340,17 @@ export function BranchRoadMap({
               </mask>
             </defs>
             <g mask={`url(#${mask})`}>
-              {layout.paths
-                .filter((path) => {
-                  if (path.issue === undefined) return true;
-                  if (highlightedIssue !== undefined)
-                    return path.issue === highlightedIssue;
-                  if (highlightedPull !== undefined)
-                    return path.pull === highlightedPull;
-                  if (active) return path.from === active;
-                  return !path.secondary;
-                })
-                .map((path) => (
-                  <path
-                    key={path.key}
-                    d={path.d}
-                    strokeDasharray={path.guide ? '2 5' : undefined}
-                    data-merged={path.merged}
-                    data-active={
-                      (highlightedIssue !== undefined &&
-                        path.issue === highlightedIssue) ||
-                      (path.pull === undefined &&
-                        focusedBranches.has(path.from)) ||
-                      active === path.from ||
-                      (path.issue === undefined &&
-                        path.pull !== undefined &&
-                        focusedPulls.has(path.pull)) ||
-                      (highlightedPull !== undefined &&
-                        highlightedPull === path.pull)
-                    }
-                  />
-                ))}
+              {paths.map(({ path, selected }) => (
+                <path
+                  key={path.key}
+                  d={(selected && inspectingEndpoint && path.detour) || path.d}
+                  strokeDasharray={path.guide ? '2 5' : undefined}
+                  data-road-key={path.key}
+                  data-merged={path.merged}
+                  data-active={selected}
+                  data-dimmed={dimOthers && !selected ? true : undefined}
+                />
+              ))}
             </g>
           </svg>,
           region,

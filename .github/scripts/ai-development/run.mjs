@@ -23,6 +23,7 @@ const api = 'https://api.github.com';
 const isSha = (value) => /^[0-9a-f]{40}$/.test(value ?? '');
 
 class Stop extends Error {}
+class JournalWriteError extends Error {}
 class BaseChanged extends Error {}
 
 function fingerprint(...fields) {
@@ -73,8 +74,12 @@ async function request(
   });
   if (missing && response.status === 404) return undefined;
   if (!response.ok) {
-    const diagnostic = `GitHub ${method} HTTP ${response.status}`;
-    throw Object.assign(new Error(diagnostic), { diagnostic });
+    const resource = path.split('?')[0];
+    const diagnostic = `GitHub ${method} HTTP ${response.status} (${resource})`;
+    throw Object.assign(new Error(diagnostic), {
+      diagnostic,
+      status: response.status,
+    });
   }
   return response.status === 204 ? undefined : response.json();
 }
@@ -225,6 +230,35 @@ async function openPull() {
   return pull;
 }
 
+function matchesPublication(head, intent) {
+  if (
+    git('show', '-s', '--format=%P', head) !== intent.parent ||
+    git('show', '-s', '--format=%s', head) !== intent.title ||
+    !git('show', '-s', '--format=%b', head).split('\n').includes(marker)
+  )
+    return false;
+  const changed = git(
+    'diff',
+    '--name-only',
+    '--no-renames',
+    '-z',
+    intent.parent,
+    head,
+  )
+    .split('\0')
+    .filter(Boolean);
+  if (changed.length !== intent.files.length) return false;
+  const paths = new Set(changed);
+  return intent.files.every(({ path, blob }) => {
+    if (!paths.has(path)) return false;
+    const entry = git('ls-tree', head, '--', path);
+    if (blob === null) return !entry;
+    const mode =
+      git('ls-tree', intent.parent, '--', path).split(' ')[0] || '100644';
+    return entry.split('\t')[0] === `${mode} blob ${blob}`;
+  });
+}
+
 async function publishChanges(head, title, changes) {
   const result = await request('/graphql', {
     method: 'POST',
@@ -335,6 +369,7 @@ async function main() {
     const record =
       !comment ||
       state.status !== lastStatus ||
+      reason === '개발 커밋을 게시했습니다.' ||
       ['needs_human', 'failed', 'ready'].includes(status) ||
       reviewId ||
       state.pullNumber !== lastPullNumber;
@@ -353,16 +388,56 @@ async function main() {
     });
     lastStatus = status;
     lastPullNumber = state.pullNumber;
-    if (comment) {
-      await repo(`/issues/comments/${comment.id}`, {
-        method: 'PATCH',
-        body: { body },
-      });
-    } else {
-      comment = await repo(`/issues/${number}/comments`, {
-        method: 'POST',
-        body: { body },
-      });
+    async function write() {
+      if (comment) {
+        await repo(`/issues/comments/${comment.id}`, {
+          method: 'PATCH',
+          body: { body },
+        });
+      } else {
+        comment = await repo(`/issues/${number}/comments`, {
+          method: 'POST',
+          body: { body },
+        });
+      }
+    }
+    for (let attempt = 0; ; attempt++) {
+      try {
+        await write();
+        break;
+      } catch (error) {
+        if (error.status && (error.status < 500 || error.status > 599))
+          throw new JournalWriteError('진행 댓글 쓰기가 거부되었습니다.', {
+            cause: error,
+          });
+        // A failed response can follow a successful write. Reconcile only this journal.
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+        let latest;
+        try {
+          latest = await checkpoint();
+        } catch (readError) {
+          throw new JournalWriteError(
+            '진행 댓글 게시 결과를 조회할 수 없습니다.',
+            { cause: readError },
+          );
+        }
+        if (
+          latest?.entry.body === body &&
+          (!comment || comment.id === latest.entry.id)
+        ) {
+          comment = latest.entry;
+          break;
+        }
+        const unchanged = comment
+          ? latest?.entry.id === comment.id &&
+            latest.entry.body === comment.body
+          : !latest;
+        if (!unchanged || attempt >= 1)
+          throw new JournalWriteError(
+            '진행 댓글을 안전하게 저장할 수 없습니다.',
+            { cause: error },
+          );
+      }
     }
     comment.body = body;
   }
@@ -470,6 +545,47 @@ async function main() {
     }
     return pull;
   }
+  async function findReview(pullNumber, digest) {
+    for (let page = 1; ; page++) {
+      const entries = await repo(
+        `/issues/${pullNumber}/comments?per_page=100&page=${page}`,
+      );
+      const match = entries.find(
+        ({ user, body }) =>
+          user?.login === 'github-actions[bot]' && fingerprint(body) === digest,
+      );
+      if (match || entries.length < 100) return match;
+    }
+  }
+  async function publishReview(pullNumber, body, baseSha) {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return await repo(`/issues/${pullNumber}/comments`, {
+          method: 'POST',
+          body: { body },
+        });
+      } catch (error) {
+        if (!(error.status >= 500 && error.status < 600)) throw error;
+        await new Promise((resolve) =>
+          setTimeout(resolve, 1000 * (attempt + 1)),
+        );
+        await checkBase(baseSha);
+        const match = await findReview(pullNumber, fingerprint(body));
+        if (match) return match;
+        if (attempt >= 1) {
+          const publication = recovery.reviewPublication;
+          publication.retryable = true;
+          if (publication.delayedRetryReserved) throw error;
+          publication.delayedRetryReserved = true;
+          await save('recovering', '리뷰 댓글 게시 재시도 대기 중입니다.');
+          await new Promise((resolve) => setTimeout(resolve, 30_000));
+          await checkBase(baseSha);
+          const existing = await findReview(pullNumber, publication.bodyHash);
+          if (existing) return existing;
+        }
+      }
+    }
+  }
   async function checkBase(expected) {
     await verifyArtifacts();
     if ((await ref(base)) !== expected) throw new BaseChanged();
@@ -494,6 +610,37 @@ async function main() {
     try {
       return await models.run(request);
     } catch (error) {
+      // Development tools are read-only; a failed response never publishes edits.
+      const kind = error.outputLimitReached
+        ? 'output'
+        : error.requestTimedOut
+          ? 'timeout'
+          : null;
+      if (
+        request.mode === 'development' &&
+        kind &&
+        recovery.pending === 'development' &&
+        !state.reviewInProgress &&
+        (recovery.modelRecoveries ?? 0) < 2
+      ) {
+        await checkBase(state.base);
+        recovery.modelRecoveries = (recovery.modelRecoveries ?? 0) + 1;
+        const nextStep =
+          kind === 'output'
+            ? '출력 한도로 잘린 변경안을 폐기하고 더 짧은 편집으로 다시 작성합니다.'
+            : '응답 시간 초과 후 작업 브랜치와 PR을 확인했습니다. 확인된 HEAD에서 재시도합니다.';
+        await save('recovering', nextStep);
+        return runModel({
+          ...request,
+          instructions:
+            request.instructions +
+            '\n' +
+            nextStep +
+            (kind === 'output'
+              ? ' 파일 전체 교체 대신 필요한 부분만 짧은 before/after로 작성하고 설명을 줄이세요. 전체 요구사항과 검증 범위는 유지하세요.'
+              : ''),
+        });
+      }
       // No publication is attempted by the model client.
       state.modelRetryRequired = true;
       delete recovery.pending;
@@ -521,6 +668,43 @@ async function main() {
         '기존 상태의 작업 출처를 확인할 수 없어 자동 재개를 중지했습니다.',
       );
     recovery.issue ??= fingerprint(issue.title, issue.body);
+    if (
+      previous &&
+      env.GITHUB_EVENT_NAME === 'workflow_dispatch' &&
+      !sender.endsWith('[bot]') &&
+      !recoveryRun &&
+      recovery.pull &&
+      state.pullNumber &&
+      state.head === recovery.head &&
+      state.reviews?.some(
+        (r) => r.head === state.head && r.result.status === 'pass',
+      ) &&
+      fingerprint(issue.title, issue.body) === recovery.issue &&
+      !issue.labels.some((label) => label.name === 'ai:stop') &&
+      (issue.state === 'open' || issue.state_reason === 'completed')
+    ) {
+      const current = (
+        await repo(
+          `/pulls?state=closed&base=${base}&head=${encodeURIComponent('han41858:' + branch)}`,
+        )
+      ).find((p) => p.number === state.pullNumber);
+      if (
+        current?.merged_at &&
+        isSha(current.merge_commit_sha) &&
+        pullIdentity(current) === recovery.pull &&
+        current.head.sha === state.head &&
+        current.head.repo?.full_name === repository &&
+        current.head.ref === branch &&
+        current.base.ref === base &&
+        current.base.repo?.full_name === repository
+      ) {
+        if (issue.state === 'open') await guard(recovery.issue, issue);
+        await ready(
+          '검토한 HEAD의 dev 머지를 확인했습니다. 완료 기록을 재개합니다.',
+        );
+        return;
+      }
+    }
     await guard(recovery.issue, issue);
     const manualResume =
       previous &&
@@ -531,6 +715,57 @@ async function main() {
       (['needs_human', 'failed'].includes(previous.data.status) ||
         recovery.pending);
     if (manualResume) {
+      const intent = recovery.publication;
+      if (intent && intent.kind === recovery.pending) {
+        const remote = await ref(branch, true);
+        const actual = await openPull();
+        if (!isSha(remote) || (actual && actual.head.sha !== remote))
+          throw new Stop('게시한 작업의 HEAD를 확인할 수 없습니다.');
+        const unpublished =
+          intent.kind === 'commit'
+            ? remote === intent.parent &&
+              intent.parent === recovery.head &&
+              pullIdentity(actual) === recovery.pull
+            : !actual &&
+              remote === intent.head &&
+              remote === recovery.head &&
+              recovery.pull === null;
+        if (!unpublished && intent.kind === 'commit') {
+          if (
+            intent.parent !== recovery.head ||
+            pullIdentity(actual) !== recovery.pull
+          )
+            throw new Stop('커밋 게시 중 작업 PR이 변경되었습니다.');
+          fetchCommit(remote);
+          if (!matchesPublication(remote, intent))
+            throw new Stop('원격 커밋이 예약한 변경과 일치하지 않습니다.');
+          recovery.head = state.head = remote;
+          if (intent.draft) recovery.draft = intent.draft;
+          if (intent.repairingCI) recovery.ciReviewHead = remote;
+          delete state.reviews;
+        } else if (!unpublished) {
+          if (
+            remote !== intent.head ||
+            !actual ||
+            actual.title !== intent.title ||
+            fingerprint(actual.body) !== intent.bodyHash
+          )
+            throw new Stop(
+              '생성 예약한 초안 PR과 실제 PR이 일치하지 않습니다.',
+            );
+          state.pullNumber = actual.number;
+          recovery.pull = pullIdentity(actual);
+          delete recovery.draft;
+        }
+        delete recovery.pending;
+        delete recovery.publication;
+        await save(
+          'recovering',
+          unpublished
+            ? '원격이 게시 전 상태임을 확인해 기존 작업을 재개합니다.'
+            : '예약된 게시 결과를 원격 저장소에서 확인했습니다.',
+        );
+      }
       const pull = await verifyArtifacts(true);
       const publication = recovery.reviewPublication;
       if (
@@ -538,17 +773,44 @@ async function main() {
         pull &&
         publication?.head === recovery.head
       ) {
-        let match;
-        for (let page = 1; ; page++) {
-          const entries = await repo(
-            `/issues/${pull.number}/comments?per_page=100&page=${page}`,
-          );
-          match = entries.find(
-            ({ user, body }) =>
-              user?.login === 'github-actions[bot]' &&
-              fingerprint(body) === publication.bodyHash,
-          );
-          if (match || entries.length < 100) break;
+        let match = await findReview(pull.number, publication.bodyHash);
+        if (
+          !match &&
+          publication.retryable &&
+          publication.body &&
+          fingerprint(publication.body) === publication.bodyHash
+        ) {
+          if ((await ref(base)) === state.base) {
+            await checkBase(state.base);
+            match = await publishReview(
+              pull.number,
+              publication.body,
+              state.base,
+            );
+          } else {
+            delete recovery.reviewPublication;
+            delete recovery.pending;
+          }
+        }
+        const note = event.inputs?.development_note?.trim().slice(0, 1500);
+        if (
+          !match &&
+          !publication.body &&
+          publication.result?.status === 'changes_requested' &&
+          note
+        ) {
+          // Older checkpoints kept only the digest. Preserve the rejection and require a fresh review.
+          state.reviews = [
+            {
+              head: publication.head,
+              result: publication.result,
+              feedback:
+                '이전 리뷰에서 변경을 요청했습니다. 수동 재개의 수정 근거: ' +
+                note,
+            },
+          ];
+          delete recovery.reviewPublication;
+          delete recovery.pending;
         }
         if (match) {
           await verifyArtifacts();
@@ -848,6 +1110,25 @@ before에는 정확히 한 곳에 일치하는 원문을, after에는 대체할 
               recovery.head = head;
               await confirmed('developing', '작업 브랜치를 확인했습니다.');
             }
+            recovery.publication = {
+              kind: 'commit',
+              parent: head,
+              title,
+              repairingCI,
+              draft: pull
+                ? null
+                : { title, summary: safeText(plan.summary, 800) },
+              files: changes.map(({ path, text }) => ({
+                path,
+                blob:
+                  text === null
+                    ? null
+                    : execFileSync('git', ['hash-object', '--stdin'], {
+                        input: text,
+                        encoding: 'utf8',
+                      }).trim(),
+              })),
+            };
             await reserve(
               'commit',
               'developing',
@@ -859,6 +1140,7 @@ before에는 정확히 한 곳에 일치하는 원문을, after에는 대체할 
             if (repairingCI) recovery.ciReviewHead = head;
             if (!pull)
               recovery.draft = { title, summary: safeText(plan.summary, 800) };
+            delete recovery.publication;
             await confirmed('developing', '개발 커밋을 게시했습니다.');
             fetchCommit(head);
           }
@@ -866,22 +1148,52 @@ before에는 정확히 한 곳에 일치하는 원문을, after에는 대체할 
         if (!pull) {
           await checkBase(baseSha);
           const { title, summary } = recovery.draft;
+          const draftBody = `${marker}\n\n## 변경 사항\n\n이슈 #${number} 대응\n\n${summary}\n\nFixes #${number}\n\n## 검증\n\n- [ ] \`npm test\`\n- [ ] \`npm run build\`\n- [ ] \`npm run format:check\`\n\nGenerated by ${names[developer]}`;
+          recovery.publication = {
+            kind: 'pull',
+            head,
+            title,
+            bodyHash: fingerprint(draftBody),
+          };
           await reserve('pull', 'developing', '초안 PR 생성을 예약했습니다.');
           await checkBase(baseSha);
-          pull = await repo('/pulls', {
-            method: 'POST',
-            publish: true,
-            body: {
-              title,
-              head: branch,
-              base,
-              draft: true,
-              body: `${marker}\n\n## 변경 사항\n\n이슈 #${number} 대응\n\n${summary}\n\nFixes #${number}\n\n## 검증\n\n- [ ] \`npm test\`\n- [ ] \`npm run build\`\n- [ ] \`npm run format:check\`\n\nGenerated by ${names[developer]}`,
-            },
-          });
+          for (let attempt = 0; ; attempt++) {
+            try {
+              pull = await repo('/pulls', {
+                method: 'POST',
+                publish: true,
+                body: {
+                  title,
+                  head: branch,
+                  base,
+                  draft: true,
+                  body: draftBody,
+                },
+              });
+              break;
+            } catch (error) {
+              if (!(error.status >= 500 && error.status < 600)) throw error;
+              await guard(recovery.issue);
+              const existing = await openPull();
+              if (existing) {
+                if (
+                  existing.head.sha !== head ||
+                  existing.title !== title ||
+                  existing.body !== draftBody ||
+                  (await ref(branch)) !== head
+                )
+                  throw new Stop('생성 예약과 실제 PR이 일치하지 않습니다.');
+                pull = existing;
+                break;
+              }
+              if (attempt >= 1) throw error;
+              await checkBase(baseSha);
+            }
+          }
           state.pullNumber = pull.number;
           recovery.pull = pullIdentity(pull);
           delete recovery.draft;
+          delete recovery.publication;
           await confirmed('developing', '초안 PR을 확인했습니다.');
         }
 
@@ -936,6 +1248,7 @@ UI에 영향을 주는 변경은 현재 HEAD의 관련 e2e/*.spec.ts를 직접 �
           head,
           result: { status: review.status },
           bodyHash: fingerprint(feedback),
+          body: feedback,
         };
         await reserve(
           'review-publication',
@@ -943,10 +1256,11 @@ UI에 영향을 주는 변경은 현재 HEAD의 관련 e2e/*.spec.ts를 직접 �
           '검토한 HEAD에 리뷰 결과를 기록합니다.',
         );
         await checkBase(baseSha);
-        const postedReview = await repo(`/issues/${pull.number}/comments`, {
-          method: 'POST',
-          body: { body: feedback },
-        });
+        const postedReview = await publishReview(
+          pull.number,
+          feedback,
+          baseSha,
+        );
         delete recovery.pending;
         delete recovery.reviewPublication;
         state.reviews = [
@@ -989,7 +1303,8 @@ UI에 영향을 주는 변경은 현재 HEAD의 관련 e2e/*.spec.ts를 직접 �
       }
     }
   } catch (error) {
-    if (!previous && !recovery.issue) throw error;
+    if (error instanceof JournalWriteError || (!previous && !recovery.issue))
+      throw error;
     if (error instanceof Stop) {
       await save('needs_human', error.message, error.code);
       return;

@@ -9,7 +9,7 @@ import { isCurrentFacility } from './facility-kind.ts';
 import { HeritageArc } from './heritage-arc.tsx';
 import { KingdomWall } from './kingdom-wall.tsx';
 import { FacilityMarker, KingdomMonsters, kingdomHue } from './map-markers.tsx';
-import type { MapEntry } from './map-markers.tsx';
+import type { InspectionSource, MapEntry } from './map-markers.tsx';
 import { objectSizes } from './object-sizes.ts';
 import { requestHeritage } from './request.ts';
 import { reportForges } from './snapshot.ts';
@@ -47,7 +47,7 @@ export const KingdomRegion = memo(function KingdomRegion({
   openRoad: (target: RoadTarget) => void;
   openPull: (region: Region, pull: PullQuest) => void;
   openQuest: (entry: MapEntry) => void;
-  inspect: (entry: MapEntry, active: boolean) => void;
+  inspect: (entry: MapEntry, active: boolean, source: InspectionSource) => void;
 }) {
   const report = snapshot?.report;
   const forges = reportForges(report);
@@ -82,14 +82,16 @@ export const KingdomRegion = memo(function KingdomRegion({
     >
       <div className="kingdom-area">
         <KingdomWall />
-        <HeritageArc
-          slug={region.slug}
-          name={region.name}
-          token={token}
-          load={requestHeritage}
-          onLoad={onHeritageLoad}
-          open={(metric, record) => openHeritage({ region, metric, record })}
-        />
+        {!snapshot?.accessDenied && (
+          <HeritageArc
+            slug={region.slug}
+            name={region.name}
+            token={token}
+            load={requestHeritage}
+            onLoad={onHeritageLoad}
+            open={(metric, record) => openHeritage({ region, metric, record })}
+          />
+        )}
         <button
           className="kingdom"
           data-road-palace=""
@@ -158,10 +160,11 @@ export const KingdomRegion = memo(function KingdomRegion({
                     localFocus.kind !== 'pull' &&
                     Boolean(item.issues?.includes(localFocus.number))
                   }
-                  inspect={(active) =>
+                  inspect={(active, source) =>
                     inspect(
                       { region, number: item.number, kind: 'pull' },
                       active,
+                      source,
                     )
                   }
                 />
@@ -180,7 +183,9 @@ export const KingdomRegion = memo(function KingdomRegion({
             localFocus?.kind === undefined ? localFocus?.number : undefined
           }
           related={related}
-          inspect={(number, active) => inspect({ region, number }, active)}
+          inspect={(number, active, source) =>
+            inspect({ region, number }, active, source)
+          }
           openQuest={(item) => openQuest({ region, number: item.number })}
         />
       )}

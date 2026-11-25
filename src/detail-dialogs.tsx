@@ -25,6 +25,7 @@ import {
   IssuePullEntries,
 } from './activity-browser.tsx';
 import type { IssueActivityKind } from './activity-browser.tsx';
+import { SubIssueSection } from './sub-issues.tsx';
 import './workflow-runs.css';
 
 function WorkflowRuns({
@@ -115,12 +116,21 @@ export function QuestDetail({
       }
       close={close}
     >
-      <h3>{quest.title}</h3>
+      <h3 className="issue-title">{quest.title}</h3>
       {quest.stage === 'failed' && <Badge stage={quest.stage} />}
       {quest.stateReason === 'not_planned' && (
         <p>GitHub 종료 사유 · 작업하지 않기로 함</p>
       )}
       {quest.stateReason === 'duplicate' && <p>GitHub 종료 사유 · 중복</p>}
+      {quest.subIssues && (
+        <SubIssueSection
+          key={`${region.slug}:${quest.number}`}
+          region={region.slug}
+          number={quest.number}
+          token={token}
+          initial={quest.subIssues}
+        />
+      )}
       {(quest.reason || quest.detail) && (
         <div className={`reason ${alerts.has(quest.stage) ? 'danger' : ''}`}>
           {quest.reason && <p>{quest.reason}</p>}
@@ -203,7 +213,16 @@ export function PullDetail({
     region: region.slug,
     token,
     pulls: String(pull.number),
-    initial: pull.activity,
+    initial: {
+      ...pull.activity,
+      commits: pull.activity?.partialCommits
+        ? (pull.activities?.commits ?? pull.activity.commits)
+        : (pull.activity?.commits ?? pull.activities?.commits),
+      partialCommits:
+        pull.activity?.partialCommits && pull.activities?.commits === undefined,
+      pullComments: pull.activity?.pullComments ?? pull.activities?.comments,
+      reviews: pull.activity?.reviews ?? pull.activities?.reviews,
+    },
   });
   const { counters, entries } = useActivityBrowser(
     {
@@ -211,14 +230,12 @@ export function PullDetail({
       number: pull.number,
       token,
       counts: {
-        commits: activity?.partialCommits
-          ? (pull.activities?.commits ?? activity.commits)
-          : (activity?.commits ?? pull.activities?.commits),
-        comments: activity?.pullComments ?? pull.activities?.comments,
-        reviews: activity?.reviews ?? pull.activities?.reviews,
+        commits: activity.commits,
+        comments: activity.pullComments,
+        reviews: activity.reviews,
       },
     },
-    activity?.partialCommits && pull.activities?.commits === undefined,
+    activity.partialCommits,
   );
   return (
     <Dialog
@@ -279,6 +296,8 @@ function PullStatus({ pull }: { pull: PullQuest }) {
       </span>
     );
   if (pull.stage === 'idle') return null;
+  if (pull.stage === 'failed')
+    return <span className="badge failed">{pullStatus(pull)}</span>;
   return alerts.has(pull.stage) ||
     pull.stage === 'ci' ||
     pull.stage === 'complete' ? (

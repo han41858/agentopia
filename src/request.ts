@@ -9,6 +9,7 @@ export class RequestError extends Error {
   constructor(
     message: string,
     readonly status: number,
+    readonly rateLimited = false,
   ) {
     super(message);
   }
@@ -19,10 +20,16 @@ export async function request<T>(
   token: string,
   signal: AbortSignal,
   onUsage?: (usage?: RefreshConsumption) => void,
+  ticket?: string,
 ): Promise<T> {
   const response = await fetch(`/api/github?${params}`, {
     signal,
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    method: ticket ? 'POST' : 'GET',
+    body: ticket || undefined,
+    headers: {
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(ticket !== undefined ? { 'X-Agentopia-Cache': '1' } : {}),
+    },
   });
   const header = response.headers.get('X-Agentopia-GitHub-Usage');
   let snapshot: GitHubDebugSnapshot | undefined;
@@ -42,6 +49,7 @@ export async function request<T>(
     throw new RequestError(
       body.error ?? 'GitHub 동기화에 실패했습니다.',
       response.status,
+      body.rateLimited === true,
     );
   return body as T;
 }

@@ -7,18 +7,31 @@ import {
   activityPage,
   activitySummary,
 } from './github-activity.ts';
+import type { ActivitySummaryField } from './github-activity.ts';
 import { repositoryHeritage } from './github-heritage.ts';
+import { readSubIssues } from './github-sub-issues.ts';
+
+import { withRefreshCache } from './refresh-cache.ts';
 
 export async function githubResponse(
   url: URL,
   method: string | undefined,
   authorization?: string,
+  ticket?: string,
 ) {
   const reply = (status: number, data: unknown) => ({
     status,
     body: JSON.stringify(data),
   });
-  if (method !== 'GET') return reply(405, { error: 'GET 요청만 지원합니다.' });
+  const cacheReport =
+    ticket !== undefined &&
+    Boolean(authorization) &&
+    url.searchParams.get('measure') === 'refresh' &&
+    [...url.searchParams.keys()].every((key) =>
+      ['repo', 'measure', 'branches', 'refresh', 'history'].includes(key),
+    );
+  if (method !== 'GET' && !(method === 'POST' && cacheReport))
+    return reply(405, { error: 'GET 요청만 지원합니다.' });
   if (authorization && !/^Bearer [a-zA-Z0-9_]{1,512}$/.test(authorization)) {
     return reply(400, { error: 'GitHub 토큰 형식을 확인해 주세요.' });
   }
@@ -39,6 +52,21 @@ export async function githubResponse(
     const region = repositoryRegion(slug);
     if (url.searchParams.get('heritage') === '1')
       return reply(200, await repositoryHeritage(region, authorization));
+    const subIssues = url.searchParams.get('subIssues');
+    if (subIssues !== null) {
+      const page = url.searchParams.get('page') ?? '1';
+      if (!/^[1-9]\d{0,11}$/.test(subIssues) || !/^[1-9]\d{0,5}$/.test(page))
+        return reply(400, { error: '조회할 서브 이슈를 확인해 주세요.' });
+      return reply(
+        200,
+        await readSubIssues(
+          region,
+          Number(subIssues),
+          Number(page),
+          authorization,
+        ),
+      );
+    }
     const summary = url.searchParams.get('summary');
     if (summary !== null) {
       const number = url.searchParams.get('number') ?? '';
@@ -47,9 +75,18 @@ export async function githubResponse(
         !/^[1-9]\d{0,11}$/.test(number)
       )
         return reply(400, { error: '조회할 GitHub 활동을 확인해 주세요.' });
+      const requested = url.searchParams.get('counts')?.split(',');
+      const fields = requested?.filter(
+        (field): field is ActivitySummaryField =>
+          field === 'comments' ||
+          (summary === 'pull' &&
+            (field === 'commits' || field === 'shas' || field === 'reviews')),
+      );
+      if (fields?.length !== requested?.length)
+        return reply(400, { error: '조회할 GitHub 활동을 확인해 주세요.' });
       return reply(
         200,
-        await activitySummary(region, summary, number, authorization),
+        await activitySummary(region, summary, number, authorization, fields),
       );
     }
     const activity = url.searchParams.get('activity');
@@ -83,23 +120,32 @@ export async function githubResponse(
     if (pull !== null)
       return reply(200, await pullReviews(region, pull, authorization));
     const force = url.searchParams.get('refresh') === '1';
-    const [result, branchInventory] = await Promise.all([
-      regionReport(
-        region,
-        authorization,
-        force,
-        url.searchParams.get('history') !== 'cached',
-      ),
-      url.searchParams.get('branches') === '1'
-        ? readBranches(region, authorization, force).catch(() => undefined)
-        : undefined,
-    ]);
-    return reply(200, { ...result, branchInventory });
+    const loadReport = () =>
+      Promise.all([
+        regionReport(
+          region,
+          authorization,
+          force,
+          url.searchParams.get('history') !== 'cached',
+        ),
+        url.searchParams.get('branches') === '1'
+          ? readBranches(region, authorization, force).catch(() => undefined)
+          : undefined,
+      ]);
+    const {
+      result: [result, branchInventory],
+      refreshTicket,
+    } =
+      cacheReport && authorization
+        ? await withRefreshCache(slug, authorization, ticket ?? '', loadReport)
+        : { result: await loadReport(), refreshTicket: undefined };
+    return reply(200, { ...result, branchInventory, refreshTicket });
   } catch (error) {
     if (error instanceof GitHubError) {
       if (error.rateLimited)
         return reply(error.status, {
           error: 'GitHub API 사용 한도에 도달했습니다.',
+          rateLimited: true,
         });
       const message =
         {

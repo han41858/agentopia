@@ -1,0 +1,60 @@
+name: Parent issue completion
+on:
+  issues:
+    types: [closed, reopened]
+  workflow_dispatch:
+    inputs:
+      issue:
+        description: '재평가할 부모 또는 완료된 자식 이슈 번호'
+        required: true
+        type: number
+      mode:
+        type: choice
+        options: [parent, child]
+      evidence:
+        description: '통합 검증 결과 GitHub 링크 (검증 완료 후 입력)'
+        type: string
+permissions: {}
+jobs:
+  reconcile:
+    if: github.repository == 'han41858/agentopia' && github.ref == 'refs/heads/dev'
+    runs-on: ubuntu-latest
+    concurrency:
+      group: parent-issue-completion
+      queue: max
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Resolve parent before preparing verification tools
+        id: target
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE: ${{ inputs.issue || github.event.issue.number }}
+          MODE: ${{ inputs.mode || 'child' }}
+        run: |
+          if [[ "$MODE" == "child" ]]; then
+            ISSUE=$(gh api graphql -F number="$ISSUE" -f query='
+              query($number:Int!) {
+                repository(owner:"han41858",name:"agentopia") {
+                  issue(number:$number) { parent { number repository { nameWithOwner } } }
+                }
+              }' --jq '.data.repository.issue.parent | select(.repository.nameWithOwner == "han41858/agentopia") | .number')
+          fi
+          echo "issue=$ISSUE" >> "$GITHUB_OUTPUT"
+      - if: steps.target.outputs.issue != ''
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - if: steps.target.outputs.issue != ''
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: 24
+      - if: steps.target.outputs.issue != ''
+        run: python3 .github/scripts/parent-completion.py
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE: ${{ steps.target.outputs.issue }}
+          EVIDENCE: ${{ inputs.evidence }}

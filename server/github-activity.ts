@@ -84,11 +84,14 @@ export async function activityPage(
   return { entries, next: hasNext ? page + 1 : undefined };
 }
 
+export type ActivitySummaryField = 'commits' | 'shas' | 'comments' | 'reviews';
+
 export async function activitySummary(
   region: Region,
   scope: 'issue' | 'pull',
   number: string,
   token?: string,
+  fields?: readonly ActivitySummaryField[],
 ) {
   const get = client(region, token);
   async function collect<T>(path: string, maxPages: number) {
@@ -107,19 +110,66 @@ export async function activitySummary(
     return { entries, complete: !hasNext };
   }
 
+  const readIssue = () =>
+    get<{ user?: Login | null; comments: number; pull_request?: unknown }>(
+      `/issues/${number}`,
+      undefined,
+      30_000,
+    );
+  const readPull = () =>
+    get<{ user?: Login | null; comments: number; commits: number }>(
+      `/pulls/${number}`,
+      undefined,
+      30_000,
+    );
+  const readCommits = () =>
+    collect<{ sha: string }>(`/pulls/${number}/commits`, 3);
+  const readReviews = async () => {
+    const { entries, complete } = await collect<{
+      user?: Login | null;
+      state: string;
+      submitted_at?: string;
+    }>(`/pulls/${number}/reviews`, 5);
+    return {
+      published: entries.filter(({ state }) => state !== 'PENDING'),
+      complete,
+    };
+  };
+
+  if (fields) {
+    if (scope === 'issue') {
+      const issue = await readIssue();
+      if (issue.pull_request) throw new GitHubError(404);
+      return {
+        comments: issue.comments,
+        people: [],
+        complete: false,
+      } satisfies Discussion;
+    }
+    const shas = fields.includes('shas');
+    const commits = shas || fields.includes('commits');
+    const comments = fields.includes('comments');
+    const [pull, commitList, reviews] = await Promise.all([
+      commits || comments ? readPull() : undefined,
+      shas ? readCommits() : undefined,
+      fields.includes('reviews') ? readReviews() : undefined,
+    ]);
+    return {
+      shas: commitList?.entries.map(({ sha }) => sha) ?? [],
+      commits: commits ? pull?.commits : undefined,
+      comments: comments ? pull?.comments : undefined,
+      reviews: reviews?.complete ? reviews.published.length : undefined,
+      people: [],
+      complete: false,
+    } satisfies PullActivity;
+  }
+
   const comments = collect<{ user?: Login | null }>(
     `/issues/${number}/comments`,
     5,
   );
   if (scope === 'issue') {
-    const [issue, discussion] = await Promise.all([
-      get<{ user?: Login | null; comments: number; pull_request?: unknown }>(
-        `/issues/${number}`,
-        undefined,
-        30_000,
-      ),
-      comments,
-    ]);
+    const [issue, discussion] = await Promise.all([readIssue(), comments]);
     if (issue.pull_request) throw new GitHubError(404);
     return {
       comments: issue.comments,
@@ -133,19 +183,12 @@ export async function activitySummary(
   }
 
   const [pull, discussion, commits, reviews] = await Promise.all([
-    get<{ user?: Login | null; comments: number; commits: number }>(
-      `/pulls/${number}`,
-      undefined,
-      30_000,
-    ),
+    readPull(),
     comments,
-    collect<{ sha: string }>(`/pulls/${number}/commits`, 3),
-    collect<{ user?: Login | null; state: string; submitted_at?: string }>(
-      `/pulls/${number}/reviews`,
-      5,
-    ),
+    readCommits(),
+    readReviews(),
   ]);
-  const published = reviews.entries.filter(({ state }) => state !== 'PENDING');
+  const { published } = reviews;
   const effective = new Map<string, (typeof published)[number]>();
   for (const review of published) {
     const login = review.user?.login.toLowerCase();

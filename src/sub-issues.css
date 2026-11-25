@@ -1,0 +1,18 @@
+.sub-issues ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.sub-issues li > a {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 44px;
+  overflow-wrap: anywhere;
+}
+
+.sub-issues a > [role='img'] {
+  flex: 0 0 1.25rem;
+  text-align: center;
+}

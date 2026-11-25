@@ -44,6 +44,7 @@ import { KingdomRegion } from './kingdom-region.tsx';
 import type { RoadTarget } from './kingdom-region.tsx';
 import { useRegionRefresh } from './use-region-refresh.ts';
 import type { RefreshJobs, RefreshUsage } from './use-region-refresh.ts';
+import { installTouchPress } from './touch-press.ts';
 import './styles.css';
 
 const narrowHeaderQuery = '(max-width: 640px)';
@@ -62,7 +63,10 @@ function App() {
   const [refreshUsage, setRefreshUsage] = useState<RefreshUsage>();
   const [selectedRoad, setSelectedRoad] = useState<RoadTarget>();
   const [selectedHeritage, setSelectedHeritage] = useState<HeritageSelection>();
-  const [inspected, setInspected] = useState<MapEntry>();
+  const [inspections, setInspections] = useState<
+    { entry: MapEntry; source: 'pointer' | 'focus' }[]
+  >([]);
+  const inspected = inspections.at(-1)?.entry;
   const updateSelectedHeritage = useCallback((slug: string, data: Heritage) => {
     setSelectedHeritage((current) => {
       if (!current || current.region.slug !== slug) return current;
@@ -70,17 +74,24 @@ function App() {
       return record ? { ...current, record } : current;
     });
   }, []);
-  const inspect = useCallback((entry: MapEntry, active: boolean) => {
-    setInspected((current) =>
-      active
-        ? entry
-        : current?.region.slug === entry.region.slug &&
-            current.number === entry.number &&
-            current.kind === entry.kind
-          ? undefined
-          : current,
-    );
-  }, []);
+  const inspect = useCallback(
+    (entry: MapEntry, active: boolean, source: 'pointer' | 'focus') => {
+      setInspections((current) => {
+        // Keep the other input active while giving the latest entry priority.
+        const remaining = current.filter(
+          (item) =>
+            item.source !== source ||
+            (!active &&
+              (item.entry.region.slug !== entry.region.slug ||
+                item.entry.number !== entry.number ||
+                item.entry.kind !== entry.kind)),
+        );
+        if (active) return [...remaining, { entry, source }];
+        return remaining.length === current.length ? current : remaining;
+      });
+    },
+    [],
+  );
   const refresh = useRef<(() => void) | null>(null);
   const [loading, setLoading] = useState(true);
   const refreshInterval = token ? 20_000 : 60_000;
@@ -97,6 +108,8 @@ function App() {
   );
   const headerTools = useRef<HTMLDivElement>(null);
   const bookmark = useRef<HTMLButtonElement>(null);
+
+  useEffect(installTouchPress, []);
 
   useEffect(() => {
     const media = window.matchMedia(narrowHeaderQuery);
@@ -507,59 +520,63 @@ function App() {
           close={() => setShowConnect(false)}
         />
       )}
-      {selectedHeritage && (
-        <HeritageDetail
-          selection={selectedHeritage}
-          close={() => setSelectedHeritage(undefined)}
-        />
-      )}
-      {selectedRoad?.selection === 'plaza' && (
-        <PlazaDetail
-          region={selectedRoad.region}
-          pulls={reportForges(snapshots[selectedRoad.region.slug]?.report)}
-          title={
-            roadPlacements.get(selectedRoad.region.slug)?.plazaRoad
-              ? undefined
-              : '작업 목록'
-          }
-          openPull={(item) => openPull(selectedRoad.region, item)}
-          close={() => setSelectedRoad(undefined)}
-        />
-      )}
-      {selectedRoad && selectedRoad.selection !== 'plaza' && (
-        <Dialog
-          title={
-            selectedRoad.selection.roads.length === 1
-              ? selectedRoad.selection.roads[0].name
-              : '브랜치 도로망'
-          }
-          close={() => setSelectedRoad(undefined)}
-        >
-          {selectedRoad.selection.partial && (
-            <p>브랜치 목록의 첫 페이지와 열린 PR에서 확인한 경로입니다.</p>
-          )}
-          <ul className="branch-road-details">
-            {selectedRoad.selection.roads.map((road, _, roads) => (
-              <li key={road.name}>
-                {roads.length > 1 && <strong>{road.name}</strong>}
-                {road.role === 'palace' && <small>왕궁</small>}
-                {road.role === 'plaza' && <small>개발 광장</small>}
-                {road.parent && <small>관측된 PR 대상 · {road.parent}</small>}
-                {road.pulls.map((pull) => (
-                  <OutLink
-                    key={pull.number}
-                    item={{
-                      title: `PR #${pull.number} · ${pull.base}`,
-                      status: pull.merged ? '머지됨' : '열림',
-                      url: `https://github.com/${selectedRoad.region.slug}/pull/${pull.number}`,
-                    }}
-                  />
-                ))}
-              </li>
-            ))}
-          </ul>
-        </Dialog>
-      )}
+      {selectedHeritage &&
+        !snapshots[selectedHeritage.region.slug]?.accessDenied && (
+          <HeritageDetail
+            selection={selectedHeritage}
+            close={() => setSelectedHeritage(undefined)}
+          />
+        )}
+      {selectedRoad?.selection === 'plaza' &&
+        !snapshots[selectedRoad.region.slug]?.accessDenied && (
+          <PlazaDetail
+            region={selectedRoad.region}
+            pulls={reportForges(snapshots[selectedRoad.region.slug]?.report)}
+            title={
+              roadPlacements.get(selectedRoad.region.slug)?.plazaRoad
+                ? undefined
+                : '작업 목록'
+            }
+            openPull={(item) => openPull(selectedRoad.region, item)}
+            close={() => setSelectedRoad(undefined)}
+          />
+        )}
+      {selectedRoad &&
+        !snapshots[selectedRoad.region.slug]?.accessDenied &&
+        selectedRoad.selection !== 'plaza' && (
+          <Dialog
+            title={
+              selectedRoad.selection.roads.length === 1
+                ? selectedRoad.selection.roads[0].name
+                : '브랜치 도로망'
+            }
+            close={() => setSelectedRoad(undefined)}
+          >
+            {selectedRoad.selection.partial && (
+              <p>브랜치 목록의 첫 페이지와 열린 PR에서 확인한 경로입니다.</p>
+            )}
+            <ul className="branch-road-details">
+              {selectedRoad.selection.roads.map((road, _, roads) => (
+                <li key={road.name}>
+                  {roads.length > 1 && <strong>{road.name}</strong>}
+                  {road.role === 'palace' && <small>왕궁</small>}
+                  {road.role === 'plaza' && <small>개발 광장</small>}
+                  {road.parent && <small>관측된 PR 대상 · {road.parent}</small>}
+                  {road.pulls.map((pull) => (
+                    <OutLink
+                      key={pull.number}
+                      item={{
+                        title: `PR #${pull.number} · ${pull.base}`,
+                        status: pull.merged ? '머지됨' : '열림',
+                        url: `https://github.com/${selectedRoad.region.slug}/pull/${pull.number}`,
+                      }}
+                    />
+                  ))}
+                </li>
+              ))}
+            </ul>
+          </Dialog>
+        )}
       {selectedQuest && pull && (
         <PullDetail
           key={`${selectedQuest.region.slug}-pr-${pull.number}`}

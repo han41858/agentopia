@@ -273,3 +273,50 @@ test('PR 없는 이슈에도 다음 갱신에서 작업 중인 담당자가 나�
   await expect(avatar).toBeVisible();
   await expect(avatar).toHaveCSS('animation-name', 'attack');
 });
+
+test('인증 갱신 캐시는 탭에만 남고 접근 거부 시 이전 왕국 데이터를 비운다', async ({
+  page,
+}) => {
+  await mockGitHub(page);
+  await page.addInitScript((repo) => {
+    localStorage.setItem(
+      'agentopia.github-settings',
+      JSON.stringify({
+        version: 2,
+        token: 'github_pat_ui_test',
+        repositories: [{ slug: repo, private: true }],
+      }),
+    );
+  }, alpha);
+  const requests: [string, string | null][] = [];
+  let deny = false;
+  await page.route('**/api/github?**', async (route) => {
+    const req = route.request();
+    if (new URL(req.url()).searchParams.get('measure') !== 'refresh')
+      return route.fallback();
+    requests.push([req.method(), req.postData()]);
+    if (deny)
+      return route.fulfill({
+        status: 403,
+        json: { error: '접근 권한이 없습니다.' },
+      });
+    return route.fulfill({
+      json: { ...alphaReport, refreshTicket: 'signed-fixture' },
+    });
+  });
+  await page.goto('/');
+  await expect(page.locator('.monster-marker').first()).toBeVisible();
+  deny = true;
+  await page.getByRole('button', { name: '새로 고침' }).click();
+  await expect(page.locator('.monster-marker')).toHaveCount(0);
+  await expect(page.locator('.facility-marker')).toHaveCount(0);
+  expect(requests).toEqual([
+    ['GET', null],
+    ['POST', 'signed-fixture'],
+  ]);
+  expect(await page.evaluate(() => JSON.stringify(localStorage))).not.toContain(
+    'signed-fixture',
+  );
+  await page.getByRole('button', { name: '새로 고침' }).click();
+  await expect.poll(() => requests.at(-1)).toEqual(['GET', null]);
+});

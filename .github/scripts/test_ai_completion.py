@@ -44,7 +44,7 @@ class CompletionTest(unittest.TestCase):
             if path.startswith("actions/"):
                 ci_reads += 1
                 return {"workflow_runs": [{"head_sha": "old" if stale_head else head, "pull_requests": [{"number": 2}], "status": "in_progress" if rerunning and ci_reads > 1 else status,
-                                           "conclusion": ci, "html_url": "CI"}]}
+                                           "conclusion": ci, "html_url": "CI", "id": 81, "run_attempt": 1}]}
             if path == "pulls/2":
                 return pull
             calls.append(path)
@@ -77,9 +77,19 @@ class CompletionTest(unittest.TestCase):
             else:
                 completion.complete(1, 7)
             if not wrong_close and issue_state["state"] == "closed":
-                self.assertEqual([c.args[3].split(":")[0] for c in journal.call_args_list], ["merge", "closed"])
+                self.assertEqual([c.args[3].split(":")[0] for c in journal.call_args_list], (["merge", "closed"] if merged else ["ci", "merge", "closed"]))
                 self.assertEqual(journal.call_args.kwargs["status"], "merged")
         return calls
+
+    def test_interruption_notice_only_for_same_ready_run(self):
+        state = {"runId": 7, "head": "a" * 40, "pullNumber": 2}
+        with patch.object(completion, "ready_state", return_value=state), patch.object(
+            completion, "eligible", return_value=True
+        ), patch.object(completion, "record_event") as journal:
+            completion.report_interruption(1, 6)
+            journal.assert_not_called()
+            completion.report_interruption(1, 7)
+            self.assertEqual(journal.call_args.kwargs["status"], "ready")
 
     def test_cancelled_ci_is_retryable(self):
         self.assertEqual(self.run_case(ci="cancelled"), [])

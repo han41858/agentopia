@@ -1,6 +1,6 @@
 import type { Locator } from '@playwright/test';
 import { makeQuests, repositoryRegion } from '../server/model.ts';
-import type { Comment, Run } from '../server/model.ts';
+import type { Comment, Run, SubIssue, SubIssueList } from '../server/model.ts';
 import { alpha, alphaReport } from './fixtures.ts';
 import { mockGitHub, openWorld, seedSettings, settled } from './github.ts';
 import { expect, test } from './test.ts';
@@ -35,7 +35,26 @@ test.describe('상세 창', () => {
   test('PR 시설: 상태와 활동을 보여 주고, 눌렀을 때만 기록을 조회한다', async ({
     page,
   }) => {
-    const github = await openWorld(page);
+    const github = await mockGitHub(page);
+    const report = structuredClone(alphaReport);
+    const pull = report.forges?.find(({ number }) => number === 11);
+    if (!pull) throw new Error('alphaReport에 PR #11 픽스처가 없습니다.');
+    pull.activity = { commits: 1, partialCommits: true, pullComments: 2 };
+    pull.activities = { commits: 3, reviews: 1 };
+    await page.route('**/api/github?**', async (route) => {
+      const params = new URL(route.request().url()).searchParams;
+      if (
+        params.get('repo') !== alpha ||
+        ['summary', 'activity', 'heritage', 'repository', 'reviews'].some(
+          (key) => params.has(key),
+        )
+      )
+        return route.fallback();
+      await route.fulfill({ json: report });
+    });
+    await seedSettings(page, [alpha]);
+    await page.goto('/');
+    await settled(page);
     await page.getByRole('button', { name: /PR #11/ }).click();
     const dialog = page.getByRole('dialog', { name: 'PR #11' });
 
@@ -98,8 +117,71 @@ test.describe('상세 창', () => {
     await expect(failure).toHaveText('failure');
     await expect(latest).toHaveCSS('font-size', '11px');
     expect(github.queries('summary')).toEqual([
-      { repo: alpha, summary: 'pull', number: '12' },
+      {
+        repo: alpha,
+        summary: 'pull',
+        number: '12',
+        counts: 'commits,comments,reviews',
+      },
     ]);
+  });
+
+  test('PR 시설: 닫으면 집계를 취소하고 실패를 0으로 표시하지 않는다', async ({
+    page,
+  }) => {
+    await page.addInitScript(() => {
+      const fetch = window.fetch;
+      window.fetch = (input, options) => {
+        if (String(input).includes('summary=pull')) {
+          options?.signal?.addEventListener('abort', () => {
+            document.documentElement.dataset.summaryAborted = 'true';
+          });
+        }
+        return fetch(input, options);
+      };
+    });
+    const github = await openWorld(page);
+    let release = () => {};
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let calls = 0;
+    await page.route('**/api/github?**', async (route) => {
+      const params = new URL(route.request().url()).searchParams;
+      if (params.get('summary') !== 'pull') return route.fallback();
+      if (++calls === 1) {
+        await held;
+        await route.abort().catch(() => {});
+        return;
+      }
+      await route.fulfill({ status: 502, json: { error: '집계 조회 실패' } });
+    });
+    const marker = page.getByRole('button', { name: /PR #12/ });
+    const dialog = page.getByRole('dialog', { name: 'PR #12' });
+    try {
+      await marker.click();
+      await expect.poll(() => calls).toBe(1);
+      await expect(dialog.getByRole('status')).toHaveText(
+        'GitHub 활동 집계 확인 중…',
+      );
+      await page.keyboard.press('Escape');
+      await expect(dialog).toBeHidden();
+      await expect(page.locator('html')).toHaveAttribute(
+        'data-summary-aborted',
+        'true',
+      );
+    } finally {
+      release();
+    }
+    await marker.click();
+    await expect(dialog.getByRole('status')).toHaveText(
+      '일부 활동을 조회하지 못했습니다.',
+    );
+    await expect(
+      dialog.getByRole('button', { name: '커밋', exact: true }),
+    ).toHaveText('—');
+    expect(calls).toBe(2);
+    expect(github.count('activity')).toBe(0);
   });
 
   test('이슈와 PR 팝업에서 최신 Actions 실행을 먼저 표시한다', async ({
@@ -253,6 +335,101 @@ test.describe('상세 창', () => {
     ).toBeVisible();
   });
 
+  for (const mode of ['world', 'simple'] as const) {
+    for (const length of ['짧은', '긴'] as const) {
+      test(`이슈 제목: ${mode} 모드에서 ${length} 제목을 팝업 중앙에 정렬한다`, async ({
+        page,
+      }) => {
+        const report = structuredClone(alphaReport);
+        const quest = report.quests.find(({ number }) => number === 1)!;
+        if (length === '긴') {
+          quest.title = `Map layout regression: ${'WideIdentifier'.repeat(14)}`;
+        }
+        await mockGitHub(page);
+        await seedSettings(page, [alpha], mode);
+        await page.route('**/api/github?**', (route) => {
+          const params = new URL(route.request().url()).searchParams;
+          return params.get('repo') === alpha && params.has('branches')
+            ? route.fulfill({ json: report })
+            : route.fallback();
+        });
+        await page.setViewportSize({ width: 1280, height: 800 });
+        await page.goto('/');
+        await settled(page);
+        await page.getByRole('button', { name: /^이슈 #1 / }).click();
+        const dialog = page.getByRole('dialog', { name: '이슈 #1' });
+        const heading = dialog.getByRole('heading', {
+          level: 3,
+          name: quest.title,
+          exact: true,
+        });
+        await expect(heading).toBeVisible();
+
+        for (const viewport of [
+          { width: 1280, height: 800 },
+          { width: 320, height: 720 },
+        ]) {
+          await page.setViewportSize(viewport);
+          await expect(heading).toHaveCSS('text-align', 'center');
+          const geometry = await heading.evaluate((node) => {
+            const body = node.closest('.dialog-body')!;
+            const popup = node.closest('dialog')!.getBoundingClientRect();
+            const title = node.getBoundingClientRect();
+            const range = document.createRange();
+            range.selectNodeContents(node);
+            return {
+              popup: { left: popup.left, right: popup.right },
+              title: { left: title.left, right: title.right },
+              bodyWidth: body.clientWidth,
+              bodyScrollWidth: body.scrollWidth,
+              lines: Array.from(range.getClientRects(), ({ left, right }) => ({
+                left,
+                right,
+              })),
+            };
+          });
+          await test.info().attach(`issue-title-${viewport.width}px`, {
+            body: JSON.stringify({ viewport, ...geometry }, null, 2),
+            contentType: 'application/json',
+          });
+
+          const { popup, title, lines, bodyWidth, bodyScrollWidth } = geometry;
+          expect(popup.left).toBeGreaterThanOrEqual(0);
+          expect(popup.right).toBeLessThanOrEqual(viewport.width);
+          expect(bodyScrollWidth).toBeLessThanOrEqual(bodyWidth);
+          const leftInset = title.left - popup.left;
+          const rightInset = popup.right - title.right;
+          expect(leftInset).toBeGreaterThan(0);
+          expect(rightInset).toBeGreaterThan(0);
+          expect(Math.abs(leftInset - rightInset)).toBeLessThan(1);
+          if (length === '짧은') {
+            expect(lines).toHaveLength(1);
+          } else {
+            expect(lines.length).toBeGreaterThan(1);
+          }
+          const center = (popup.left + popup.right) / 2;
+          for (const line of lines) {
+            expect(
+              Math.abs((line.left + line.right) / 2 - center),
+            ).toBeLessThan(1);
+            expect(line.left).toBeGreaterThanOrEqual(title.left - 1);
+            expect(line.right).toBeLessThanOrEqual(title.right + 1);
+          }
+        }
+
+        await expect(
+          dialog.getByRole('link', { name: '이슈 #1', exact: true }),
+        ).toHaveAttribute('href', quest.url);
+        await dialog.getByRole('button', { name: '이슈 댓글 4개' }).click();
+        await expect(
+          dialog.getByText('지도 개편 범위를 정리했습니다.'),
+        ).toBeVisible();
+        await dialog.getByRole('button', { name: '닫기' }).click();
+        await expect(dialog).toBeHidden();
+      });
+    }
+  }
+
   test('몬스터: 상태와 활동 집계를 먼저 보여 주고 선택한 기록만 조회한다', async ({
     page,
   }) => {
@@ -334,6 +511,157 @@ test.describe('상세 창', () => {
     await dialog.getByRole('button', { name: '닫기' }).click();
     await expect(dialog).toBeHidden();
   });
+
+  const issueUrl = (number: number) =>
+    `https://github.com/${alpha}/issues/${number}`;
+  const child = (
+    number: number,
+    state: string,
+    stateReason?: string,
+  ): SubIssue => ({
+    number,
+    title: `하위 작업 ${number}`,
+    url: issueUrl(number),
+    state,
+    stateReason,
+  });
+  const done = [200, 201, 202, 203].map((number) =>
+    child(number, 'closed', 'completed'),
+  );
+  const open = child(201, 'open');
+  const notPlanned = child(202, 'closed', 'not_planned');
+  const unknown = child(203, 'closed', nullReason());
+
+  function nullReason() {
+    return undefined;
+  }
+
+  const subIssueCases: {
+    name: string;
+    initial: SubIssueList;
+    remaining?: SubIssueList;
+    heading?: string;
+    statuses: string[];
+    mobile?: boolean;
+    mode?: 'world' | 'simple';
+  }[] = [
+    {
+      name: '#199의 완료된 자식 네 개를 모두 연결한다',
+      initial: { items: done },
+      heading: '서브 이슈 · 4/4 완료',
+      statuses: ['완료', '완료', '완료', '완료'],
+      mobile: true,
+    },
+    {
+      name: '간단 모드에서 #199의 완료된 자식 네 개를 모두 연결한다',
+      initial: { items: done },
+      heading: '서브 이슈 · 4/4 완료',
+      statuses: ['완료', '완료', '완료', '완료'],
+      mobile: true,
+      mode: 'simple',
+    },
+    {
+      name: '팝업을 열 때 나머지를 조회하고 종료 사유를 구분한다',
+      initial: { items: [done[0]!], nextPage: 2 },
+      remaining: { items: [open, notPlanned, unknown] },
+      heading: '서브 이슈 · 1/4 완료',
+      statuses: ['완료', '열림', '계획 없음', '닫힘 · 종료 사유 미확인'],
+    },
+    {
+      name: '자식이 없는 것으로 확인되면 섹션을 생략한다',
+      initial: { items: [] },
+      statuses: [],
+    },
+    {
+      name: '부분 조회에서는 기존 링크와 새로 확보한 링크를 유지한다',
+      initial: { items: [done[0]!], nextPage: 2 },
+      remaining: { items: [open], nextPage: 3 },
+      heading: '서브 이슈',
+      statuses: ['완료', '열림'],
+    },
+  ];
+
+  for (const fixture of subIssueCases) {
+    test(`서브 이슈: ${fixture.name}`, async ({ page }) => {
+      await mockGitHub(page);
+      const mode = fixture.mode ?? 'world';
+      await seedSettings(page, [alpha], mode);
+      const report = structuredClone(alphaReport);
+      const parent = report.quests.find(({ number }) => number === 1)!;
+      const items = [
+        ...fixture.initial.items,
+        ...(fixture.remaining?.items ?? []),
+      ];
+      report.quests = [
+        {
+          ...parent,
+          number: 199,
+          url: issueUrl(199),
+          subIssueCount: fixture.remaining?.nextPage ? 4 : items.length,
+          subIssues: fixture.initial,
+        },
+      ];
+      const lookups: Record<string, string>[] = [];
+      await page.route('**/api/github?**', async (route) => {
+        const params = new URL(route.request().url()).searchParams;
+        if (params.get('repo') !== alpha) return route.fallback();
+        if (params.has('subIssues')) {
+          lookups.push(Object.fromEntries(params));
+          return route.fulfill({
+            json: fixture.remaining ?? { items: [], nextPage: 1 },
+          });
+        }
+        if (
+          ['summary', 'activity', 'heritage', 'repository', 'reviews'].some(
+            (key) => params.has(key),
+          )
+        )
+          return route.fallback();
+        await route.fulfill({ json: report });
+      });
+
+      await page.goto('/');
+      await settled(page);
+      await expect(
+        page.getByRole('button', { name: '간단 모드' }),
+      ).toHaveAttribute('aria-pressed', String(mode === 'simple'));
+      expect(lookups).toEqual([]);
+      await page.getByRole('button', { name: /^이슈 #199 / }).click();
+      const dialog = page.getByRole('dialog', { name: '이슈 #199' });
+      await expect(dialog).toBeVisible();
+      const section = dialog.getByRole('region', { name: '서브 이슈' });
+      if (fixture.heading) {
+        if (fixture.mobile)
+          await page.setViewportSize({ width: 390, height: 844 });
+        await expect(
+          section.getByRole('heading', { name: fixture.heading, exact: true }),
+        ).toBeVisible();
+        if (fixture.remaining?.nextPage)
+          await expect(section.getByRole('status')).toHaveText(
+            '서브 이슈를 일부만 확인했습니다.',
+          );
+        await expect(section.getByRole('link')).toHaveCount(items.length);
+        for (const [index, item] of items.entries()) {
+          const link = section.getByRole('link', {
+            name: new RegExp(`#${item.number} · ${item.title}$`),
+          });
+          await expect(link).toHaveAttribute('href', item.url);
+          await expect(
+            link.getByRole('img', {
+              name: fixture.statuses[index],
+              exact: true,
+            }),
+          ).toBeVisible();
+          if (fixture.mobile) await link.click({ trial: true });
+        }
+      } else {
+        await expect(section).toHaveCount(0);
+      }
+      expect(lookups).toEqual(
+        fixture.remaining ? [{ repo: alpha, subIssues: '199', page: '2' }] : [],
+      );
+    });
+  }
 
   test('몬스터: PR별로 기록을 열고 근거와 실행 링크를 중복 표시하지 않는다', async ({
     page,
@@ -612,7 +940,7 @@ test.describe('상세 창', () => {
     const dialog = page.getByRole('dialog', { name: '이슈 #2' });
 
     await expect(dialog.getByText('품질 시험이 실패했습니다.')).toBeVisible();
-    await expect(dialog.getByRole('img', { name: '실행 실패' })).toBeVisible();
+    await expect(dialog.getByRole('img', { name: '실행 실패' })).toHaveCount(0);
     // 이슈 집계(댓글 6개)가 활동량에 반영됩니다. PR 집계 값(5)이면 실패합니다.
     await expect(
       dialog
@@ -620,8 +948,103 @@ test.describe('상세 창', () => {
         .locator('.activity-counter'),
     ).toHaveText(['0', '6', '0', '0']);
     expect(github.queries('summary')).toEqual([
-      { repo: alpha, summary: 'issue', number: '2' },
+      { repo: alpha, summary: 'issue', number: '2', counts: 'comments' },
     ]);
+  });
+
+  test('몬스터: 연결 PR의 고유 커밋을 동시 요청 한도 안에서 집계한다', async ({
+    page,
+  }) => {
+    const github = await mockGitHub(page);
+    await seedSettings(page, [alpha]);
+    await page.addInitScript(() => {
+      const fetch = window.fetch;
+      let started = 0;
+      window.fetch = (input, options) => {
+        if (String(input).includes('summary=')) {
+          document.documentElement.dataset.summaryRequests = String(++started);
+        }
+        return fetch(input, options);
+      };
+    });
+
+    const report = structuredClone(alphaReport);
+    const issue = report.quests.find(({ number }) => number === 2)!;
+    issue.activity = { pullComments: 0, reviews: 1 };
+    const forges = report.forges;
+    if (!forges || forges.length < 3) {
+      throw new Error('alphaReport에 PR 픽스처가 3개 이상 필요합니다.');
+    }
+    issue.pulls = forges
+      .slice(0, 3)
+      .map(({ number, title, url }) => ({ number, title, url }));
+    const replies: Record<string, object> = {
+      '2': { comments: 0 },
+      '11': { commits: 2, shas: ['a', 'b'] },
+      '12': { commits: 3, shas: ['b', 'c'] },
+      '13': { commits: 1, shas: ['d'] },
+    };
+    const queries = [
+      { repo: alpha, summary: 'issue', number: '2', counts: 'comments' },
+      ...issue.pulls.map(({ number }) => ({
+        repo: alpha,
+        summary: 'pull',
+        number: String(number),
+        counts: 'shas',
+      })),
+    ];
+    const calls: Record<string, string>[] = [];
+    const sortedCalls = () =>
+      [...calls].sort((a, b) => Number(a.number) - Number(b.number));
+    let release = () => {};
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    await page.route('**/api/github?**', async (route) => {
+      const params = new URL(route.request().url()).searchParams;
+      if (params.has('branches') && params.get('repo') === alpha) {
+        return route.fulfill({ json: report });
+      }
+      if (!params.has('summary')) return route.fallback();
+      calls.push(Object.fromEntries(params));
+      await held;
+      await route.fulfill({
+        json: {
+          ...replies[params.get('number') ?? ''],
+          people: [],
+          complete: false,
+        },
+      });
+    });
+    await page.goto('/');
+    await settled(page);
+    const counters = page
+      .getByRole('dialog', { name: '이슈 #2' })
+      .getByRole('group', { name: '이슈 활동' });
+    try {
+      await page.getByRole('button', { name: /^이슈 #2 / }).click();
+      await expect.poll(sortedCalls).toEqual(queries.slice(0, 3));
+      await expect(page.locator('html')).toHaveAttribute(
+        'data-summary-requests',
+        '3',
+      );
+      await expect(
+        counters.getByRole('button', { name: '이슈 댓글 미확인' }),
+      ).toHaveText('—');
+    } finally {
+      release();
+    }
+    await expect(
+      counters.getByRole('button', { name: '고유 커밋 4개 이상' }),
+    ).toHaveText('4+');
+    await expect(counters.locator('.activity-counter')).toHaveText([
+      '4+',
+      '0',
+      '0',
+      '1',
+    ]);
+    expect(sortedCalls()).toEqual(queries);
+    expect(github.count('activity')).toBe(0);
   });
 
   test('몬스터: 별도 성공은 실패 표시를 지우지 않고 재개 기록은 지운다', async ({
@@ -701,7 +1124,7 @@ test.describe('상세 창', () => {
     await expect(marker).toHaveClass(/(?:^|\s)blocked(?:\s|$)/);
     await marker.click();
     const dialog = page.getByRole('dialog', { name: '이슈 #78' });
-    await expect(dialog.getByRole('img', { name: '실행 실패' })).toBeVisible();
+    await expect(dialog.getByRole('img', { name: '실행 실패' })).toHaveCount(0);
     await expect(dialog.getByText(reason)).toBeVisible();
     const actions = dialog.getByRole('region', { name: 'GitHub Actions' });
     await expect(actions.locator('.workflow-run-status')).toHaveText([

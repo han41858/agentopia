@@ -270,6 +270,7 @@ export type ActivitySummaryProps = {
   issue?: number;
   pulls: string;
   initial?: ActivityProfile;
+  fallbackComments?: number;
 };
 
 export function useActivitySummary({
@@ -278,61 +279,96 @@ export function useActivitySummary({
   issue,
   pulls,
   initial,
+  fallbackComments,
 }: ActivitySummaryProps) {
-  const [loaded, setLoaded] = useState<ActivityProfile>();
-  const [failed, setFailed] = useState(false);
-  const needsDetails =
-    !initial ||
-    initial.partialCommits ||
-    initial.commits === undefined ||
-    initial.pullComments === undefined ||
-    initial.reviews === undefined ||
-    (issue !== undefined && initial.issueComments === undefined);
+  const issueComments = initial?.issueComments ?? fallbackComments;
+  const needsIssue = issue !== undefined && issueComments === undefined;
+  const needsCommits = initial?.commits === undefined || initial.partialCommits;
+  const counts = pulls
+    ? [
+        needsCommits && (pulls.includes(',') ? 'shas' : 'commits'),
+        initial?.pullComments === undefined && 'comments',
+        initial?.reviews === undefined && 'reviews',
+      ]
+        .filter(Boolean)
+        .join(',')
+    : '';
+  const key = JSON.stringify([region, token, issue, pulls, needsIssue, counts]);
+  const [result, setResult] = useState<{
+    key: string;
+    activity?: ActivityProfile;
+  }>();
   useEffect(() => {
-    if (!needsDetails) return;
+    if (!needsIssue && !counts) return;
     const controller = new AbortController();
-    const get = <T,>(summary: string, number: string) =>
+    const get = <T,>(summary: string, number: string, fields: string) =>
       request<T>(
-        new URLSearchParams({ repo: region, summary, number }),
+        new URLSearchParams({ repo: region, summary, number, counts: fields }),
         token,
         controller.signal,
       );
     async function load() {
-      const issueRecord =
-        issue === undefined
-          ? undefined
-          : await get<Discussion>('issue', String(issue));
-      const numbers = pulls ? pulls.split(',') : [];
+      let issueRecord: Discussion | undefined;
       const records: PullActivity[] = [];
-      for (let offset = 0; offset < numbers.length; offset += 3) {
-        records.push(
-          ...(await Promise.all(
-            numbers
-              .slice(offset, offset + 3)
-              .map((number) => get<PullActivity>('pull', number)),
-          )),
-        );
+      const jobs = counts
+        ? pulls.split(',').map((number) => async () => {
+            records.push(await get<PullActivity>('pull', number, counts));
+          })
+        : [];
+      if (needsIssue) {
+        jobs.unshift(async () => {
+          issueRecord = await get<Discussion>(
+            'issue',
+            String(issue),
+            'comments',
+          );
+        });
+      }
+      for (let offset = 0; offset < jobs.length; offset += 3) {
+        if (controller.signal.aborted) return;
+        await Promise.all(jobs.slice(offset, offset + 3).map((job) => job()));
       }
       if (!controller.signal.aborted)
-        setLoaded(summarizeActivity(issueRecord, records));
+        setResult({ key, activity: summarizeActivity(issueRecord, records) });
     }
     void load().catch(() => {
-      if (!controller.signal.aborted) setFailed(true);
+      if (controller.signal.aborted) return;
+      controller.abort();
+      setResult({ key });
     });
     return () => controller.abort();
-  }, [region, token, issue, pulls, needsDetails]);
+  }, [region, token, issue, pulls, needsIssue, counts, key]);
+  const current = result?.key === key ? result : undefined;
+  const loaded = current?.activity;
+  const useLoadedCommits =
+    needsCommits &&
+    loaded?.commits !== undefined &&
+    (!loaded.partialCommits || loaded.commits >= (initial?.commits ?? 0));
+  const activity: ActivityProfile = {
+    ...initial,
+    commits: pulls
+      ? useLoadedCommits
+        ? loaded?.commits
+        : initial?.commits
+      : 0,
+    partialCommits:
+      Boolean(pulls) &&
+      (useLoadedCommits ? loaded?.partialCommits : initial?.partialCommits),
+    issueComments: issueComments ?? loaded?.issueComments,
+    pullComments: pulls ? (initial?.pullComments ?? loaded?.pullComments) : 0,
+    reviews: pulls ? (initial?.reviews ?? loaded?.reviews) : 0,
+  };
   const status =
-    needsDetails && !loaded
-      ? failed
+    (needsIssue || counts) && !loaded
+      ? current
         ? '일부 활동을 조회하지 못했습니다.'
         : 'GitHub 활동 집계 확인 중…'
       : undefined;
-  return { activity: loaded ?? initial, status };
+  return { activity, status };
 }
 
 export function IssueActivityCounters(
   props: ActivitySummaryProps & {
-    fallbackComments?: number;
     selected?: IssueActivityKind;
     toggle: (kind: IssueActivityKind) => void;
   },

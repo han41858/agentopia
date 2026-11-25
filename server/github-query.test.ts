@@ -2,8 +2,11 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { withCachedHistory } from '../src/snapshot.ts';
 import type { Report } from './model.ts';
+import { getReport } from './github-report.ts';
 import { githubGet } from './github-query.ts';
 import { githubResponse } from './github.ts';
+import { summarizeActivity } from './activity.ts';
+import type { PullActivity } from './activity.ts';
 import { nextRefreshInterval, refreshDue } from '../src/refresh.ts';
 
 test('public lookups merge concurrent callers, honor TTL, and reuse data and pagination on 304', async (context) => {
@@ -110,6 +113,69 @@ test('a permission 403 does not suppress other public repositories and is distin
   assert.match(limited.body, /한도/);
 });
 
+test('popup counts request only their GitHub resources and keep unknown counts distinct from zero', async (context) => {
+  const root = 'https://api.github.com/repos/example/popup-counts';
+  const calls: string[] = [];
+  const replies = new Map<string, unknown>([
+    ['/pulls/1', { commits: 0, comments: 5 }],
+    ['/pulls/1/reviews?per_page=100&page=1', [{ state: 'PENDING' }]],
+    ['/issues/2', { comments: 0 }],
+    ['/pulls/3', { commits: 2 }],
+    ['/pulls/4', { commits: 3 }],
+    ['/pulls/3/commits?per_page=100&page=1', [{ sha: 'a' }, { sha: 'b' }]],
+    ['/pulls/4/commits?per_page=100&page=1', [{ sha: 'B' }, { sha: 'c' }]],
+  ]);
+  context.mock.method(globalThis, 'fetch', async (input: string) => {
+    calls.push(input);
+    const path = input.slice(root.length);
+    assert.ok(input.startsWith(root) && replies.has(path), input);
+    return Response.json(replies.get(path));
+  });
+  async function read(query: string, paths: string[]) {
+    const url = new URL(
+      `https://agentopia.test/api/github?repo=example/popup-counts&summary=${query}`,
+    );
+    const response = await githubResponse(url, 'GET');
+    assert.deepEqual(
+      calls.splice(0).sort(),
+      paths.map((path) => root + path).sort(),
+    );
+    assert.equal(response.status, 200, response.body);
+    return JSON.parse(response.body) as PullActivity;
+  }
+  const pull = await read('pull&number=1&counts=commits,comments', [
+    '/pulls/1',
+  ]);
+  assert.equal(pull.commits, 0);
+  assert.equal(pull.comments, 5);
+  assert.equal(pull.reviews, undefined);
+  const reviews = await read('pull&number=1&counts=reviews', [
+    '/pulls/1/reviews?per_page=100&page=1',
+  ]);
+  assert.equal(reviews.reviews, 0);
+  assert.equal(reviews.comments, undefined);
+  assert.equal(
+    (await read('issue&number=2&counts=comments', ['/issues/2'])).comments,
+    0,
+  );
+  const linked = [];
+  for (const number of [3, 4]) {
+    linked.push(
+      await read(`pull&number=${number}&counts=shas`, [
+        `/pulls/${number}`,
+        `/pulls/${number}/commits?per_page=100&page=1`,
+      ]),
+    );
+  }
+  const partial = summarizeActivity(undefined, linked);
+  assert.equal(partial.commits, 3);
+  assert.equal(partial.partialCommits, true);
+  linked[1].shas.push('d');
+  const complete = summarizeActivity(undefined, linked);
+  assert.equal(complete.commits, 4);
+  assert.equal(complete.partialCommits, false);
+});
+
 test('quiet intervals back off independently and active or changed work restores the base interval', () => {
   const base = 20_000;
   let quiet = nextRefreshInterval(base, base, false, false);
@@ -142,8 +208,47 @@ test('release history uses published releases and excludes drafts and workflow r
     draft: false,
     prerelease: false,
   };
+  const rows = [
+    { ...release, tag_name: 'draft', draft: true },
+    { ...release, tag_name: 'unpublished', published_at: null },
+    {
+      ...release,
+      tag_name: 'v2-beta',
+      prerelease: true,
+      published_at: '2026-11-23T02:00:00Z',
+    },
+    release,
+  ];
+  const paths: string[] = [];
+  const names = ['v1', 'tag-only'];
   context.mock.method(globalThis, 'fetch', async (input: string) => {
     const path = new URL(input).pathname;
+    paths.push(path);
+    if (path === '/graphql')
+      return Response.json({
+        data: {
+          repository: {
+            refs: {
+              nodes: names.map((name) => ({
+                name,
+                target: { oid: 'abc', committedDate: release.published_at },
+              })),
+            },
+            releases: {
+              pageInfo: { hasNextPage: false },
+              // v1 was created after v2-beta, but v2-beta was published later.
+              nodes: rows.toReversed().map((row) => ({
+                tagName: row.tag_name,
+                url: row.html_url,
+                isDraft: row.draft,
+                isPrerelease: row.prerelease,
+                publishedAt: row.published_at,
+                tagCommit: row.tag_name === 'v1' ? { oid: 'abc' } : null,
+              })),
+            },
+          },
+        },
+      });
     if (path.endsWith('/actions/runs')) return Response.json({ workflow_runs });
     if (path.endsWith('/commits'))
       return Response.json([
@@ -151,20 +256,9 @@ test('release history uses published releases and excludes drafts and workflow r
       ]);
     if (path.endsWith('/tags'))
       return Response.json(
-        ['v1', 'tag-only'].map((name) => ({ name, commit: { sha: 'abc' } })),
+        names.map((name) => ({ name, commit: { sha: 'abc' } })),
       );
-    if (path.endsWith('/releases'))
-      return Response.json([
-        { ...release, draft: true },
-        { ...release, published_at: null },
-        {
-          ...release,
-          tag_name: 'v2-beta',
-          prerelease: true,
-          published_at: '2026-11-23T02:00:00Z',
-        },
-        release,
-      ]);
+    if (path.endsWith('/releases')) return Response.json(rows);
     return Response.json([]);
   });
   const response = await githubResponse(
@@ -196,6 +290,20 @@ test('release history uses published releases and excludes drafts and workflow r
       stage: 'complete',
     },
   ]);
+  assert.equal(paths.filter((path) => path.endsWith('/releases')).length, 1);
+  paths.length = 0;
+  const authenticated = await githubResponse(
+    new URL('https://agentopia.test/api/github?repo=example/release-history'),
+    'GET',
+    'Bearer checked_token',
+  );
+  assert.equal(authenticated.status, 200);
+  const report = JSON.parse(authenticated.body);
+  assert.deepEqual(report.releases, JSON.parse(response.body).releases);
+  assert.deepEqual(report.tags, JSON.parse(response.body).tags);
+  assert.deepEqual(report.warnings, []);
+  assert.equal(paths.filter((path) => path === '/graphql').length, 1);
+  assert.equal(paths.filter((path) => path.endsWith('/releases')).length, 0);
 });
 
 test('anonymous history bounds date and release lookups when the tag page is full', async (context) => {
@@ -294,7 +402,7 @@ test('authenticated history accepts annotated tags and skips history calls when 
                 },
               ],
             },
-            releases: { nodes: [] },
+            releases: { nodes: [], pageInfo: { hasNextPage: false } },
           },
         },
       });
@@ -318,13 +426,167 @@ test('authenticated history accepts annotated tags and skips history calls when 
     !paths.includes('/graphql') &&
       !paths.some((path) => path.endsWith('/releases')),
   );
+  assert.equal(paths.filter((path) => path.endsWith('/tags')).length, 0);
+  paths.length = 0;
   url.searchParams.set('refresh', '1');
-  await load();
-  assert.ok(
-    paths.includes('/graphql') &&
-      paths.some((path) => path.endsWith('/releases')),
-  );
+  const refreshed = await load();
+  assert.deepEqual(refreshed.tags, initial.tags);
+  assert.equal(paths.filter((path) => path === '/graphql').length, 1);
+  assert.equal(paths.filter((path) => path.endsWith('/releases')).length, 0);
 });
+
+test('authenticated history falls back to the REST window when creation order truncates releases', async (context) => {
+  const slug = 'example/late-publication';
+  const url = `https://github.com/${slug}/releases/tag/late`;
+  const publishedAt = '2026-11-25T00:00:00Z';
+  let rest = 0;
+  context.mock.method(globalThis, 'fetch', async (input: string) => {
+    const path = new URL(input).pathname;
+    if (path === '/graphql')
+      return Response.json({
+        data: {
+          repository: {
+            refs: { nodes: [] },
+            releases: {
+              nodes: Array.from({ length: 30 }, (_, i) => ({
+                tagName: `draft-${i}`,
+                url: `${url}-${i}`,
+                isDraft: true,
+                isPrerelease: false,
+                publishedAt: null,
+                tagCommit: null,
+              })),
+              pageInfo: { hasNextPage: true },
+            },
+          },
+        },
+      });
+    if (path.endsWith('/releases')) {
+      rest++;
+      assert.equal(new URL(input).searchParams.get('per_page'), '30');
+      return Response.json([
+        {
+          tag_name: 'late',
+          html_url: url,
+          draft: false,
+          prerelease: false,
+          created_at: '2025-01-01T00:00:00Z',
+          published_at: publishedAt,
+        },
+      ]);
+    }
+    if (path.endsWith('/actions/runs'))
+      return Response.json({ workflow_runs: [] });
+    return Response.json([]);
+  });
+  const report = await getReport({ slug, name: slug }, 'fixture-token');
+  assert.deepEqual(report.warnings, []);
+  assert.deepEqual(report.releases, [
+    {
+      title: 'late',
+      url,
+      status: '릴리스',
+      sha: undefined,
+      at: publishedAt,
+      stage: 'complete',
+    },
+  ]);
+  assert.equal(rest, 1);
+});
+
+for (const failure of [
+  'refs',
+  'releases',
+  'recovered',
+  'permission',
+] as const) {
+  test(`authenticated history retains available rows after ${failure} failure`, async (context) => {
+    const slug = `example/history-${failure}`;
+    const url = `https://github.com/${slug}/releases/tag/v1`;
+    const at = '2026-11-22T02:00:00Z';
+    let rest = 0;
+    context.mock.method(globalThis, 'fetch', async (input: string) => {
+      const path = new URL(input).pathname;
+      if (path === '/graphql') {
+        if (failure === 'permission')
+          return new Response(null, { status: 403 });
+        return Response.json({
+          errors: [
+            {
+              path: [
+                'repository',
+                failure === 'recovered' ? 'releases' : failure,
+                'nodes',
+                1,
+              ],
+            },
+          ],
+          data: {
+            repository: {
+              refs: {
+                nodes: [
+                  {
+                    name: 'tag-only',
+                    target: { oid: 'tag', committedDate: at },
+                  },
+                  ...(failure === 'refs' ? [null] : []),
+                ],
+              },
+              releases: {
+                nodes: [
+                  {
+                    tagName: 'v1',
+                    url,
+                    isDraft: false,
+                    isPrerelease: false,
+                    publishedAt: at,
+                    tagCommit: { oid: 'released' },
+                  },
+                  ...(failure === 'releases' || failure === 'recovered'
+                    ? [null]
+                    : []),
+                ],
+                pageInfo: { hasNextPage: false },
+              },
+            },
+          },
+        });
+      }
+      if (path.endsWith('/releases')) {
+        rest++;
+        if (failure === 'releases') return new Response(null, { status: 403 });
+        return Response.json([
+          { tag_name: 'v1', html_url: url, published_at: at, draft: false },
+        ]);
+      }
+      if (path.endsWith('/actions/runs'))
+        return Response.json({ workflow_runs: [] });
+      return Response.json([]);
+    });
+    const report = await getReport({ slug, name: slug }, 'fixture-token');
+    assert.deepEqual(
+      report.warnings,
+      failure === 'recovered'
+        ? []
+        : [failure === 'releases' ? '릴리스' : '태그'],
+    );
+    assert.deepEqual(
+      report.tags,
+      failure === 'permission' ? [] : [{ name: 'tag-only', committedAt: at }],
+    );
+    assert.deepEqual(report.releases, [
+      {
+        title: 'v1',
+        url,
+        at,
+        status: '릴리스',
+        stage: 'complete',
+        sha: failure === 'permission' ? undefined : 'released',
+      },
+    ]);
+    assert.equal(rest, failure === 'refs' ? 0 : 1);
+  });
+}
 
 test('cached publication evidence follows the current merged PRs', () => {
   const published = {
@@ -437,3 +699,169 @@ test('anonymous ancestry starts at the most recently published tag even if it is
     ),
   );
 });
+
+for (const mode of ['public', 'authenticated'] as const) {
+  test(`${mode}: work lookups run while tags are held`, async (context) => {
+    const slug = `example/overlap-${mode}`;
+    const repo = `https://github.com/${slug}`;
+    const mergedAt = '2026-11-01T00:00:00Z';
+    const publishedAt = '2026-11-02T00:00:00Z';
+    const releaseUrl = `${repo}/releases/tag/v1`;
+    const paths: string[] = [];
+    let releaseTags!: () => void;
+    const tagGate = new Promise<void>((resolve) => {
+      releaseTags = resolve;
+    });
+    const parent = {
+      number: 1,
+      title: 'Parent issue',
+      body: '',
+      state: 'closed',
+      state_reason: 'completed',
+      html_url: `${repo}/issues/1`,
+      updated_at: mergedAt,
+      closed_at: mergedAt,
+      comments: 1,
+      labels: [],
+      sub_issues_summary: { total: 1, completed: 0 },
+    };
+    const child = {
+      number: 2,
+      title: 'Open child issue',
+      body: '',
+      state: 'open',
+      html_url: `${repo}/issues/2`,
+      updated_at: mergedAt,
+      comments: 0,
+      labels: [],
+    };
+    context.mock.method(
+      globalThis,
+      'fetch',
+      async (input: string, options: RequestInit) => {
+        const path = new URL(input).pathname.replace(`/repos/${slug}`, '');
+        if (path === '/graphql') {
+          if (String(options.body).includes('refs/tags/')) {
+            paths.push('GraphQL tags');
+            await tagGate;
+            return Response.json({
+              data: {
+                repository: {
+                  refs: {
+                    nodes: [
+                      {
+                        name: 'tag-only',
+                        target: { oid: 'tag-commit', committedDate: mergedAt },
+                      },
+                    ],
+                  },
+                  releases: {
+                    nodes: [
+                      {
+                        tagName: 'v1',
+                        url: releaseUrl,
+                        publishedAt,
+                        isDraft: false,
+                        isPrerelease: false,
+                        tagCommit: { oid: 'merged' },
+                      },
+                    ],
+                    pageInfo: { hasNextPage: false },
+                  },
+                },
+              },
+            });
+          }
+          paths.push('GraphQL links');
+          return Response.json({
+            data: { repository: { pullRequests: { nodes: [] } } },
+          });
+        }
+        paths.push(path);
+        switch (path) {
+          case '/tags':
+            await tagGate;
+            return Response.json([{ name: 'v1', commit: { sha: 'merged' } }]);
+          case '/releases':
+            return Response.json([
+              {
+                tag_name: 'v1',
+                html_url: releaseUrl,
+                published_at: publishedAt,
+                draft: false,
+                prerelease: false,
+              },
+            ]);
+          case '/commits':
+            return Response.json([
+              { sha: 'merged', commit: { committer: { date: mergedAt } } },
+            ]);
+          case '/issues':
+            return Response.json([parent]);
+          case '/issues/1/sub_issues':
+            return Response.json([child]);
+          case '/issues/comments':
+            return Response.json([]);
+          case '/actions/runs':
+            return Response.json({ workflow_runs: [] });
+          case '/pulls':
+            return Response.json([
+              {
+                number: 3,
+                title: 'Merged change',
+                body: 'Closes #1',
+                html_url: `${repo}/pull/3`,
+                state: 'closed',
+                head: { sha: 'head', ref: 'topic' },
+                merged_at: mergedAt,
+                updated_at: mergedAt,
+                merge_commit_sha: 'merged',
+              },
+            ]);
+          case '/pulls/3/commits':
+            return Response.json([{ sha: 'head' }]);
+          default:
+            assert.fail(`Unexpected GitHub request: ${input}`);
+        }
+      },
+    );
+
+    const token = mode === 'authenticated' ? 'fixture-token' : undefined;
+    const pending = getReport({ slug, name: slug }, token);
+    // Drain the fixed-response work without measuring elapsed time. The gate
+    // stays closed even if a regression prevents any follow-up from starting.
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    const beforeTags = [...paths];
+    releaseTags();
+    const report = await pending;
+
+    const expectedBeforeTags = [
+      '/actions/runs',
+      '/issues',
+      '/issues/1/sub_issues',
+      '/issues/comments',
+      '/pulls',
+      ...(token
+        ? ['GraphQL tags', 'GraphQL links']
+        : ['/releases', '/tags', '/pulls/3/commits']),
+    ];
+    assert.deepEqual(beforeTags.sort(), expectedBeforeTags.toSorted());
+    assert.deepEqual(
+      paths.sort(),
+      [...expectedBeforeTags, ...(token ? [] : ['/commits'])].sort(),
+    );
+    assert.deepEqual(report.warnings, []);
+    assert.deepEqual(report.tags, [
+      { name: token ? 'tag-only' : 'v1', committedAt: mergedAt },
+    ]);
+    assert.equal(report.releases[0]?.sha, 'merged');
+    const quest = report.quests.find(({ number }) => number === 1);
+    assert.equal(quest?.state, 'closed');
+    assert.equal(quest?.pulls[0]?.mergeSha, 'merged');
+    assert.equal(quest?.evidence?.url, releaseUrl);
+    assert.equal(
+      report.quests.find(({ number }) => number === 2)?.state,
+      'open',
+    );
+  });
+}

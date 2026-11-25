@@ -90,6 +90,20 @@ export type RecoveryBadge = {
   limit?: number;
 };
 
+export type SubIssue = {
+  number: number;
+  title: string;
+  url: string;
+  state: Issue['state'];
+  stateReason?: Issue['state_reason'];
+};
+
+export type SubIssueList = {
+  items: SubIssue[];
+  // Omitted only when the full direct-child list is known.
+  nextPage?: number;
+};
+
 export type Quest = {
   number: number;
   title: string;
@@ -101,6 +115,7 @@ export type Quest = {
   victory?: boolean;
   adventurers?: Adventurer[];
   issueLeader?: 'active' | 'resting';
+  automationPulls?: number[];
   issueCIStatus?: 'waiting' | 'running' | 'passed' | 'finished';
   activities?: ActivityCounts;
   activity?: ActivityProfile;
@@ -111,6 +126,7 @@ export type Quest = {
   workReviewer?: Agent;
   issueComments?: number;
   subIssueCount?: number;
+  subIssues?: SubIssueList;
   parent?: number;
   reason?: string;
   detail?: string;
@@ -138,6 +154,7 @@ export type PullQuest = Source & {
   recoveryBadge?: RecoveryBadge;
   ciQueued?: boolean;
   ciParticipated?: boolean;
+  automationParticipated?: boolean;
   reason?: string;
   activity?: ActivityProfile;
   activities?: ActivityCounts;
@@ -564,15 +581,41 @@ function latestWorkflowRuns(runs: WorkflowRunRecord[]): WorkflowRunRecord[] {
     .map(({ run }) => run);
 }
 
-function currentPullCI(runs: Run[], region: Region, pull: Pull) {
-  return runs.find(
+function matchesPullHead(run: Run, region: Region, pull: Pull) {
+  if (run.head_sha !== pull.head.sha) return false;
+  if (run.pull_requests.length)
+    return run.pull_requests.some(({ number }) => number === pull.number);
+  return (
+    pull.head.repo?.full_name.toLowerCase() === region.slug &&
+    run.head_branch === pull.head.ref
+  );
+}
+
+function automationRunParticipated(run: Run) {
+  return (
+    run.conclusion !== 'skipped' &&
+    (run.status === 'in_progress' || run.status === 'completed')
+  );
+}
+
+function referencesPull(run: Run, pull: Pull) {
+  return run.pull_requests.some(({ number }) => number === pull.number);
+}
+
+function pullCIRuns(runs: Run[], region: Region, pull: Pull) {
+  return runs.filter(
     (run) =>
       run.path.split('@')[0] === '.github/workflows/ci.yml' &&
-      run.head_sha === pull.head.sha &&
-      (run.pull_requests.some(({ number }) => number === pull.number) ||
-        (pull.head.repo?.full_name.toLowerCase() === region.slug &&
-          run.head_branch === pull.head.ref)),
+      (run.pull_requests.length
+        ? referencesPull(run, pull)
+        : run.head_sha === pull.head.sha &&
+          pull.head.repo?.full_name.toLowerCase() === region.slug &&
+          run.head_branch === pull.head.ref),
   );
+}
+
+function currentPullCI(history: Run[], pull: Pull) {
+  return history.find((run) => run.head_sha === pull.head.sha);
 }
 
 const recoveryStages: Record<RecoveryBadge['kind'], Stage> = {
@@ -655,7 +698,10 @@ export function makeForges(
   quests: Quest[] = [],
 ): PullQuest[] {
   const work = new Map<number, Quest[]>();
+  const automationPulls = new Set<number>();
   for (const quest of quests) {
+    for (const number of quest.automationPulls ?? [])
+      automationPulls.add(number);
     if (quest.workPull === undefined) continue;
     const current = work.get(quest.workPull) ?? [];
     current.push(quest);
@@ -669,14 +715,11 @@ export function makeForges(
         Boolean(pull.merged_at),
     )
     .map((pull) => {
-      const relatedRuns = runs.filter(
-        (run) =>
-          run.head_sha === pull.head.sha &&
-          (run.pull_requests.some(({ number }) => number === pull.number) ||
-            (pull.head.repo?.full_name.toLowerCase() === region.slug &&
-              run.head_branch === pull.head.ref)),
+      const relatedRuns = runs.filter((run) =>
+        matchesPullHead(run, region, pull),
       );
-      const ci = currentPullCI(relatedRuns, region, pull);
+      const ciHistory = pullCIRuns(runs, region, pull);
+      const ci = currentPullCI(ciHistory, pull);
       const outcome = ci ? runStage(ci) : 'idle';
       const review = links.get(pull.number);
       const cancelled = pull.state === 'closed' && !pull.merged_at;
@@ -766,12 +809,14 @@ export function makeForges(
         ciQueued:
           (quality === 'ci' || recoveryBadge?.kind === 'checking') &&
           ci?.status !== 'in_progress',
-        ciParticipated:
-          Boolean(ci) ||
+        ciParticipated: ciHistory.length > 0,
+        automationParticipated:
+          automationPulls.has(pull.number) ||
           runs.some(
             (run) =>
-              run.path.split('@')[0] === '.github/workflows/ci.yml' &&
-              run.pull_requests.some(({ number }) => number === pull.number),
+              automationRunParticipated(run) &&
+              referencesPull(run, pull) &&
+              runIssue(run) !== undefined,
           ),
         quality: pull.merged_at || cancelled ? undefined : quality,
         activity: summarizeActivity(undefined, [
@@ -921,16 +966,33 @@ export function makeQuests(
           ? headPulls[0]
           : retryPull);
     const pull = workPull ?? issuePulls[0];
-    const ci = pull ? currentPullCI(runs, region, pull) : undefined;
+    const ciHistory = pull ? pullCIRuns(runs, region, pull) : [];
+    const ci = pull ? currentPullCI(ciHistory, pull) : undefined;
     // Earlier CI attempts remain visible in Actions history after recovery changes the head.
-    const earlierCI = pull
-      ? runs.filter(
+    const earlierCI = ciHistory.filter((candidate) => candidate.id !== ci?.id);
+    const automationRuns = automation.filter(automationRunParticipated);
+    const checkpoints = (selection?.records ?? []).filter(
+      ({ state }) =>
+        !automation.some(
           (candidate) =>
-            candidate.id !== ci?.id &&
-            candidate.path.split('@')[0] === '.github/workflows/ci.yml' &&
-            candidate.pull_requests.some((item) => item.number === pull.number),
-        )
-      : [];
+            stateMatchesRun(state, candidate) &&
+            candidate.conclusion === 'skipped',
+        ),
+    );
+    const automationPulls = issuePulls
+      .filter(
+        (item) =>
+          automationRuns.some((candidate) => referencesPull(candidate, item)) ||
+          checkpoints.some(({ state }) => state.pullNumber === item.number),
+      )
+      .map(({ number }) => number);
+    const actionsParticipated =
+      automationRuns.length > 0 ||
+      checkpoints.length > 0 ||
+      ciHistory.length > 0 ||
+      issuePulls.some(
+        (item) => item !== pull && pullCIRuns(runs, region, item).length > 0,
+      );
     const branch =
       pull && pullIssue(pull, region) === issue.number ? pull.head.ref : '';
     const matchingRun = Boolean(run && state && stateMatchesRun(state, run));
@@ -984,8 +1046,17 @@ export function makeQuests(
         : undefined;
     let detail = state?.detail;
     const outcome = run && runStage(run);
+    const review = state?.reviews?.findLast(
+      (item) => item.head === (pull?.head.sha ?? state.head),
+    )?.result?.status;
+    const approvedForCompletion =
+      matchingRun &&
+      state?.status === 'ready' &&
+      recordedPull &&
+      review === 'pass';
     if (
       run &&
+      !(outcome === 'failed' && approvedForCompletion) &&
       (outcome === 'failed' || outcome === 'attention') &&
       state?.status !== 'needs_human' &&
       stage !== 'complete'
@@ -1005,9 +1076,6 @@ export function makeQuests(
       stage = outcome;
       evidence = runSource(run);
     }
-    const review = state?.reviews?.findLast(
-      (item) => item.head === (pull?.head.sha ?? state.head),
-    )?.result?.status;
     if (
       ci &&
       (stage === 'ci' ||
@@ -1083,7 +1151,8 @@ export function makeQuests(
       stage = recoveryStages[recoveryBadge.kind];
     const adventurers = new Map<Agent, Adventurer>();
     const issueCIStatus =
-      stage !== 'ci'
+      stage !== 'ci' &&
+      (!ci || pull?.state !== 'open' || ci.conclusion === 'skipped')
         ? undefined
         : ci?.status === 'in_progress'
           ? 'running'
@@ -1092,18 +1161,12 @@ export function makeQuests(
             : ci.conclusion === 'success'
               ? 'passed'
               : 'finished';
-    const readyToMerge =
-      state?.status === 'ready' && issueCIStatus === 'passed';
     const issueLeader =
-      issue.state !== 'open'
+      issue.state !== 'open' || !actionsParticipated
         ? undefined
-        : issueCIStatus === 'running'
+        : pull?.state === 'open' && ci?.status === 'in_progress'
           ? 'active'
-          : automationRunning ||
-              readyToMerge ||
-              recoveryBadge?.kind === 'checking'
-            ? 'resting'
-            : undefined;
+          : 'resting';
     const addAdventurer = (
       agent: Agent,
       role: AdventurerRole,
@@ -1245,6 +1308,7 @@ export function makeQuests(
       recoveryBadge,
       issueRecoveryBadge: issueStop ?? recoveryBadge ?? queuedBadge,
       issueLeader,
+      automationPulls: automationPulls.length ? automationPulls : undefined,
       issueCIStatus,
       adventurers:
         automationRunning &&

@@ -102,6 +102,101 @@ function outsideWall(page: Page, selector: string) {
   }, selector);
 }
 
+test.describe('모바일 하위 이슈 배치', () => {
+  test.use({ viewport: { width: 390, height: 844 }, hasTouch: true });
+
+  for (const mode of ['world', 'simple'] as const) {
+    test(`${mode}: 줄이 바뀐 하위 이슈도 부모 아래 가운데 정렬된다`, async ({
+      page,
+    }, testInfo) => {
+      await openWorld(page, [alpha], mode);
+      const childNumbers = Array.from(
+        { length: 16 },
+        (_, index) => 200 + index,
+      );
+      const quests = [199, ...childNumbers, 216, 217].map((number): Quest => ({
+        ...alphaReport.quests[0],
+        number,
+        title: `모바일 배치 ${number}`,
+        url: `https://github.com/${alpha}/issues/${number}`,
+        state: 'open',
+        stage: 'idle',
+        parent: childNumbers.includes(number)
+          ? 199
+          : number === 217
+            ? 216
+            : undefined,
+        subIssueCount: undefined,
+        workPull: undefined,
+        pulls: [],
+        adventurers: [],
+      }));
+      await page.route('**/api/github?**', async (route) => {
+        const params = new URL(route.request().url()).searchParams;
+        if (
+          params.get('repo') !== alpha ||
+          ['owner', 'heritage', 'summary', 'activity', 'repository'].some(
+            (key) => params.has(key),
+          )
+        ) {
+          await route.fallback();
+          return;
+        }
+        await route.fulfill({ json: { ...alphaReport, quests } });
+      });
+      await page.reload();
+      await settled(page);
+
+      const kingdom = page.getByRole('region', { name: 'alpha', exact: true });
+      const children = kingdom.getByRole('list', {
+        name: '이슈 #199의 하위 이슈',
+      });
+      const issue = (number: number) =>
+        kingdom.getByRole('button', {
+          name: new RegExp(`^이슈 #${number} · `),
+        });
+      await expect(issue(199)).toBeVisible();
+      await expect(issue(217)).toBeVisible();
+      await expect(children.locator(':scope > li')).toHaveCount(
+        childNumbers.length,
+      );
+      await expect(children).toHaveCSS('border-inline-start-width', '0px');
+      await expect(children).toHaveCSS('padding-inline-start', '0px');
+
+      const [parentBox] = await boxes(issue(199));
+      const childBoxes = await boxes(children.locator(':scope > li'));
+      const rows: Box[][] = [];
+      for (const child of childBoxes) {
+        const row = rows.find(([first]) => Math.abs(first.y - child.y) < 1);
+        if (row) row.push(child);
+        else rows.push([child]);
+      }
+      await testInfo.attach('부모와 하위 이슈의 줄별 위치', {
+        body: JSON.stringify({ parentBox, rows }, null, 2),
+        contentType: 'application/json',
+      });
+      expect(rows.length).toBeGreaterThan(1);
+      expect(rows[0].length).toBeGreaterThan(1);
+      for (const row of rows) {
+        const left = Math.min(...row.map(({ x }) => x));
+        const right = Math.max(...row.map(({ x, width }) => x + width));
+        const parentCenter = parentBox.x + parentBox.width / 2;
+        expect(Math.abs((left + right) / 2 - parentCenter)).toBeLessThanOrEqual(
+          1,
+        );
+        expect(row[0].y + 1).toBeGreaterThanOrEqual(
+          parentBox.y + parentBox.height,
+        );
+      }
+
+      await issue(200).tap();
+      await expect(
+        page.getByRole('dialog', { name: '이슈 #200', exact: true }),
+      ).toBeVisible();
+    });
+  }
+});
+
 function heritageArtGaps(area: Locator) {
   return area.evaluate(async (node) => {
     const wall = node.querySelector<SVGSVGElement>('.kingdom-wall');
@@ -494,28 +589,57 @@ for (const width of [1280, 390]) {
           }
           await route.fulfill({ json: emptyReport });
         });
-        await seedSettings(page, repositories, mode);
+        await seedSettings(page, [alpha, ...repositories], mode);
         await page.goto('/');
         await settled(page);
-        await expect(page.locator('[data-display-mode]')).toHaveAttribute(
-          'data-display-mode',
-          mode,
-        );
+        const displayMode = page.locator('[data-display-mode]');
+        await expect(displayMode).toHaveAttribute('data-display-mode', mode);
         await expect(page.locator('.kingdoms > .kingdom-region')).toHaveCount(
-          repositories.length,
+          repositories.length + 1,
         );
 
         const footer = page.locator('.world-footer');
-        const legend = footer.getByRole('list', {
-          name: mode === 'simple' ? '활동 범례' : '기본 파티 구성',
-        });
+        const legendFor = (currentMode: 'world' | 'simple') =>
+          footer.getByRole('list', {
+            name: currentMode === 'simple' ? '활동 범례' : '기본 파티 구성',
+          });
+        const legend = legendFor(mode);
+        const expectLegendStyle = async (currentMode: 'world' | 'simple') => {
+          const simple = currentMode === 'simple';
+          await expect(footer).toHaveCSS(
+            'background-color',
+            simple ? 'rgb(27, 22, 44)' : 'rgba(255, 255, 255, 0.2)',
+          );
+          await expect(footer).toHaveCSS('background-image', 'none');
+          await expect(footer).toHaveCSS('opacity', '1');
+          const rows = legendFor(currentMode).getByRole('listitem');
+          const names = [simple ? 'GitHub' : '파티장', 'Codex', 'Claude'];
+          await expect(rows).toHaveText(names);
+          for (const index of names.keys()) {
+            const row = rows.nth(index);
+            await expect(row).toHaveCSS(
+              'color',
+              simple ? 'rgb(238, 233, 247)' : 'rgb(242, 242, 242)',
+            );
+            const icon = row.locator('img');
+            await expect(icon).toBeVisible();
+            await expect(icon).toHaveCSS('opacity', '1');
+            if (simple) {
+              await expect(icon).toHaveCSS('width', '24px');
+              await expect(icon).toHaveCSS('height', '24px');
+            }
+          }
+        };
         const measure = () =>
           footer.evaluate((node) => {
-            const { right, bottom } = node.getBoundingClientRect();
+            const { right, bottom, width, height } =
+              node.getBoundingClientRect();
             return {
               scrollY: window.scrollY,
               rightGap: document.documentElement.clientWidth - right,
               bottomGap: document.documentElement.clientHeight - bottom,
+              width,
+              height,
             };
           });
 
@@ -525,6 +649,7 @@ for (const width of [1280, 390]) {
         });
         const scrolled = await measure();
         await expect(legend).toBeInViewport({ ratio: 1 });
+        await expectLegendStyle(mode);
         await page.evaluate(() => {
           window.scrollTo(0, 0);
         });
@@ -549,8 +674,48 @@ for (const width of [1280, 390]) {
         for (const position of [scrolled, returned]) {
           expect(position.rightGap).toBeCloseTo(before.rightGap, 1);
           expect(position.bottomGap).toBeCloseTo(before.bottomGap, 1);
+          expect(position.width).toBeCloseTo(before.width, 1);
+          expect(position.height).toBeCloseTo(before.height, 1);
         }
         await expect(footer).toHaveCSS('position', 'fixed');
+
+        if (mode === 'world') {
+          const idleAvatar = page
+            .locator(
+              '.kingdoms .adventurer-glyph:not(.active) .adventurer-avatar',
+            )
+            .first();
+          await expect(idleAvatar).toHaveCSS('opacity', '0.67');
+
+          if (width < 640) {
+            await page.locator('.header-bookmark').tap();
+          }
+          const modeSwitch = page.getByRole('button', { name: '간단 모드' });
+          for (const nextMode of ['simple', 'world'] as const) {
+            await modeSwitch.click();
+            await expect(displayMode).toHaveAttribute(
+              'data-display-mode',
+              nextMode,
+            );
+            await expect(legendFor(nextMode)).toBeInViewport({ ratio: 1 });
+            await expectLegendStyle(nextMode);
+            const switched = await measure();
+            console.log(
+              `모드 전환 후 범례 위치 (px): ${JSON.stringify({
+                viewportWidth: width,
+                mode: nextMode,
+                ...switched,
+              })}`,
+            );
+            expect(switched.rightGap).toBeCloseTo(before.rightGap, 1);
+            expect(switched.bottomGap).toBeCloseTo(before.bottomGap, 1);
+            if (nextMode === 'world') {
+              expect(switched.width).toBeCloseTo(before.width, 1);
+              expect(switched.height).toBeCloseTo(before.height, 1);
+            }
+          }
+          await expect(idleAvatar).toHaveCSS('opacity', '0.67');
+        }
       });
     }
   });
@@ -1051,9 +1216,174 @@ for (const width of [1280, 390, 320]) {
     });
 
     if (touch) {
+      test('두 모드에서 버튼과 지도 표식의 눌림 효과가 터치 후 남지 않는다', async ({
+        page,
+        browserName,
+      }) => {
+        const cdp =
+          browserName === 'chromium'
+            ? await page.context().newCDPSession(page)
+            : undefined;
+        const bookmark = page.locator('.header-bookmark');
+        const face = bookmark.locator('.header-bookmark-face');
+        const issue = page.getByRole('button', { name: /^이슈 #1 / });
+        const facility = page.getByRole('button', { name: /PR #11/ });
+
+        async function startPress(
+          session: NonNullable<typeof cdp>,
+          button: Locator,
+        ) {
+          // 버튼이 이동 중이면 실제 탭과 마찬가지로 멈출 때까지 기다립니다.
+          await button.tap({ trial: true });
+          const { x, y, hitsButton } = await button.evaluate((node) => {
+            const surface = node.querySelector('.header-bookmark-face') ?? node;
+            const box = surface.getBoundingClientRect();
+            const x = Math.round(box.left + box.width / 2);
+            const y = Math.round(box.top + box.height / 2);
+            return {
+              x,
+              y,
+              hitsButton: node.contains(document.elementFromPoint(x, y)),
+            };
+          });
+          expect(
+            hitsButton,
+            `터치 좌표 (${x}, ${y})가 버튼을 가리켜야 합니다.`,
+          ).toBe(true);
+          await session.send('Input.dispatchTouchEvent', {
+            type: 'touchStart',
+            touchPoints: [{ x, y }],
+          });
+        }
+
+        for (const mode of ['world', 'simple']) {
+          if (mode === 'simple') {
+            await bookmark.tap();
+            await page.locator('.mode-switch').tap();
+            await bookmark.tap();
+          }
+          await expect(page.locator('[data-display-mode]')).toHaveAttribute(
+            'data-display-mode',
+            mode,
+          );
+
+          for (const { button, surface, dialogName } of [
+            { button: bookmark, surface: face, dialogName: null },
+            { button: issue, surface: issue, dialogName: '이슈 #1' },
+            { button: facility, surface: facility, dialogName: 'PR #11' },
+          ]) {
+            await button.scrollIntoViewIfNeeded();
+            await expect(button).toHaveCSS(
+              '-webkit-tap-highlight-color',
+              'rgba(0, 0, 0, 0)',
+            );
+            const resting = await surface.evaluate(
+              (node) => getComputedStyle(node).backgroundImage,
+            );
+
+            // Playwright의 tap은 손을 떼기 전의 상태를 관찰할 수 없습니다.
+            if (cdp) {
+              await startPress(cdp, button);
+              await expect(surface).not.toHaveCSS('background-image', resting);
+              await cdp.send('Input.dispatchTouchEvent', {
+                type: 'touchCancel',
+                touchPoints: [],
+              });
+              await expect(surface).toHaveCSS('background-image', resting);
+              await expect(page.getByRole('dialog')).toBeHidden();
+              await expect(bookmark).toHaveAttribute('aria-expanded', 'false');
+            }
+
+            await button.tap();
+            if (dialogName) {
+              const dialog = page.getByRole('dialog', { name: dialogName });
+              await expect(dialog).toBeVisible();
+              await dialog.getByRole('button', { name: '닫기' }).tap();
+              await expect(dialog).toBeHidden();
+            } else {
+              await expect(bookmark).toHaveAttribute('aria-expanded', 'true');
+              await expect(surface).toHaveCSS('background-image', resting);
+              await bookmark.tap();
+              await expect(bookmark).toHaveAttribute('aria-expanded', 'false');
+            }
+            await expect(surface).toHaveCSS('background-image', resting);
+          }
+
+          if (cdp) {
+            // 이슈 #1과 PR #11은 연결돼 있어 어느 쪽을 포커스해도 관계가 드러납니다.
+            for (const [selected, related] of [
+              [issue, facility],
+              [facility, issue],
+            ]) {
+              await selected.focus();
+              for (const { marker, highlight } of [
+                { marker: selected, highlight: 'selected' },
+                { marker: related, highlight: 'related' },
+              ]) {
+                await expect(marker).toHaveAttribute(
+                  'data-highlight',
+                  highlight,
+                );
+                const resting = await marker.evaluate((node) => {
+                  const {
+                    backgroundImage,
+                    backgroundColor,
+                    outline,
+                    outlineOffset,
+                  } = getComputedStyle(node);
+                  return {
+                    backgroundImage,
+                    backgroundColor,
+                    outline,
+                    outlineOffset,
+                  };
+                });
+                const expectHighlight = async () => {
+                  await expect(marker).toHaveAttribute(
+                    'data-highlight',
+                    highlight,
+                  );
+                  await expect(marker).toHaveCSS(
+                    'background-color',
+                    resting.backgroundColor,
+                  );
+                  await expect(marker).toHaveCSS('outline', resting.outline);
+                  await expect(marker).toHaveCSS(
+                    'outline-offset',
+                    resting.outlineOffset,
+                  );
+                };
+
+                await startPress(cdp, marker);
+                await expect(marker).not.toHaveCSS(
+                  'background-image',
+                  resting.backgroundImage,
+                );
+                await expectHighlight();
+                await cdp.send('Input.dispatchTouchEvent', {
+                  type: 'touchCancel',
+                  touchPoints: [],
+                });
+                await expect(marker).toHaveCSS(
+                  'background-image',
+                  resting.backgroundImage,
+                );
+                await expectHighlight();
+                await expect(page.getByRole('dialog')).toBeHidden();
+              }
+            }
+          }
+        }
+      });
+
       test('두 모드에서 이슈 링크와 활동 펼침 및 닫기를 터치할 수 있다', async ({
         page,
       }) => {
+        await page
+          .context()
+          .route('https://github.com/**/issues/1', (route) =>
+            route.fulfill({ body: 'GitHub issue' }),
+          );
         for (const mode of ['world', 'simple']) {
           if (mode === 'simple') {
             await page.getByRole('button', { name: '상단 도구 열기' }).tap();
@@ -1073,6 +1403,16 @@ for (const width of [1280, 390, 320]) {
           await expect(title).toBeInViewport();
           await expect(title).toHaveAttribute('href', /issues\/1$/);
           await expect(title).toHaveAttribute('target', '_blank');
+          await expect(title).not.toHaveCSS(
+            '-webkit-tap-highlight-color',
+            'rgba(0, 0, 0, 0)',
+          );
+          const [github] = await Promise.all([
+            page.waitForEvent('popup'),
+            title.tap(),
+          ]);
+          await github.waitForURL(/\/issues\/1$/);
+          await github.close();
 
           const commits = dialog.getByRole('button', { name: '고유 커밋 3개' });
           const commit = dialog.getByRole('link', { name: 'a1b2c3d' });
@@ -1262,6 +1602,9 @@ for (const width of [1280, 390, 320]) {
 
         await page.keyboard.press('Tab');
         await expect(open).toBeFocused();
+        const bookmarkFace = open.locator('.header-bookmark-face');
+        await expect(bookmarkFace).toHaveCSS('outline-style', 'solid');
+        await expect(bookmarkFace).toHaveCSS('outline-width', '2px');
         await page.keyboard.press('Tab');
         expect(
           await controls.evaluate((node) =>
@@ -1278,9 +1621,10 @@ for (const width of [1280, 390, 320]) {
           'GitHub 연결',
         ]) {
           await page.keyboard.press('Tab');
-          await expect(
-            page.getByRole('button', { name, exact: true }),
-          ).toBeFocused();
+          const button = page.getByRole('button', { name, exact: true });
+          await expect(button).toBeFocused();
+          await expect(button).toHaveCSS('outline-style', 'solid');
+          await expect(button).toHaveCSS('outline-width', '2px');
         }
         await page.keyboard.press('Escape');
         await expect(open).toBeFocused();

@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import re
 import subprocess
+import sys
 import time
 
 REPO = "han41858/agentopia"
@@ -265,6 +266,8 @@ def complete(issue, run_id):
                 if undrafted:
                     restore_if_unchanged(confirmed, current)
                 raise
+        record_event(issue, state, number, f"ci:{latest['id']}/{latest['run_attempt']}:success",
+                         "CI 통과", ci=latest)
     confirmed = repo(f"pulls/{number}")
     if not merged_target(confirmed, head):
         raise RuntimeError("Cannot confirm the reviewed HEAD merged into dev.")
@@ -283,7 +286,17 @@ def complete(issue, run_id):
     if (data["state"], data.get("state_reason")) != ("closed", "completed"):
         raise RuntimeError("PR merged, but completed issue closure is unconfirmed.")
     record_event(issue, state, number, f"closed:{head}", f"이슈 #{issue} 해결 완료", status="merged")
+    if output := os.environ.get("GITHUB_OUTPUT"):
+        with open(output, "a", encoding="utf-8") as handoff:
+            print("child_closed=true", file=handoff)
     print(f"PR #{number} merged, issue #{issue} completed.")
+
+
+def report_interruption(issue, run_id):
+    state = ready_state(issue)
+    if state and state["runId"] == run_id and state.get("pullNumber") and eligible(issue, state.get("developer", "codex")):
+        record_event(issue, state, state["pullNumber"], f"resume-completion:{run_id}:{state['head']}",
+                     "리뷰 통과 · 완료 단계 재개 필요. AI completion에서 이슈 번호로 재개하세요.", status="ready")
 
 
 def main():
@@ -307,7 +320,10 @@ def main():
 
 if __name__ == "__main__":
     try:
-        main()
+        if sys.argv[1:] == ["--report-interruption"]:
+            report_interruption(int(os.environ["AI_ISSUE"]), int(os.environ["GITHUB_RUN_ID"]))
+        else:
+            main()
     except RuntimeError as error:
         print(f"::error::{error}", flush=True)
         raise

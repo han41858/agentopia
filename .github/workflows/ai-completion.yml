@@ -1,6 +1,17 @@
 name: AI completion
 
 on:
+  workflow_call:
+    secrets:
+      AI_AUTOMATION_TOKEN:
+        required: true
+    inputs:
+      issue:
+        required: true
+        type: number
+      review_run:
+        required: true
+        type: string
   workflow_dispatch:
     inputs:
       issue:
@@ -42,9 +53,28 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
       - name: Merge reviewed PR and close issue
-        run: python3 .github/scripts/ai-completion.py
+        id: completion
+        run: |
+          if [[ -z "$AI_AUTOMATION_TOKEN" ]]; then
+            echo "::error::ai-development 환경의 완료 게시 토큰을 확인하세요."
+            exit 1
+          fi
+          python3 .github/scripts/ai-completion.py
         env:
           GH_TOKEN: ${{ github.token }}
           AI_AUTOMATION_TOKEN: ${{ secrets.AI_AUTOMATION_TOKEN }}
           AI_REVIEW_RUN: ${{ inputs.review_run }}
+          AI_ISSUE: ${{ inputs.issue }}
+      - name: Sync PR progress from the latest issue journal
+        if: ${{ !cancelled() && steps.completion.outcome != 'skipped' }}
+        continue-on-error: true
+        run: python3 .github/scripts/progress-sync.py
+        env:
+          GH_TOKEN: ${{ github.token }}
+          AI_ISSUE: ${{ inputs.issue }}
+      - name: Reconcile parent after confirmed child closure
+        if: steps.completion.outputs.child_closed == 'true'
+        run: gh workflow run parent-completion.yml --ref dev -f mode=child -f issue="$AI_ISSUE"
+        env:
+          GH_TOKEN: ${{ github.token }}
           AI_ISSUE: ${{ inputs.issue }}
