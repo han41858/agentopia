@@ -462,8 +462,8 @@ for (const width of [1280, 390, 320]) {
         expect(current.lines).toBe(previous.lines);
         expect(current.above).toBeGreaterThan(0);
         expect(current.below).toBeGreaterThan(0);
-        expect(previous.above - current.above).toBeCloseTo(2, 1);
-        expect(previous.below - current.below).toBeCloseTo(2, 1);
+        expect(previous.above - current.above).toBeCloseTo(4, 1);
+        expect(previous.below - current.below).toBeCloseTo(4, 1);
         expect(current.plazaGap).toBeCloseTo(previous.plazaGap, 1);
         expect(current.sizes).toEqual(previous.sizes);
         expect(currentWithoutBridge.height).toBe(previousWithoutBridge.height);
@@ -537,7 +537,7 @@ for (const width of [1280, 390, 320]) {
           const singleTier = page.locator(
             '.kingdom-area:has(.heritage-slot) .branch-road-row:only-child',
           );
-          const expectedReduction = (await singleTier.count()) ? 30 : 18;
+          const expectedReduction = (await singleTier.count()) ? 30 : 22;
           expect(before.height - after.height).toBeCloseTo(
             expectedReduction,
             0,
