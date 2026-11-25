@@ -834,6 +834,14 @@ svg {
 .dialog h3 {
   margin-bottom: 9px;
 }
+.issue-dialog .dialog-body {
+  scrollbar-gutter: stable both-edges;
+}
+.issue-dialog .issue-title {
+  text-align: center;
+  overflow-wrap: anywhere;
+  line-height: 1.4;
+}
 .dialog h4 {
   margin: 20px 0 9px;
   color: var(--gold);

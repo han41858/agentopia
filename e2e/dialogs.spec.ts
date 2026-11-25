@@ -335,6 +335,101 @@ test.describe('상세 창', () => {
     ).toBeVisible();
   });
 
+  for (const mode of ['world', 'simple'] as const) {
+    for (const length of ['짧은', '긴'] as const) {
+      test(`이슈 제목: ${mode} 모드에서 ${length} 제목을 팝업 중앙에 정렬한다`, async ({
+        page,
+      }) => {
+        const report = structuredClone(alphaReport);
+        const quest = report.quests.find(({ number }) => number === 1)!;
+        if (length === '긴') {
+          quest.title = `Map layout regression: ${'WideIdentifier'.repeat(14)}`;
+        }
+        await mockGitHub(page);
+        await seedSettings(page, [alpha], mode);
+        await page.route('**/api/github?**', (route) => {
+          const params = new URL(route.request().url()).searchParams;
+          return params.get('repo') === alpha && params.has('branches')
+            ? route.fulfill({ json: report })
+            : route.fallback();
+        });
+        await page.setViewportSize({ width: 1280, height: 800 });
+        await page.goto('/');
+        await settled(page);
+        await page.getByRole('button', { name: /^이슈 #1 / }).click();
+        const dialog = page.getByRole('dialog', { name: '이슈 #1' });
+        const heading = dialog.getByRole('heading', {
+          level: 3,
+          name: quest.title,
+          exact: true,
+        });
+        await expect(heading).toBeVisible();
+
+        for (const viewport of [
+          { width: 1280, height: 800 },
+          { width: 320, height: 720 },
+        ]) {
+          await page.setViewportSize(viewport);
+          await expect(heading).toHaveCSS('text-align', 'center');
+          const geometry = await heading.evaluate((node) => {
+            const body = node.closest('.dialog-body')!;
+            const popup = node.closest('dialog')!.getBoundingClientRect();
+            const title = node.getBoundingClientRect();
+            const range = document.createRange();
+            range.selectNodeContents(node);
+            return {
+              popup: { left: popup.left, right: popup.right },
+              title: { left: title.left, right: title.right },
+              bodyWidth: body.clientWidth,
+              bodyScrollWidth: body.scrollWidth,
+              lines: Array.from(range.getClientRects(), ({ left, right }) => ({
+                left,
+                right,
+              })),
+            };
+          });
+          await test.info().attach(`issue-title-${viewport.width}px`, {
+            body: JSON.stringify({ viewport, ...geometry }, null, 2),
+            contentType: 'application/json',
+          });
+
+          const { popup, title, lines, bodyWidth, bodyScrollWidth } = geometry;
+          expect(popup.left).toBeGreaterThanOrEqual(0);
+          expect(popup.right).toBeLessThanOrEqual(viewport.width);
+          expect(bodyScrollWidth).toBeLessThanOrEqual(bodyWidth);
+          const leftInset = title.left - popup.left;
+          const rightInset = popup.right - title.right;
+          expect(leftInset).toBeGreaterThan(0);
+          expect(rightInset).toBeGreaterThan(0);
+          expect(Math.abs(leftInset - rightInset)).toBeLessThan(1);
+          if (length === '짧은') {
+            expect(lines).toHaveLength(1);
+          } else {
+            expect(lines.length).toBeGreaterThan(1);
+          }
+          const center = (popup.left + popup.right) / 2;
+          for (const line of lines) {
+            expect(
+              Math.abs((line.left + line.right) / 2 - center),
+            ).toBeLessThan(1);
+            expect(line.left).toBeGreaterThanOrEqual(title.left - 1);
+            expect(line.right).toBeLessThanOrEqual(title.right + 1);
+          }
+        }
+
+        await expect(
+          dialog.getByRole('link', { name: '이슈 #1', exact: true }),
+        ).toHaveAttribute('href', quest.url);
+        await dialog.getByRole('button', { name: '이슈 댓글 4개' }).click();
+        await expect(
+          dialog.getByText('지도 개편 범위를 정리했습니다.'),
+        ).toBeVisible();
+        await dialog.getByRole('button', { name: '닫기' }).click();
+        await expect(dialog).toBeHidden();
+      });
+    }
+  }
+
   test('몬스터: 상태와 활동 집계를 먼저 보여 주고 선택한 기록만 조회한다', async ({
     page,
   }) => {
