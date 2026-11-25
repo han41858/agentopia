@@ -1,4 +1,4 @@
-import type { Quest } from '../server/model.ts';
+import type { PullQuest, Quest } from '../server/model.ts';
 import { alpha, alphaReport } from './fixtures.ts';
 import { openWorld } from './github.ts';
 import { expect, labels, test } from './test.ts';
@@ -110,6 +110,11 @@ test.describe('왕국 기본 표시', () => {
         stage: 'queued',
         adventurers: [],
       };
+      let forge: PullQuest = {
+        ...alphaReport.forges!.find(({ number }) => number === 11)!,
+        stage: 'idle',
+        adventurers: [reviewers],
+      };
       await page.route('**/api/github?**', async (route) => {
         const params = new URL(route.request().url()).searchParams;
         if (params.get('repo') !== alpha || params.has('heritage')) {
@@ -121,6 +126,9 @@ test.describe('왕국 기본 표시', () => {
             ...alphaReport,
             quests: alphaReport.quests.map((item) =>
               item.number === quest.number ? quest : item,
+            ),
+            forges: alphaReport.forges!.map((item) =>
+              item.number === forge.number ? forge : item,
             ),
           },
         });
@@ -137,6 +145,9 @@ test.describe('왕국 기본 표시', () => {
       );
       await expect(marker).toHaveAccessibleName(/작업 대기 중/);
       await expect(party).toHaveCount(0);
+      const facility = page.getByRole('button', { name: /^PR #11 · / });
+      await expect(facility).toHaveAccessibleName(/Claude · 대기/);
+      await expect(facility).not.toHaveAccessibleName(/GitHub Actions/);
 
       quest = { ...quest, stage: 'developing', issueLeader: 'resting' };
       await page.reload();
@@ -152,6 +163,21 @@ test.describe('왕국 기본 표시', () => {
       await expect(marker).toHaveAccessibleName(/Codex · 개발 중/);
       await expect(moving).toHaveCount(1);
       await expect(moving).toHaveClass(/codex active develop/);
+
+      quest = {
+        ...quest,
+        stage: 'returned',
+        adventurers: [developers],
+      };
+      forge = { ...forge, automationParticipated: true };
+      await page.reload();
+      await expect(marker).toHaveAccessibleName(/Codex · 대기/);
+      await expect(marker).toHaveAccessibleName(/GitHub Actions · 파티장/);
+      await expect(leader).toBeVisible();
+      await expect(moving).toHaveCount(0);
+      await expect(facility).toHaveAccessibleName(
+        /GitHub Actions · 자동화 실행 기록/,
+      );
 
       quest = {
         ...quest,
@@ -182,7 +208,10 @@ test.describe('왕국 기본 표시', () => {
       await expect(moving).toHaveCount(0);
 
       quest = { ...quest, issueCIStatus: 'running', issueLeader: 'active' };
+      forge = { ...forge, stage: 'ci', quality: 'ci', ciParticipated: true };
       await page.reload();
+      await expect(facility).toHaveAttribute('data-stage', 'ci');
+      await expect(facility).not.toHaveAccessibleName(/CI 실행 기록/);
       await expect(marker).toHaveAccessibleName(
         /GitHub Actions · CI 실행 중 · 파티장$/,
       );
@@ -190,7 +219,12 @@ test.describe('왕국 기본 표시', () => {
       await expect(leader).toHaveCount(0);
 
       quest = { ...quest, issueCIStatus: 'passed', issueLeader: 'resting' };
+      forge = { ...forge, stage: 'idle', quality: undefined };
       await page.reload();
+      await expect(facility).toHaveAccessibleName(
+        /GitHub Actions · CI 실행 기록/,
+      );
+      await expect(facility).toHaveAccessibleName(/Claude · 대기/);
       await expect(marker).toHaveAccessibleName(
         /GitHub Actions · CI 성공 · 파티장$/,
       );
