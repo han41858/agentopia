@@ -24,6 +24,11 @@ on:
         required: false
         type: string
 
+      ci_attempt:
+        description: '자동 수정 대상 CI 실행 번호/시도 번호'
+        required: false
+        type: string
+
       ci_blocker:
         description: '자동 수정 위치를 확인하지 못한 CI 검사와 실행 링크'
         required: false

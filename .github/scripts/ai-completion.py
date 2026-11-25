@@ -91,11 +91,13 @@ def ci_feedback(ci):
     return None, f"자동 수정할 위치를 확인할 수 없습니다. 실패한 검사: {label} ({link})"
 
 
-def request_recovery(issue, state, feedback=None, blocker=None):
+def request_recovery(issue, state, feedback=None, blocker=None, ci=None):
     if not state.get("recovery"):
         raise RuntimeError("Legacy review has no publication checkpoint. Human confirmation required.")
     # Development serializes per issue and accepts only the latest trusted ready run.
     extra = ["-f", f"ci_feedback={feedback}"] if feedback else []
+    if ci and feedback:
+        extra += ["-f", f"ci_attempt={int(ci['id'])}/{int(ci['run_attempt'])}"]
     if blocker:
         extra += ["-f", f"ci_blocker={blocker}"]
     subprocess.run(["gh", "workflow", "run", "ai-development.yml", "--repo", REPO,
@@ -187,7 +189,7 @@ def complete(issue, run_id):
                     return
                 if ci["conclusion"] == "failure" and state.get("recovery"):
                     feedback, blocker = ci_feedback(ci)
-                    request_recovery(issue, state, feedback, blocker)
+                    request_recovery(issue, state, feedback, blocker, ci)
                     return
                 if ci["conclusion"] != "success":
                     raise RuntimeError(f"CI did not pass: {ci['html_url']}")

@@ -1141,6 +1141,19 @@ svg {
 .working-party-leader {
   animation: forge-test 1.6s ease-in-out infinite;
 }
+.facility-recovery {
+  position: absolute;
+  right: -3px;
+  bottom: 0;
+  color: #ffe197;
+  background: #46371e;
+  border-radius: 3px;
+  pointer-events: none;
+}
+.facility-marker[data-recovery='stopped'] .facility-recovery {
+  color: #ffd4ce;
+  background: #813a35;
+}
 .facility-core > .aura-opinion {
   position: absolute;
   top: -5px;
@@ -1603,7 +1616,7 @@ svg {
 [data-display-mode='simple'] .working-party-leader {
   border-radius: 50%;
 }
-[data-display-mode='simple'] .expedition.blocked::after {
+[data-display-mode='simple'] .expedition.blocked:not([data-recovery])::after {
   content: '!';
   position: absolute;
   top: 0;

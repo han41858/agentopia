@@ -9,6 +9,8 @@ import {
   Swords,
   Skull,
   Trophy,
+  TriangleAlert,
+  OctagonPause,
 } from 'lucide-react';
 import { stages } from '../server/model.ts';
 import type { PullQuest, Quest, Region, Stage } from '../server/model.ts';
@@ -225,7 +227,26 @@ export function FacilityMarker({
     (member) => member.active && !member.fallen,
   );
   const leader = partyLeaderState(pull);
-  const tooltip = `PR #${pull.number} · ${pull.title}`;
+  const badge = pull.recoveryBadge;
+  const badgeName =
+    badge &&
+    {
+      waiting: '자동 수정 대기',
+      repairing: '자동 수정 중',
+      checking: '수정 후 CI 재검사 중',
+      stopped: '작업 중단',
+    }[badge.kind];
+  const tooltip = [
+    `PR #${pull.number} · ${pull.title}`,
+    badgeName,
+    badge?.attempt && badge.limit
+      ? `${badge.attempt}/${badge.limit}회`
+      : undefined,
+    badge?.reason,
+  ]
+    .filter(Boolean)
+    .join(' · ');
+  const RecoveryIcon = badge?.kind === 'stopped' ? OctagonPause : TriangleAlert;
   const label = [
     tooltip,
     pullActivity(pull),
@@ -253,6 +274,7 @@ export function FacilityMarker({
       data-working={
         (activeStages.has(pull.stage) && pull.stage !== 'queued') || undefined
       }
+      data-recovery={badge?.kind}
       data-facility={kind}
       title={tooltip}
       aria-label={`${label}${activityEffectsLabel(pull.activity)}`}
@@ -282,7 +304,8 @@ export function FacilityMarker({
           {pull.stage === 'merging' && (
             <GitPullRequest className="facility-result" size={13} />
           )}
-          {alerts.has(pull.stage) && (
+          {badge && <RecoveryIcon className="facility-recovery" size={16} />}
+          {!badge && alerts.has(pull.stage) && (
             <Skull className="facility-result" size={13} />
           )}
         </span>

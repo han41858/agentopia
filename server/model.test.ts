@@ -1488,3 +1488,99 @@ test('an active issue without a PR recovers its matching bot checkpoint on refre
   assert.deepEqual(await refresh(), expected);
   assert.equal(targeted, 2);
 });
+
+test('PR recovery follows the trusted PR, HEAD and CI attempt through repair', () => {
+  const failed = run(2, {
+    id: 500,
+    path: '.github/workflows/ci.yml',
+    head_branch: pull.head.ref,
+    pull_requests: [{ number: pull.number }],
+    status: 'completed',
+    conclusion: 'failure',
+  });
+  const repair = {
+    sourceHead: sha,
+    ciAttempt: '500/1',
+    runId: 102,
+    attempt: 1,
+    limit: 1,
+  };
+  const checkpoint = {
+    pullNumber: pull.number,
+    phase: 'Codex 개발',
+    recovery: { ciRepair: repair, pending: 'development' },
+  };
+  function forge(
+    status: string,
+    fields: Record<string, unknown>,
+    ci = failed,
+    workflow = run(2),
+    head = sha,
+  ) {
+    const current = { ...pull, head: { ...pull.head, sha: head } };
+    const runs = [workflow, ci];
+    const quests = makeQuests(
+      commitTrail,
+      [issue(2)],
+      [current],
+      runs,
+      [comment(2, status, { head, ...checkpoint, ...fields })],
+      new Map(),
+      [],
+    );
+    return makeForges(commitTrail, [current], runs, new Map(), quests)[0];
+  }
+  const active = forge('revising', {});
+  assert.equal(active.stage, 'revising');
+  assert.deepEqual(active.recoveryBadge, {
+    kind: 'repairing',
+    attempt: 1,
+    limit: 1,
+  });
+  assert.equal(
+    forge('revising', { phase: '개발 변경 적용' }).recoveryBadge?.kind,
+    'waiting',
+  );
+  for (const fields of [
+    { pullNumber: 99 },
+    { head: mergeSha },
+    { recovery: { ciRepairs: 1, pending: 'development' } },
+  ]) {
+    assert.equal(forge('revising', fields).recoveryBadge, undefined);
+  }
+  assert.equal(
+    forge('revising', {}, { ...failed, run_attempt: 2 }).recoveryBadge,
+    undefined,
+  );
+  assert.equal(
+    forge('revising', {}, failed, run(2, { id: 103 })).stage,
+    'failed',
+  );
+  const updated = { recovery: { ciRepair: repair, ciReviewHead: mergeSha } };
+  const checking = {
+    ...failed,
+    id: 501,
+    head_sha: mergeSha,
+    status: 'in_progress',
+    conclusion: null,
+  };
+  assert.equal(
+    forge('ready', updated, checking, run(2), mergeSha).recoveryBadge?.kind,
+    'checking',
+  );
+  assert.equal(
+    forge(
+      'ready',
+      updated,
+      { ...checking, status: 'completed', conclusion: 'success' },
+      run(2),
+      mergeSha,
+    ).recoveryBadge,
+    undefined,
+  );
+  assert.equal(forge('failed', {}).recoveryBadge, undefined);
+  assert.deepEqual(
+    forge('needs_human', { reason: '자동 수정 한도 도달' }).recoveryBadge,
+    { kind: 'stopped', reason: '자동 수정 한도 도달' },
+  );
+});

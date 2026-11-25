@@ -610,6 +610,7 @@ for (const testCase of [
             inputs: {
               issue: '15',
               recovery_run: String(run),
+              ci_attempt: '53/2',
               ci_feedback: formatOnly
                 ? 'npm run format:check'
                 : 'e2e/dialogs.spec.ts:94 locator failed',
@@ -633,6 +634,13 @@ for (const testCase of [
       }
       assert.equal(saved().status, 'ready');
       assert.notEqual(saved().head, original.head);
+      assert.deepEqual(saved().recovery.ciRepair, {
+        sourceHead: original.head,
+        ciAttempt: '53/2',
+        runId: 2,
+        attempt: 1,
+        limit: 1,
+      });
       assert.equal(saved().reviews[0].head, saved().head);
       await import(runner + '?duplicate-repair');
       dispatch(saved().runId);

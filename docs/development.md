@@ -80,6 +80,7 @@ PR 복구 상태를 소비할 때는 다음 필드를 대조합니다.
 
 - `issue`, `pullNumber`, `head`는 작업 대상이고, `runId`와 `attempt`는 상태를 작성한 **개발 실행**입니다. 실패한 CI는 같은 저장소의 PR과 HEAD에 연결된 CI 실행에서 별도로 확인합니다.
 - `recovery.ciRepairs`는 일반 CI 수정에 사용한 시도 수입니다. 포맷 전용 시도는 `recovery.formatRepair`로 따로 기록합니다. 두 값은 이후 단계에도 남을 수 있습니다. `recovery.pending`은 현재 예약된 작업이며 일반 리뷰 수정 때도 `development`가 될 수 있습니다.
+- CI 수정 예약 시 `recovery.ciRepair`에 실패한 HEAD, CI 실행 ID/시도 번호, 개발 실행 ID와 복구 시도 수·한도를 기록합니다. 이전 기록에 연결 정보가 없으면 수정 중인 것으로 추정하지 않습니다.
 - CI 수정 커밋을 게시하면 `recovery.ciReviewHead`에 새 SHA를 기록합니다. 후속 HEAD의 CI를 확인할 때 이 값과 실제 PR HEAD를 대조합니다. 시도를 예약한 시점에는 아직 새 SHA가 없습니다.
 - `status: needs_human`은 사람 확인 요청이며 `reason`에 사유가 있습니다. `failed`는 개별 실행 실패를 포함합니다. 시도 수나 실패한 이전 실행만으로 최종 중단을 확정하지 않습니다. 현재 체크포인트에는 모든 단계에 걸친 원본 실패 CI 실행 ID와 총 시도 한도가 항상 제공되지는 않습니다.
 
