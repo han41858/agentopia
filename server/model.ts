@@ -564,14 +564,21 @@ function latestWorkflowRuns(runs: WorkflowRunRecord[]): WorkflowRunRecord[] {
     .map(({ run }) => run);
 }
 
+function matchesPullHead(run: Run, region: Region, pull: Pull) {
+  if (run.head_sha !== pull.head.sha) return false;
+  if (run.pull_requests.length)
+    return run.pull_requests.some(({ number }) => number === pull.number);
+  return (
+    pull.head.repo?.full_name.toLowerCase() === region.slug &&
+    run.head_branch === pull.head.ref
+  );
+}
+
 function currentPullCI(runs: Run[], region: Region, pull: Pull) {
   return runs.find(
     (run) =>
       run.path.split('@')[0] === '.github/workflows/ci.yml' &&
-      run.head_sha === pull.head.sha &&
-      (run.pull_requests.some(({ number }) => number === pull.number) ||
-        (pull.head.repo?.full_name.toLowerCase() === region.slug &&
-          run.head_branch === pull.head.ref)),
+      matchesPullHead(run, region, pull),
   );
 }
 
@@ -669,12 +676,8 @@ export function makeForges(
         Boolean(pull.merged_at),
     )
     .map((pull) => {
-      const relatedRuns = runs.filter(
-        (run) =>
-          run.head_sha === pull.head.sha &&
-          (run.pull_requests.some(({ number }) => number === pull.number) ||
-            (pull.head.repo?.full_name.toLowerCase() === region.slug &&
-              run.head_branch === pull.head.ref)),
+      const relatedRuns = runs.filter((run) =>
+        matchesPullHead(run, region, pull),
       );
       const ci = currentPullCI(relatedRuns, region, pull);
       const outcome = ci ? runStage(ci) : 'idle';
@@ -1083,7 +1086,8 @@ export function makeQuests(
       stage = recoveryStages[recoveryBadge.kind];
     const adventurers = new Map<Agent, Adventurer>();
     const issueCIStatus =
-      stage !== 'ci'
+      stage !== 'ci' &&
+      (!ci || pull?.state !== 'open' || ci.conclusion === 'skipped')
         ? undefined
         : ci?.status === 'in_progress'
           ? 'running'
@@ -1100,6 +1104,7 @@ export function makeQuests(
         : issueCIStatus === 'running'
           ? 'active'
           : automationRunning ||
+              (stage !== 'ci' && issueCIStatus === 'passed') ||
               readyToMerge ||
               recoveryBadge?.kind === 'checking'
             ? 'resting'

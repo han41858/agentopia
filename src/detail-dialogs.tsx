@@ -286,6 +286,8 @@ function PullStatus({ pull }: { pull: PullQuest }) {
       </span>
     );
   if (pull.stage === 'idle') return null;
+  if (pull.stage === 'failed')
+    return <span className="badge failed">{pullStatus(pull)}</span>;
   return alerts.has(pull.stage) ||
     pull.stage === 'ci' ||
     pull.stage === 'complete' ? (

@@ -181,7 +181,13 @@ test.describe('왕국 기본 표시', () => {
       await expect(leader).toBeVisible();
       await expect(moving).toHaveCount(0);
 
-      quest = { ...quest, issueCIStatus: 'running', issueLeader: 'active' };
+      quest = {
+        ...quest,
+        stage: 'failed',
+        issueRecoveryBadge: { kind: 'failed' },
+        issueCIStatus: 'running',
+        issueLeader: 'active',
+      };
       await page.reload();
       await expect(marker).toHaveAccessibleName(
         /GitHub Actions · CI 실행 중 · 파티장$/,
@@ -189,7 +195,15 @@ test.describe('왕국 기본 표시', () => {
       await expect(party).toBeVisible();
       await expect(leader).toHaveCount(0);
 
-      quest = { ...quest, issueCIStatus: 'passed', issueLeader: 'resting' };
+      await expect(marker).not.toHaveClass(/blocked/);
+      await expect(marker).not.toHaveAttribute('data-recovery', 'failed');
+      quest = {
+        ...quest,
+        stage: 'ci',
+        issueRecoveryBadge: undefined,
+        issueCIStatus: 'passed',
+        issueLeader: 'resting',
+      };
       await page.reload();
       await expect(marker).toHaveAccessibleName(
         /GitHub Actions · CI 성공 · 파티장$/,
