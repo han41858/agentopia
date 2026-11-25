@@ -11,9 +11,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 
-for (const scenario of [
+for (const testCase of [
   'duplicate',
   'review-revision',
+  'review-revision-delayed-pr',
   'review-limit',
   'review-no-change',
   'review-human',
@@ -50,7 +51,9 @@ for (const scenario of [
   'edited-issue',
   'edited-pr',
 ])
-  test(`issue recovery: ${scenario}`, async (t) => {
+  test(`issue recovery: ${testCase}`, async (t) => {
+    const delayedPull = testCase === 'review-revision-delayed-pr';
+    const scenario = delayedPull ? 'review-revision' : testCase;
     const root = mkdtempSync(join(tmpdir(), 'agentopia-smoke-'));
     const cwd = process.cwd();
     t.after(() => {
@@ -80,6 +83,7 @@ for (const scenario of [
     git(remote, 'commit', '-m', 'Base');
     let base = git(remote, 'rev-parse', 'HEAD');
     let advances = 0;
+    let staleRead = false;
     function advance() {
       git(remote, 'switch', 'dev');
       advances++;
@@ -383,6 +387,12 @@ for (const scenario of [
       if (path === '/git/ref/heads/' + branch) {
         if (head) head = git(remote, 'rev-parse', branch);
         if (pr) pr.head.sha = head;
+        if (scenario === 'review-revision' && commits === 2 && !staleRead) {
+          staleRead = true;
+          const previousHead = git(remote, 'rev-parse', branch + '^');
+          if (delayedPull) pr.head.sha = previousHead;
+          else return Response.json({ object: { sha: previousHead } });
+        }
         return head
           ? Response.json({ object: { sha: head } })
           : Response.json({}, { status: 404 });
@@ -484,7 +494,7 @@ for (const scenario of [
       throw new Error('Unexpected request ' + path);
     });
 
-    const runner = new URL('./run.mjs?case=' + scenario, import.meta.url);
+    const runner = new URL('./run.mjs?case=' + testCase, import.meta.url);
     if (scenario === 'repeated-stale-edit' || scenario === 'blocked-edit') {
       await assert.rejects(import(runner + '?first'));
       assert.equal(saved().status, 'failed');
@@ -507,6 +517,7 @@ for (const scenario of [
     else await import(runner + '?first');
     if (scenario.startsWith('review-')) {
       const ready = scenario === 'review-revision';
+      if (ready) assert.equal(staleRead, true);
       assert.equal(saved().status, ready ? 'ready' : 'needs_human');
       assert.equal(
         readFileSync(stepOutput, 'utf8'),
