@@ -188,6 +188,21 @@ function heritageArtGaps(area: Locator) {
   });
 }
 
+async function switchToSimple(page: Page, touch: boolean) {
+  const modeSwitch = page.locator('.mode-switch');
+  if (touch) {
+    await page.getByRole('button', { name: '상단 도구 열기' }).tap();
+    await modeSwitch.tap();
+    await page.getByRole('button', { name: '상단 도구 접기' }).tap();
+  } else {
+    await modeSwitch.click();
+  }
+  await expect(page.locator('[data-display-mode]')).toHaveAttribute(
+    'data-display-mode',
+    'simple',
+  );
+}
+
 // 터치 화면에서 누르는 요소의 최소 크기(src/styles.css의 --map-hit-size).
 const touchTarget = 44;
 
@@ -260,7 +275,7 @@ for (const width of [1280, 390, 320]) {
       ).toBe(touch);
     });
 
-    test('긴 저장소 이름 위아래의 그림 여백을 겹침 없이 줄인다', async ({
+    test('두 모드에서 유산과 긴 저장소 이름 주변의 그림 여백을 줄인다', async ({
       page,
     }) => {
       const area = page.locator('.kingdom-area:has(.branch-bridge)');
@@ -269,9 +284,6 @@ for (const width of [1280, 390, 320]) {
       );
       await expect(area).toHaveCount(1);
       await expect(withoutBridge).toHaveCount(1);
-      await area.locator('.kingdom-label strong').evaluate((node) => {
-        node.textContent = 'longrepositoryname'.repeat(7);
-      });
 
       const measure = () =>
         area.evaluate(async (node) => {
@@ -337,25 +349,144 @@ for (const width of [1280, 390, 320]) {
           };
         });
 
-      const current = await measure();
-      const [currentWithoutBridge] = await boxes(withoutBridge);
-      await page.addStyleTag({
-        content: `
-          .kingdom-label { inset-block-start: auto; }
-          .branch-roads:has(.branch-bridge) { margin-block-start: 3px; }
-        `,
-      });
-      const previous = await measure();
-      const [previousWithoutBridge] = await boxes(withoutBridge);
+      for (const mode of ['world', 'simple']) {
+        if (mode === 'simple') await switchToSimple(page, touch);
+        await area.locator('.kingdom-label strong').evaluate((node) => {
+          node.textContent = 'longrepositoryname'.repeat(7);
+        });
 
-      expect(current.lines).toBeGreaterThan(1);
-      expect(current.above).toBeGreaterThan(0);
-      expect(current.below).toBeGreaterThan(0);
-      expect(previous.above - current.above).toBeCloseTo(2, 1);
-      expect(previous.below - current.below).toBeCloseTo(3, 1);
-      expect(current.plazaGap).toBeCloseTo(previous.plazaGap, 1);
-      expect(current.sizes).toEqual(previous.sizes);
-      expect(currentWithoutBridge.height).toBe(previousWithoutBridge.height);
+        const currentHeritage = await heritageArtGaps(area);
+        const current = await measure();
+        const [currentWithoutBridge] = await boxes(withoutBridge);
+        const previousSpacing = await page.addStyleTag({
+          content: `
+            .kingdom-area:has(.heritage-slot) { padding-top: 54px; }
+            .kingdom-label { inset-block-start: -2px; }
+            .branch-roads:has(.branch-bridge) { margin-block-start: -2px; }
+          `,
+        });
+        const previousHeritage = await heritageArtGaps(area);
+        const previous = await measure();
+        const [previousWithoutBridge] = await boxes(withoutBridge);
+        await previousSpacing.evaluate((node) => {
+          node.parentNode?.removeChild(node);
+        });
+
+        expect(currentHeritage.above).toBeGreaterThan(0);
+        expect(currentHeritage.below).toBeGreaterThan(0);
+        expect(previousHeritage.above - currentHeritage.above).toBeGreaterThan(
+          1,
+        );
+        expect(currentHeritage.below).toBeCloseTo(previousHeritage.below, 1);
+        expect(current.lines).toBeGreaterThan(1);
+        expect(current.lines).toBe(previous.lines);
+        expect(current.above).toBeGreaterThan(0);
+        expect(current.below).toBeGreaterThan(0);
+        expect(previous.above - current.above).toBeCloseTo(2, 1);
+        expect(previous.below - current.below).toBeCloseTo(2, 1);
+        expect(current.plazaGap).toBeCloseTo(previous.plazaGap, 1);
+        expect(current.sizes).toEqual(previous.sizes);
+        expect(currentWithoutBridge.height).toBe(previousWithoutBridge.height);
+      }
+    });
+
+    test('두 모드에서 도로가 짧아져도 분기와 PR 시설에 연결된다', async ({
+      page,
+    }) => {
+      const kingdom = page.getByRole('region', { name: 'alpha', exact: true });
+      const measure = () =>
+        kingdom.evaluate(async (node) => {
+          // ResizeObserver가 새 배치에 맞춰 도로 경로를 갱신할 때까지 기다립니다.
+          await new Promise<void>((resolve) => {
+            requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+          });
+          const plaza = node.querySelector('[data-road-role="plaza"]');
+          const branches = [
+            ...node.querySelectorAll(
+              '.branch-junction, [data-road-role="road"]',
+            ),
+          ].map((element) => element.getBoundingClientRect());
+          const facilities = [...node.querySelectorAll('.facility-marker')].map(
+            (element) => element.getBoundingClientRect(),
+          );
+          if (!plaza || !branches.length || !facilities.length)
+            throw new Error('광장, 브랜치 또는 연결 시설을 찾지 못했습니다.');
+          const plazaBox = plaza.getBoundingClientRect();
+          const targets = [plazaBox, ...branches, ...facilities];
+          const paths = [
+            ...node.querySelectorAll<SVGPathElement>('.branch-road-lines path'),
+          ];
+          const connections = paths.map((path) => {
+            const matrix = path.getScreenCTM();
+            if (!matrix)
+              throw new Error('연결선의 화면 좌표를 찾지 못했습니다.');
+            return [0, path.getTotalLength()].map((distance) => {
+              const point = path
+                .getPointAtLength(distance)
+                .matrixTransform(matrix);
+              return targets.findIndex(
+                (box) =>
+                  point.x >= box.left - 1 &&
+                  point.x <= box.right + 1 &&
+                  point.y >= box.top - 1 &&
+                  point.y <= box.bottom + 1,
+              );
+            });
+          });
+          return {
+            branchGap:
+              Math.min(...branches.map((box) => box.top)) - plazaBox.bottom,
+            facilityGap:
+              Math.min(...facilities.map((box) => box.top)) - plazaBox.bottom,
+            length: paths.reduce((sum, path) => sum + path.getTotalLength(), 0),
+            connections,
+            firstFacility: 1 + branches.length,
+            sizes: targets.map(({ width, height }) => [width, height]),
+          };
+        });
+
+      for (const mode of ['world', 'simple']) {
+        if (mode === 'simple') await switchToSimple(page, touch);
+        await expect(kingdom.locator('.facility-marker')).toHaveCount(3);
+        await expect(kingdom.locator('[data-road-role="road"]')).toHaveCount(3);
+        await expect(
+          kingdom.locator('.branch-road-lines path').first(),
+        ).toBeAttached();
+        const current = await measure();
+        const previousSpacing = await page.addStyleTag({
+          content: `
+            .branch-roads { row-gap: 9px; }
+            .branch-roads:has(.branch-bridge) { margin-block-end: 14px; }
+            .branch-road-tiers { row-gap: 8px; }
+          `,
+        });
+        const previous = await measure();
+        await previousSpacing.evaluate((node) => {
+          node.parentNode?.removeChild(node);
+        });
+
+        expect(current.branchGap).toBeGreaterThan(0);
+        expect(current.branchGap).toBeLessThan(previous.branchGap);
+        expect(current.facilityGap).toBeLessThan(previous.facilityGap);
+        expect(current.length).toBeGreaterThan(0);
+        expect(current.length).toBeLessThan(previous.length);
+        expect(current.connections).toEqual(previous.connections);
+        expect(current.connections.flat()).toContain(0);
+        const connectedFacilities = new Set(
+          current.connections
+            .flat()
+            .filter((target) => target >= current.firstFacility),
+        );
+        expect(connectedFacilities.size).toBe(3);
+        expect(current.sizes).toEqual(previous.sizes);
+        expect(
+          overlappingPairs(
+            await boxes(
+              kingdom.locator('[data-road-role="road"], .facility-marker'),
+            ),
+          ),
+        ).toEqual([]);
+      }
     });
 
     test('요소가 화면 밖으로 나가거나 서로 겹치지 않는다', async ({ page }) => {
@@ -452,13 +583,10 @@ for (const width of [1280, 390, 320]) {
         await previousSpacing.evaluate((node) => {
           node.parentNode?.removeChild(node);
         });
-        for (const reduction of [
-          previous.above - gaps.above,
-          previous.below - gaps.below,
-        ]) {
-          expect(reduction).toBeGreaterThanOrEqual(4);
-          expect(reduction).toBeLessThanOrEqual(8);
-        }
+        expect(previous.above - gaps.above).toBeGreaterThanOrEqual(6);
+        expect(previous.above - gaps.above).toBeLessThanOrEqual(10);
+        expect(previous.below - gaps.below).toBeGreaterThanOrEqual(4);
+        expect(previous.below - gaps.below).toBeLessThanOrEqual(8);
       }
     });
 
