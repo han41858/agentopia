@@ -554,7 +554,7 @@ for (const mode of ['public', 'authenticated'] as const) {
     );
 
     const token = mode === 'authenticated' ? 'fixture-token' : undefined;
-    const pending = getReport({ slug }, token);
+    const pending = getReport({ slug, name: slug }, token);
     // Drain the fixed-response work without measuring elapsed time. The gate
     // stays closed even if a regression prevents any follow-up from starting.
     await new Promise<void>((resolve) => setImmediate(resolve));
