@@ -696,24 +696,9 @@ test.describe('상세 창', () => {
     await settled(page);
 
     const marker = page.getByRole('button', { name: /^이슈 #78 / });
-    const markerPaint = () =>
-      marker.evaluate((node) =>
-        [node, ...node.querySelectorAll('svg, svg *')].flatMap((part) =>
-          [null, '::before', '::after'].map((pseudo) => {
-            const style = getComputedStyle(part, pseudo);
-            return [
-              style.outline,
-              style.borderColor,
-              style.boxShadow,
-              style.filter,
-              style.stroke,
-              style.strokeWidth,
-            ];
-          }),
-        ),
-      );
     await expect(marker).toBeVisible();
-    const failedPaint = await markerPaint();
+    await expect(marker).toHaveAccessibleName(/실행 실패/);
+    await expect(marker).toHaveClass(/(?:^|\s)blocked(?:\s|$)/);
     await marker.click();
     const dialog = page.getByRole('dialog', { name: '이슈 #78' });
     await expect(dialog.getByRole('img', { name: '실행 실패' })).toBeVisible();
@@ -727,8 +712,9 @@ test.describe('상세 창', () => {
     resumed = true;
     await page.getByRole('button', { name: '새로 고침' }).click();
     await settled(page);
-    await page.mouse.move(0, 0);
-    await expect.poll(markerPaint).not.toEqual(failedPaint);
+    await expect(marker).toHaveAccessibleName(/개발 중/);
+    await expect(marker).not.toHaveAccessibleName(/실행 실패/);
+    await expect(marker).not.toHaveClass(/(?:^|\s)blocked(?:\s|$)/);
     await marker.click();
     await expect(dialog).toBeVisible();
     await expect(dialog.getByRole('img', { name: '실행 실패' })).toHaveCount(0);
