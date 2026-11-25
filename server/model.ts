@@ -83,7 +83,7 @@ export type ActivityEntry = Source & {
 };
 export type ActivityPage = { entries: ActivityEntry[]; next?: number };
 
-type RecoveryBadge = {
+export type RecoveryBadge = {
   kind: 'waiting' | 'repairing' | 'checking' | 'stopped';
   reason?: string;
   attempt?: number;
