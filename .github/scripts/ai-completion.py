@@ -4,6 +4,7 @@ import base64
 import hashlib
 import json
 import os
+from pathlib import Path
 import re
 import subprocess
 import time
@@ -34,7 +35,7 @@ def repo(path, **options):
     return api(f"repos/{REPO}/{path}", **options)
 
 
-def ready_state(issue):
+def checkpoint(issue):
     comments = repo(f"issues/{issue}/comments?per_page=100", pages=True)
     for comment in reversed(comments):
         if comment["user"]["login"] != "github-actions[bot]":
@@ -42,13 +43,37 @@ def ready_state(issue):
         marker = re.search(r"<!-- agentopia-ai-state:([A-Za-z0-9+/=]+) -->$", comment["body"])
         if marker:
             state = json.loads(base64.b64decode(marker[1]))
-            head = state.get("head")
-            if (state.get("issue") == issue and state.get("status") == "ready"
-                    and re.fullmatch(r"[0-9a-f]{40}", head or "")
-                    and {"head": head, "result": {"status": "pass"}} in state.get("reviews", [])):
-                return state
-            break
+            if state.get("issue") == issue:
+                return comment, state
+    return None, None
+
+
+def ready_state(issue):
+    _, state = checkpoint(issue)
+    if state and state.get("status") == "ready":
+        head = state.get("head")
+        if (re.fullmatch(r"[0-9a-f]{40}", head or "")
+                and {"head": head, "result": {"status": "pass"}} in state.get("reviews", [])):
+            return state
     return None
+
+
+def record_event(issue, reviewed, number, key, text, *, ci=None, status=None):
+    comment, latest = checkpoint(issue)
+    if not latest:
+        raise RuntimeError("Cannot find the trusted issue progress comment.")
+    state = latest
+    if status and latest == reviewed:
+        state = dict(latest, status=status, phase="완료" if status == "merged" else "완료 확인", reason=text)
+    payload = {"body": comment["body"], "previousAt": comment.get("updated_at"), "state": state,
+               "eventState": dict(reviewed, pullNumber=number),
+               "event": {"key": key, "text": text, "ci": ci}}
+    script = Path(__file__).with_name("ai-development") / "journal.mjs"
+    body = subprocess.run(["node", str(script)], input=json.dumps(payload), text=True,
+                          capture_output=True, check=True).stdout
+    if body != comment["body"]:
+        repo(f"issues/comments/{comment['id']}", method="PATCH", body=body)
+
 
 
 def eligible(issue, developer=None, *, snapshot=None):
@@ -160,8 +185,12 @@ def merged_target(pull, head):
 
 
 def complete(issue, run_id):
-    if not eligible(issue):
-        return
+    # The merge and close may already have succeeded before the final comment write.
+    closed = not eligible(issue)
+    if closed:
+        issue_data = repo(f"issues/{issue}")
+        if (issue_data["state"], issue_data.get("state_reason")) != ("closed", "completed"):
+            return
     state = ready_state(issue)
     if not state or (run_id and state["runId"] != run_id):
         print("No matching successful review.")
@@ -179,6 +208,8 @@ def complete(issue, run_id):
         raise RuntimeError("Reviewed PR or commit changed.")
     pull = matches[0]
     number = pull["number"]
+    if closed and not merged_target(pull, head):
+        return
     if not pull["merged_at"]:
         if pull["state"] != "open":
             return
@@ -189,6 +220,8 @@ def complete(issue, run_id):
                     return
                 if ci["conclusion"] == "failure" and state.get("recovery"):
                     feedback, blocker = ci_feedback(ci)
+                    record_event(issue, state, number, f"ci:{ci['id']}/{ci['run_attempt']}",
+                                 f"CI 실패 · {blocker or feedback}", ci=ci)
                     request_recovery(issue, state, feedback, blocker, ci)
                     return
                 if ci["conclusion"] != "success":
@@ -227,6 +260,7 @@ def complete(issue, run_id):
     confirmed = repo(f"pulls/{number}")
     if not merged_target(confirmed, head):
         raise RuntimeError("Cannot confirm the reviewed HEAD merged into dev.")
+    record_event(issue, state, number, f"merge:{head}", f"PR #{number} 머지 확인")
     data = repo(f"issues/{issue}")
     if data["state"] == "open":
         if (not eligible(issue, developer, snapshot=data) or (state.get("recovery")
@@ -240,12 +274,26 @@ def complete(issue, run_id):
         data = repo(f"issues/{issue}")
     if (data["state"], data.get("state_reason")) != ("closed", "completed"):
         raise RuntimeError("PR merged, but completed issue closure is unconfirmed.")
+    record_event(issue, state, number, f"closed:{head}", f"이슈 #{issue} 해결 완료", status="merged")
     print(f"PR #{number} merged, issue #{issue} completed.")
 
 
 def main():
     run = os.environ.get("AI_REVIEW_RUN")
-    complete(int(os.environ["AI_ISSUE"]), int(run) if run else None)
+    issue = int(os.environ["AI_ISSUE"])
+    run_id = int(run) if run else None
+    try:
+        complete(issue, run_id)
+    except RuntimeError as error:
+        state = ready_state(issue)
+        if state and (not run_id or state["runId"] == run_id) and state.get("pullNumber"):
+            number = state["pullNumber"]
+            pull = repo(f"pulls/{number}")
+            # Keep a confirmed merge resumable if issue closure or its acknowledgement failed.
+            status = None if merged_target(pull, state["head"]) else "needs_human"
+            record_event(issue, state, number, f"completion-stop:{state['head']}:{error}",
+                         f"완료 단계 중단 · {error}", status=status)
+        raise
 
 
 if __name__ == "__main__":

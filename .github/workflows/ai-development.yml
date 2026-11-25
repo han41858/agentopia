@@ -48,6 +48,7 @@ jobs:
       (github.event_name == 'workflow_dispatch' || github.event.label.name == 'ai:develop' || github.event.label.name == 'ai:develop:claude')
     concurrency:
       group: ai-development-issue-${{ github.event.issue.number || inputs.issue }}
+      queue: max
       cancel-in-progress: false
     runs-on: ubuntu-latest
     timeout-minutes: 45
