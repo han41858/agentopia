@@ -173,7 +173,12 @@ test('literal lookup locates UI text without counting as a full UI spec read', (
     '// Example UI assertion\nexpect(title).toHaveText("예시 제목");\n',
   );
   execFileSync('git', ['init', '--quiet']);
-  writeFileSync('e2e/github.ts', '// shared readiness helper');
+  writeFileSync(
+    'e2e/github.ts',
+    '// shared readiness helper\n' +
+      ('x'.repeat(100) + '\n').repeat(150) +
+      '// final line',
+  );
   writeFileSync('e2e/fixtures.ts', 'export const title = "Expected title";');
   execFileSync('git', ['add', path, 'e2e/github.ts', 'e2e/fixtures.ts']);
   const tree = execFileSync('git', ['write-tree'], { encoding: 'utf8' }).trim();
@@ -186,6 +191,10 @@ test('literal lookup locates UI text without counting as a full UI spec read', (
     work.inspect('read_file', { path: 'e2e/github.ts', line: 1 }),
     /shared readiness helper/,
   );
+  const tail = work.inspect('read_file', { path: 'e2e/github.ts', line: -1 });
+  assert.ok(tail.length <= 5500);
+  assert.match(tail, /152: \/\/ final line$/);
+  assert.doesNotMatch(tail, /shared readiness helper|다음 줄/);
   assert.throws(
     () =>
       resolveEdits(
