@@ -1320,6 +1320,93 @@ test('parallel cancellations stay in history without hiding development or its r
   assert.equal(latestQuest.evidence?.url, latest.html_url);
 });
 
+test('run aliases normalize without weakening checkpoint validation', () => {
+  const checkpoint = (extras: Record<string, unknown>) =>
+    comment(1, 'failed', extras);
+  const canonical = readState(checkpoint({}), commitTrail);
+  assert.equal(canonical?.runId, 101);
+  for (const run of [101, '101']) {
+    assert.deepEqual(
+      readState(checkpoint({ runId: undefined, run }), commitTrail),
+      canonical,
+    );
+    assert.deepEqual(readState(checkpoint({ run }), commitTrail), canonical);
+  }
+  for (const extras of [
+    { runId: undefined },
+    { runId: '101', run: 101 },
+    { runId: null, run: 101 },
+    { run: null },
+    { run: 102 },
+    ...[0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1, '0101', '101\n', '1e2'].map(
+      (run) => ({ runId: undefined, run }),
+    ),
+    { issue: 2 },
+    { status: 'toString' },
+  ]) {
+    assert.equal(readState(checkpoint(extras), commitTrail), undefined);
+  }
+  assert.equal(readState(checkpoint({}), videx), undefined);
+  assert.equal(
+    readState({ ...checkpoint({}), user: { login: 'guest' } }, commitTrail),
+    undefined,
+  );
+  assert.equal(
+    readState(
+      { ...checkpoint({}), body: 'Codex reached the output token limit.' },
+      commitTrail,
+    ),
+    undefined,
+  );
+});
+
+test('a separate successful run does not clear a failed checkpoint before recovery', () => {
+  const failed = run(78, {
+    id: 45528330850,
+    status: 'completed',
+    conclusion: 'failure',
+    run_started_at: stamp,
+  });
+  const successful = run(78, {
+    id: 45528331272,
+    status: 'completed',
+    conclusion: 'success',
+    run_started_at: '2026-11-19T10:01:00Z',
+  });
+  const reason = 'Codex reached the output token limit.';
+  const failure = comment(78, 'failed', {
+    developer: 'codex',
+    runId: undefined,
+    attempt: undefined,
+    run: failed.id,
+    reason,
+  });
+  const quest = (runs: Run[], ...comments: Comment[]) =>
+    makeQuests(commitTrail, [issue(78)], [], runs, comments, new Map(), [])[0];
+
+  const interrupted = quest([successful, failed], failure);
+  assert.equal(interrupted.stage, 'failed');
+  assert.equal(interrupted.reason, reason);
+  assert.equal(interrupted.evidence?.status, 'failure');
+  assert.deepEqual(
+    interrupted.runs.map(({ status }) => status),
+    ['success', 'failure'],
+  );
+  const missingRun = quest([successful], failure);
+  assert.equal(missingRun.stage, 'failed');
+  assert.equal(missingRun.evidence?.url, failure.html_url);
+
+  const retry = run(78, { id: successful.id + 1 });
+  const resumed = quest(
+    [retry, successful, failed],
+    comment(78, 'developing', { runId: retry.id }),
+    failure,
+  );
+  assert.equal(resumed.stage, 'developing');
+  assert.equal(resumed.evidence?.status, 'developing');
+  assert.equal(resumed.reason, undefined);
+});
+
 test('checkpoint lineage takes precedence over the edit time of an older comment', () => {
   const current = run(1, { run_attempt: 2 });
   const checkpoint = comment(1, 'reviewing', {
