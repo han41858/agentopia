@@ -229,7 +229,7 @@ svg {
   padding: 14px clamp(12px, 4vw, 44px) 18px;
 }
 .kingdoms {
-  width: min(100%, 1160px);
+  width: 100%;
   margin-inline: auto;
   display: flex;
   flex-wrap: wrap;
