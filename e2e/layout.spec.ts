@@ -1229,6 +1229,33 @@ for (const width of [1280, 390, 320]) {
         const issue = page.getByRole('button', { name: /^이슈 #1 / });
         const facility = page.getByRole('button', { name: /PR #11/ });
 
+        async function startPress(
+          session: NonNullable<typeof cdp>,
+          button: Locator,
+        ) {
+          // 버튼이 이동 중이면 실제 탭과 마찬가지로 멈출 때까지 기다립니다.
+          await button.tap({ trial: true });
+          const { x, y, hitsButton } = await button.evaluate((node) => {
+            const surface = node.querySelector('.header-bookmark-face') ?? node;
+            const box = surface.getBoundingClientRect();
+            const x = Math.round(box.left + box.width / 2);
+            const y = Math.round(box.top + box.height / 2);
+            return {
+              x,
+              y,
+              hitsButton: node.contains(document.elementFromPoint(x, y)),
+            };
+          });
+          expect(
+            hitsButton,
+            `터치 좌표 (${x}, ${y})가 버튼을 가리켜야 합니다.`,
+          ).toBe(true);
+          await session.send('Input.dispatchTouchEvent', {
+            type: 'touchStart',
+            touchPoints: [{ x, y }],
+          });
+        }
+
         for (const mode of ['world', 'simple']) {
           if (mode === 'simple') {
             await bookmark.tap();
@@ -1256,13 +1283,7 @@ for (const width of [1280, 390, 320]) {
 
             // Playwright의 tap은 손을 떼기 전의 상태를 관찰할 수 없습니다.
             if (cdp) {
-              const [box] = await boxes(button);
-              await cdp.send('Input.dispatchTouchEvent', {
-                type: 'touchStart',
-                touchPoints: [
-                  { x: box.x + box.width / 2, y: box.y + box.height / 2 },
-                ],
-              });
+              await startPress(cdp, button);
               await expect(surface).not.toHaveCSS('background-image', resting);
               await cdp.send('Input.dispatchTouchEvent', {
                 type: 'touchCancel',
@@ -1286,6 +1307,71 @@ for (const width of [1280, 390, 320]) {
               await expect(bookmark).toHaveAttribute('aria-expanded', 'false');
             }
             await expect(surface).toHaveCSS('background-image', resting);
+          }
+
+          if (cdp) {
+            // 이슈 #1과 PR #11은 연결돼 있어 어느 쪽을 포커스해도 관계가 드러납니다.
+            for (const [selected, related] of [
+              [issue, facility],
+              [facility, issue],
+            ]) {
+              await selected.focus();
+              for (const { marker, highlight } of [
+                { marker: selected, highlight: 'selected' },
+                { marker: related, highlight: 'related' },
+              ]) {
+                await expect(marker).toHaveAttribute(
+                  'data-highlight',
+                  highlight,
+                );
+                const resting = await marker.evaluate((node) => {
+                  const {
+                    backgroundImage,
+                    backgroundColor,
+                    outline,
+                    outlineOffset,
+                  } = getComputedStyle(node);
+                  return {
+                    backgroundImage,
+                    backgroundColor,
+                    outline,
+                    outlineOffset,
+                  };
+                });
+                const expectHighlight = async () => {
+                  await expect(marker).toHaveAttribute(
+                    'data-highlight',
+                    highlight,
+                  );
+                  await expect(marker).toHaveCSS(
+                    'background-color',
+                    resting.backgroundColor,
+                  );
+                  await expect(marker).toHaveCSS('outline', resting.outline);
+                  await expect(marker).toHaveCSS(
+                    'outline-offset',
+                    resting.outlineOffset,
+                  );
+                };
+
+                await startPress(cdp, marker);
+                await expect(marker).not.toHaveCSS(
+                  'background-image',
+                  resting.backgroundImage,
+                );
+                await expectHighlight();
+                await cdp.send('Input.dispatchTouchEvent', {
+                  type: 'touchCancel',
+                  touchPoints: [],
+                });
+                await expect(marker).toHaveCSS(
+                  'background-image',
+                  resting.backgroundImage,
+                );
+                await expectHighlight();
+                await expect(page.getByRole('dialog')).toBeHidden();
+              }
+            }
           }
         }
       });

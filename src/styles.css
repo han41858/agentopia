@@ -1466,7 +1466,7 @@ svg {
   --tap-press-fill: var(--map-highlight-fill);
 }
 .map-viewport .expedition[data-highlight] {
-  background: var(--map-highlight-fill);
+  background-color: var(--map-highlight-fill);
   outline: var(--map-highlight-outline);
   outline-offset: 1px;
 }
@@ -1802,8 +1802,8 @@ svg {
   }
 
   /* Keep the press tint behind the icon and separate from selection outlines. */
-  button:not(:disabled, .header-bookmark):active,
-  .header-bookmark:active .header-bookmark-face {
+  button[data-touch-pressed]:not(:disabled, .header-bookmark),
+  .header-bookmark[data-touch-pressed]:enabled .header-bookmark-face {
     --press-fill: var(
       --tap-press-fill,
       color-mix(in srgb, var(--gold) 14%, transparent)
