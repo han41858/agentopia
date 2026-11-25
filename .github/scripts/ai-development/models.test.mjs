@@ -26,7 +26,10 @@ for (const agent of ['codex', 'claude']) {
                     .filter((x) => x.type === 'function_call_output')
                     .slice(-count)
                     .map((x) => x.output)
-                : body.messages.at(-1).content.map((x) => x.content);
+                : body.messages
+                    .at(-1)
+                    .content.filter((x) => x.type === 'tool_result')
+                    .map((x) => x.content);
             assert.equal(results.length, count);
             assert.equal(
               results.filter((x) =>
@@ -206,8 +209,7 @@ test('Claude corrects an invalid review using the same evidence before publicati
             text: JSON.stringify({
               status: 'pass',
               findings: [],
-              summary:
-                requests === 1 ? 'a'.repeat(1000) : '검토를 완료했습니다.',
+              summary: requests === 1 ? '' : '검토를 완료했습니다.',
             }),
           },
         ],
@@ -499,6 +501,8 @@ for (const correctedVerdict of ['pass', 'changes_requested']) {
           });
         }
         assert.equal(body.tool_choice.type, 'none');
+        if (calls === 2)
+          assert.match(body.messages.at(-1).content.at(-1).text, /최종 결과/);
         if (calls === 3)
           assert.match(body.messages.at(-1).content, /pass에 지적 사항/);
         const result = {

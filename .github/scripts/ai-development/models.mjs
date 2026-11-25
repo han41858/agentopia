@@ -486,7 +486,7 @@ export function createModels({
       const turnLimit =
         mode === 'review' ? (limits.reviewTurns ?? limits.turns) : limits.turns;
       const reviewFormat =
-        '한국어 요약은 400자 미만으로 작성하세요. findings는 최대 6건이며 각 문자열은 250자 미만, 줄 번호는 양의 정수여야 합니다. pass이면 findings가 비어 있어야 하고 changes_requested이면 한 건 이상이어야 합니다. 검토할 때 읽기 도구를 사용하세요. 진행 상황만으로 최종 판정을 내리지 마세요. needs_human이면 구체적인 장애 사유와 필요한 결정 또는 부족한 정보를 명시하세요.';
+        'summary에는 현재 HEAD에서 확인한 근거와 판정 이유를 비어 있지 않은 한국어 문장으로 400자 미만으로 작성하세요. findings는 최대 6건이며 각 문자열은 250자 미만, 줄 번호는 양의 정수여야 합니다. pass이면 findings가 비어 있어야 하고 changes_requested이면 한 건 이상이어야 합니다. 검토할 때 읽기 도구를 사용하세요. 진행 상황만으로 최종 판정을 내리지 마세요. needs_human이면 구체적인 장애 사유와 필요한 결정 또는 부족한 정보를 명시하세요.';
       const developmentFormat = `비어 있지 않은 한국어 요약과 정확한 편집안을 반환하세요. 요약은 UTF-16 코드 단위로 최대 ${developmentSummaryLimit}개, 편집은 최대 ${limits.edits}건입니다. 제목은 GitMoji를 포함한 한국어 한 줄로 작성하고 UTF-16 코드 단위 100개 이내로 제한하세요. 개발이 끝나지 않았으면 in_progress를 사용하세요. 부분 편집안은 게시되지 않습니다. 중간 확인에는 읽기 도구를 사용하세요. 사용자의 결정이나 정보가 필요한 경우에만 needs_human을 사용하세요. 허용 범위 안에 전체 변경을 안전하게 담을 수 없으면 구체적인 사유와 빈 edits를 포함해 needs_human을 반환하세요.`;
       const taskInstructions =
         instructions +
@@ -515,11 +515,10 @@ export function createModels({
         );
         const requireResult =
           remainingReads === 0 || finalTurn || turn === turnLimit - 1;
-        const turnInstructions = requireResult
-          ? `${taskInstructions}
-이제 지정된 형식으로 최종 결과를 반환하세요. 근거가 부족하면 구체적인 장애 사유와 함께 needs_human을 반환하세요.`
-          : `${taskInstructions}
-이번 요청을 포함해 남은 API 요청은 ${turnLimit - turn + 1}회입니다. 이번 요청에서 읽기 도구는 ${remainingReads}회 사용할 수 있습니다. 근거가 충분해지면 지정된 형식으로 최종 결과를 반환하세요.`;
+        const turnGuidance = requireResult
+          ? '이제 지정된 형식으로 최종 결과를 반환하세요. 근거가 부족하면 구체적인 장애 사유와 함께 needs_human을 반환하세요.'
+          : `이번 요청을 포함해 남은 API 요청은 ${turnLimit - turn + 1}회입니다. 이번 요청에서 읽기 도구는 ${remainingReads}회 사용할 수 있습니다. 근거가 충분해지면 지정된 형식으로 최종 결과를 반환하세요.`;
+
         function readTool(index, name, args) {
           if (requireResult)
             throw new ModelError(
@@ -530,12 +529,15 @@ export function createModels({
           toolCalls++;
           return invokeTool(inspect, name, isCodex ? parseJSON(args) : args);
         }
+        // Preserve the system prompt and signed tool history across Claude turns.
+        if (!isCodex && Array.isArray(input.at(-1).content))
+          input.at(-1).content.push({ type: 'text', text: turnGuidance });
         const data = await call(
           agent,
           isCodex
             ? {
                 model,
-                instructions: turnInstructions,
+                instructions: `${taskInstructions}\n${turnGuidance}`,
                 input,
                 store: false,
                 include: ['reasoning.encrypted_content'],
