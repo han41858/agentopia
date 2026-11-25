@@ -21,6 +21,7 @@ export type RefreshJobs = {
       last: number;
       interval: number;
       report?: Report;
+      ticket?: string;
       branchCheckedAt?: number;
       historyCheckedAt?: number;
     }
@@ -153,13 +154,16 @@ export function useRegionRefresh({
         if (force) params.set('refresh', '1');
         if (checkBranches) params.set('branches', '1');
         if (cachedHistory) params.set('history', 'cached');
-        const fetched = await request<Report>(
+        const { refreshTicket, ...fetched } = await request<
+          Report & { refreshTicket?: string }
+        >(
           params,
           token,
           controller.signal,
           (measured) => {
             usage = measured;
           },
+          token ? (previous?.ticket ?? '') : undefined,
         );
         if (controller.signal.aborted) return;
         const report = cachedHistory
@@ -193,6 +197,7 @@ export function useRegionRefresh({
         jobs.set(slug, {
           last: Date.now(),
           report,
+          ticket: refreshTicket,
           interval,
           branchCheckedAt,
           historyCheckedAt,
@@ -203,16 +208,22 @@ export function useRegionRefresh({
         }));
       } catch (error) {
         if (controller.signal.aborted) return;
+        const denied =
+          Boolean(token) &&
+          error instanceof RequestError &&
+          !error.rateLimited &&
+          [401, 403, 404].includes(error.status);
         jobs.set(slug, {
           last: Date.now(),
           interval: refreshInterval,
-          report: previous?.report,
+          report: denied ? undefined : previous?.report,
+          ticket: denied ? undefined : previous?.ticket,
           branchCheckedAt,
         });
         setSnapshots((current) => ({
           ...current,
           [slug]: {
-            ...current[slug],
+            ...(denied ? { accessDenied: true } : current[slug]),
             error: (error as Error).message,
             httpStatus:
               error instanceof RequestError ? error.status : undefined,

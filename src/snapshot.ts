@@ -6,6 +6,7 @@ export function reportForges(report?: Report) {
 }
 
 export type Snapshot = {
+  accessDenied?: boolean;
   report?: Report;
   error?: string;
   httpStatus?: number;

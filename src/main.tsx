@@ -517,59 +517,63 @@ function App() {
           close={() => setShowConnect(false)}
         />
       )}
-      {selectedHeritage && (
-        <HeritageDetail
-          selection={selectedHeritage}
-          close={() => setSelectedHeritage(undefined)}
-        />
-      )}
-      {selectedRoad?.selection === 'plaza' && (
-        <PlazaDetail
-          region={selectedRoad.region}
-          pulls={reportForges(snapshots[selectedRoad.region.slug]?.report)}
-          title={
-            roadPlacements.get(selectedRoad.region.slug)?.plazaRoad
-              ? undefined
-              : '작업 목록'
-          }
-          openPull={(item) => openPull(selectedRoad.region, item)}
-          close={() => setSelectedRoad(undefined)}
-        />
-      )}
-      {selectedRoad && selectedRoad.selection !== 'plaza' && (
-        <Dialog
-          title={
-            selectedRoad.selection.roads.length === 1
-              ? selectedRoad.selection.roads[0].name
-              : '브랜치 도로망'
-          }
-          close={() => setSelectedRoad(undefined)}
-        >
-          {selectedRoad.selection.partial && (
-            <p>브랜치 목록의 첫 페이지와 열린 PR에서 확인한 경로입니다.</p>
-          )}
-          <ul className="branch-road-details">
-            {selectedRoad.selection.roads.map((road, _, roads) => (
-              <li key={road.name}>
-                {roads.length > 1 && <strong>{road.name}</strong>}
-                {road.role === 'palace' && <small>왕궁</small>}
-                {road.role === 'plaza' && <small>개발 광장</small>}
-                {road.parent && <small>관측된 PR 대상 · {road.parent}</small>}
-                {road.pulls.map((pull) => (
-                  <OutLink
-                    key={pull.number}
-                    item={{
-                      title: `PR #${pull.number} · ${pull.base}`,
-                      status: pull.merged ? '머지됨' : '열림',
-                      url: `https://github.com/${selectedRoad.region.slug}/pull/${pull.number}`,
-                    }}
-                  />
-                ))}
-              </li>
-            ))}
-          </ul>
-        </Dialog>
-      )}
+      {selectedHeritage &&
+        !snapshots[selectedHeritage.region.slug]?.accessDenied && (
+          <HeritageDetail
+            selection={selectedHeritage}
+            close={() => setSelectedHeritage(undefined)}
+          />
+        )}
+      {selectedRoad?.selection === 'plaza' &&
+        !snapshots[selectedRoad.region.slug]?.accessDenied && (
+          <PlazaDetail
+            region={selectedRoad.region}
+            pulls={reportForges(snapshots[selectedRoad.region.slug]?.report)}
+            title={
+              roadPlacements.get(selectedRoad.region.slug)?.plazaRoad
+                ? undefined
+                : '작업 목록'
+            }
+            openPull={(item) => openPull(selectedRoad.region, item)}
+            close={() => setSelectedRoad(undefined)}
+          />
+        )}
+      {selectedRoad &&
+        !snapshots[selectedRoad.region.slug]?.accessDenied &&
+        selectedRoad.selection !== 'plaza' && (
+          <Dialog
+            title={
+              selectedRoad.selection.roads.length === 1
+                ? selectedRoad.selection.roads[0].name
+                : '브랜치 도로망'
+            }
+            close={() => setSelectedRoad(undefined)}
+          >
+            {selectedRoad.selection.partial && (
+              <p>브랜치 목록의 첫 페이지와 열린 PR에서 확인한 경로입니다.</p>
+            )}
+            <ul className="branch-road-details">
+              {selectedRoad.selection.roads.map((road, _, roads) => (
+                <li key={road.name}>
+                  {roads.length > 1 && <strong>{road.name}</strong>}
+                  {road.role === 'palace' && <small>왕궁</small>}
+                  {road.role === 'plaza' && <small>개발 광장</small>}
+                  {road.parent && <small>관측된 PR 대상 · {road.parent}</small>}
+                  {road.pulls.map((pull) => (
+                    <OutLink
+                      key={pull.number}
+                      item={{
+                        title: `PR #${pull.number} · ${pull.base}`,
+                        status: pull.merged ? '머지됨' : '열림',
+                        url: `https://github.com/${selectedRoad.region.slug}/pull/${pull.number}`,
+                      }}
+                    />
+                  ))}
+                </li>
+              ))}
+            </ul>
+          </Dialog>
+        )}
       {selectedQuest && pull && (
         <PullDetail
           key={`${selectedQuest.region.slug}-pr-${pull.number}`}
