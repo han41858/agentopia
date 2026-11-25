@@ -60,8 +60,9 @@ export const KingdomRegion = memo(function KingdomRegion({
     .filter(isCurrentFacility)
     .sort(
       (left, right) =>
-        (placement?.facilityOrder.get(left.number) ?? Number.MAX_SAFE_INTEGER) -
-        (placement?.facilityOrder.get(right.number) ?? Number.MAX_SAFE_INTEGER),
+        (placement?.facilityOrder.get(left.number) ?? Infinity) -
+          (placement?.facilityOrder.get(right.number) ?? Infinity) ||
+        left.number - right.number,
     );
   const issueOrder = new Map<number, number>();
   visibleFacilities.forEach((pull, index) => {

@@ -380,20 +380,18 @@ export function KingdomMonsters({
     childrenByParent.set(quest.parent, siblings);
   }
 
-  const priority = (quest: Quest) =>
-    alerts.has(quest.stage) ? 2 : activeStages.has(quest.stage) ? 1 : 0;
-  const comparePriority = (a: Quest, b: Quest) =>
-    (issueOrder.get(a.number) ?? Infinity) -
-      (issueOrder.get(b.number) ?? Infinity) || priority(b) - priority(a);
+  const comparePlacement = (left: Quest, right: Quest) =>
+    (issueOrder.get(left.number) ?? Infinity) -
+      (issueOrder.get(right.number) ?? Infinity) || left.number - right.number;
   const roots = openQuests
     .filter(({ parent }) => parent === undefined || !visible.has(parent))
-    .sort(comparePriority);
+    .sort(comparePlacement);
 
   function render(quest: Quest) {
     const children = (childrenByParent.get(quest.number) ?? []).filter(
       ({ number }) => visible.has(number),
     );
-    children.sort(comparePriority);
+    children.sort(comparePlacement);
     const boss =
       childrenByParent.has(quest.number) || Boolean(quest.subIssueCount);
     return (
