@@ -339,6 +339,7 @@ async function main() {
       reviewId ||
       state.pullNumber !== lastPullNumber;
     const body = progressBody({
+      repository,
       body: comment?.body,
       previousAt: comment?.updated_at,
       state: checkpointState,

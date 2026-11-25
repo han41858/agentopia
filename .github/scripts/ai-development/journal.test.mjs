@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { progressBody } from './journal.mjs';
+import { progressBody as render } from './journal.mjs';
+
+const progressBody = (input) =>
+  render({ repository: 'example/kingdom', ...input });
 
 test('one comment retains a failed run through review, merge, close and late CI delivery', () => {
   const first = {
@@ -67,4 +70,38 @@ test('one comment retains a failed run through review, merge, close and late CI 
   );
   const data = late.match(/<!-- agentopia-ai-state:(\S+) -->$/)[1];
   assert.deepEqual(JSON.parse(Buffer.from(data, 'base64')), done);
+});
+
+test('long histories preserve current checkpoint, stable ordinals and repository links', () => {
+  const first = {
+    runId: 10,
+    attempt: 1,
+    pullNumber: 8,
+    status: 'ready',
+    reason: '검토 완료',
+  };
+  let body = '';
+  const entry = (n) => ({ key: n, text: `${n} ${'&'.repeat(895)}` });
+  for (let n = 0; n < 50; n++) {
+    body = progressBody({ body, state: first, event: entry(n) });
+    assert.ok(body.length <= 65536);
+  }
+  assert.match(body, /이전 기록 일부 생략/);
+  assert.match(body, /github\.com\/example\/kingdom\/actions\/runs\/10/);
+  assert.equal(progressBody({ body, state: first, event: entry(0) }), body);
+  const next = { ...first, runId: 11 };
+  for (let n = 50; n < 75; n++) {
+    body = progressBody({ body, state: next, event: entry(n) });
+    assert.ok(body.length <= 65536);
+  }
+  assert.match(body, /^\*\*2차 실행/);
+  assert.doesNotMatch(body, /### 1차 실행/);
+  assert.equal(
+    progressBody({ body, state: next, eventState: first, event: entry(0) }),
+    body,
+  );
+  assert.match(
+    progressBody({ body, state: { ...next, runId: 12 } }),
+    /^\*\*3차 실행/,
+  );
 });

@@ -71,7 +71,8 @@ class CompletionTest(unittest.TestCase):
                 merge_error = False
                 completion.complete(1, 7)
             elif wrong_close or rerunning or changed or stale_head or ci != "success" or status != "completed":
-                with self.assertRaises(RuntimeError):
+                retryable = rerunning or ci in {"cancelled", "timed_out", "stale"} or status != "completed" or stale_head
+                with self.assertRaises(completion.RetryCompletion if retryable else RuntimeError):
                     completion.complete(1, 7)
             else:
                 completion.complete(1, 7)
@@ -79,6 +80,22 @@ class CompletionTest(unittest.TestCase):
                 self.assertEqual([c.args[3].split(":")[0] for c in journal.call_args_list], ["merge", "closed"])
                 self.assertEqual(journal.call_args.kwargs["status"], "merged")
         return calls
+
+    def test_cancelled_ci_is_retryable(self):
+        self.assertEqual(self.run_case(ci="cancelled"), [])
+
+    def test_main_records_retryable_ci_without_invalidating_review(self):
+        state = {"runId": 7, "head": "a" * 40, "pullNumber": 2}
+        for error, status in [(completion.RetryCompletion("CI timed out"), None),
+                              (RuntimeError("PR changed"), "needs_human")]:
+            with self.subTest(error=error), patch.dict(completion.os.environ, AI_ISSUE="1", AI_REVIEW_RUN="7"), patch.object(
+                completion, "complete", side_effect=error
+            ), patch.object(completion, "ready_state", return_value=state), patch.object(
+                completion, "repo", return_value={"merged_at": None}
+            ), patch.object(completion, "record_event") as journal:
+                with self.assertRaises(type(error)):
+                    completion.main()
+                self.assertEqual(journal.call_args.kwargs["status"], status)
 
     def test_completion_requires_reviewed_developer_label(self):
         issue = {"state": "open", "labels": [{"name": "ai:develop:claude"}]}

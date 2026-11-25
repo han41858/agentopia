@@ -12,6 +12,10 @@ import time
 REPO = "han41858/agentopia"
 
 
+class RetryCompletion(RuntimeError):
+    """The reviewed HEAD can be checked again after CI becomes available."""
+
+
 def api(path, *, publisher=False, pages=False, method="GET", **fields):
     env = os.environ.copy()
     if publisher:
@@ -65,7 +69,7 @@ def record_event(issue, reviewed, number, key, text, *, ci=None, status=None):
     state = latest
     if status and latest == reviewed:
         state = dict(latest, status=status, phase="완료" if status == "merged" else "완료 확인", reason=text)
-    payload = {"body": comment["body"], "previousAt": comment.get("updated_at"), "state": state,
+    payload = {"repository": REPO, "body": comment["body"], "previousAt": comment.get("updated_at"), "state": state,
                "eventState": dict(reviewed, pullNumber=number),
                "event": {"key": key, "text": text, "ci": ci}}
     script = Path(__file__).with_name("ai-development") / "journal.mjs"
@@ -224,6 +228,8 @@ def complete(issue, run_id):
                                  f"CI 실패 · {blocker or feedback}", ci=ci)
                     request_recovery(issue, state, feedback, blocker, ci)
                     return
+                if ci["conclusion"] in {"cancelled", "timed_out", "stale"}:
+                    raise RetryCompletion(f"CI {ci['conclusion']}. Retry AI completion after CI passes: {ci['html_url']}")
                 if ci["conclusion"] != "success":
                     raise RuntimeError(f"CI did not pass: {ci['html_url']}")
                 break
@@ -232,7 +238,7 @@ def complete(issue, run_id):
                     return
             time.sleep(10)
         else:
-            raise RuntimeError("CI timed out. Retry AI completion after CI passes.")
+            raise RetryCompletion("CI timed out. Retry AI completion after CI passes.")
         current = current_target(issue, number, state)
         if not current:
             return
@@ -245,7 +251,9 @@ def complete(issue, run_id):
             if not current_target(issue, number, state, undrafted_pr=current if undrafted else None):
                 return
             latest = current_ci(head, branch, number)
-            if not latest or latest["status"] != "completed" or latest["conclusion"] != "success":
+            if not latest or latest["status"] != "completed" or latest["conclusion"] in {"cancelled", "timed_out", "stale"}:
+                raise RetryCompletion("CI changed. Retry AI completion after CI passes.")
+            if latest["conclusion"] != "success":
                 raise RuntimeError("Current HEAD CI is no longer successful.")
             result = repo(f"pulls/{number}/merge", publisher=True, method="PUT",
                           sha=head, merge_method="squash", commit_title=f"{current['title']} (#{number})")
@@ -288,9 +296,10 @@ def main():
         state = ready_state(issue)
         if state and (not run_id or state["runId"] == run_id) and state.get("pullNumber"):
             number = state["pullNumber"]
-            pull = repo(f"pulls/{number}")
-            # Keep a confirmed merge resumable if issue closure or its acknowledgement failed.
-            status = None if merged_target(pull, state["head"]) else "needs_human"
+            # CI waits and confirmed merges can resume from this reviewed HEAD.
+            status = None
+            if not isinstance(error, RetryCompletion) and not merged_target(repo(f"pulls/{number}"), state["head"]):
+                status = "needs_human"
             record_event(issue, state, number, f"completion-stop:{state['head']}:{error}",
                          f"완료 단계 중단 · {error}", status=status)
         raise
