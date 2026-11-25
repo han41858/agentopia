@@ -204,6 +204,6 @@ test('literal lookup locates UI text without counting as a full UI spec read', (
       path: '.github/workflows/ci.yml',
       text: 'jobs',
     }),
-    /outside/,
+    /허용된 소스 및 문서 범위를 벗어난 경로/,
   );
 });
