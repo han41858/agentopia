@@ -1489,6 +1489,88 @@ test('an active issue without a PR recovers its matching bot checkpoint on refre
   assert.equal(targeted, 2);
 });
 
+test('issue stops only on the selected checkpoint and does not stop other PRs', () => {
+  const reason = '자동 수정 한도 도달';
+  const stopped = { kind: 'stopped', reason };
+  const checkpoint = comment(2, 'needs_human', { reason });
+  const sibling = { ...pull, number: 21 };
+  const previous = run(2, { status: 'completed', conclusion: 'failure' });
+  function observe(
+    pulls: Pull[],
+    runs: Run[],
+    comments: Comment[],
+    currentIssue = issue(2),
+  ) {
+    const links = new Map();
+    const quests = makeQuests(
+      commitTrail,
+      [currentIssue],
+      pulls,
+      runs,
+      comments,
+      new Map(),
+      [],
+      links,
+    );
+    return {
+      quest: quests[0],
+      forges: makeForges(commitTrail, pulls, runs, links, quests),
+    };
+  }
+
+  assert.deepEqual(
+    observe([], [previous], [checkpoint]).quest.issueRecoveryBadge,
+    stopped,
+  );
+  assert.equal(
+    observe([], [previous], [checkpoint], { ...issue(2), state: 'closed' })
+      .quest.issueRecoveryBadge,
+    undefined,
+  );
+  assert.equal(
+    observe([], [previous], [comment(2, 'failed', { reason })]).quest
+      .issueRecoveryBadge,
+    undefined,
+  );
+  assert.equal(observe([], [previous], []).quest.issueRecoveryBadge, undefined);
+  assert.equal(
+    observe(
+      [],
+      [previous, run(2, { run_attempt: 2 })],
+      [checkpoint, comment(2, 'developing', { attempt: 2 })],
+    ).quest.issueRecoveryBadge,
+    undefined,
+  );
+
+  const linked = [pull, sibling];
+  const recorded = comment(2, 'needs_human', {
+    pullNumber: pull.number,
+    reason,
+  });
+  const current = observe(linked, [previous], [recorded]);
+  assert.deepEqual(current.quest.issueRecoveryBadge, stopped);
+  assert.deepEqual(
+    current.forges.map((forge) => forge.recoveryBadge),
+    [stopped, undefined],
+  );
+  const moved = observe(
+    [{ ...pull, head: { ...pull.head, sha: mergeSha } }, sibling],
+    [previous],
+    [recorded],
+  );
+  assert.deepEqual(moved.quest.issueRecoveryBadge, stopped);
+  assert.deepEqual(
+    moved.forges.map((forge) => forge.recoveryBadge),
+    [undefined, undefined],
+  );
+  const withoutPullNumber = observe(linked, [previous], [checkpoint]);
+  assert.deepEqual(withoutPullNumber.quest.issueRecoveryBadge, stopped);
+  assert.deepEqual(
+    withoutPullNumber.forges.map((forge) => forge.recoveryBadge),
+    [undefined, undefined],
+  );
+});
+
 test('PR recovery follows the trusted PR, HEAD and CI attempt through repair', () => {
   const failed = run(2, {
     id: 500,
@@ -1528,7 +1610,15 @@ test('PR recovery follows the trusted PR, HEAD and CI attempt through repair', (
       new Map(),
       [],
     );
-    return makeForges(commitTrail, [current], runs, new Map(), quests)[0];
+    const facility = makeForges(
+      commitTrail,
+      [current],
+      runs,
+      new Map(),
+      quests,
+    )[0];
+    assert.deepEqual(quests[0].issueRecoveryBadge, facility.recoveryBadge);
+    return facility;
   }
   const active = forge('revising', {});
   assert.equal(active.stage, 'revising');

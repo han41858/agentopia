@@ -13,7 +13,13 @@ import {
   OctagonPause,
 } from 'lucide-react';
 import { stages } from '../server/model.ts';
-import type { PullQuest, Quest, Region, Stage } from '../server/model.ts';
+import type {
+  PullQuest,
+  Quest,
+  RecoveryBadge,
+  Region,
+  Stage,
+} from '../server/model.ts';
 import {
   AdventurerParty,
   PartyLeaderGlyph,
@@ -81,6 +87,37 @@ function markerMemberLabel(member: NonNullable<Quest['adventurers']>[number]) {
     : partyLabel(member, '대기');
 }
 
+function recoveryTooltip(title: string, badge?: RecoveryBadge) {
+  if (!badge) return title;
+  const name = {
+    waiting: '자동 수정 대기',
+    repairing: '자동 수정 중',
+    checking: '수정 후 CI 재검사 중',
+    stopped: '작업 중단',
+  }[badge.kind];
+  return [
+    title,
+    name,
+    badge.attempt && badge.limit
+      ? `${badge.attempt}/${badge.limit}회`
+      : undefined,
+    badge.reason,
+  ]
+    .filter(Boolean)
+    .join(' · ');
+}
+
+function RecoveryGlyph({
+  badge,
+  className,
+}: {
+  badge: RecoveryBadge;
+  className: string;
+}) {
+  const Icon = badge.kind === 'stopped' ? OctagonPause : TriangleAlert;
+  return <Icon className={className} size={16} aria-hidden="true" />;
+}
+
 export function MonsterMarker({
   quest,
   boss,
@@ -101,7 +138,11 @@ export function MonsterMarker({
   const defeated = quest.state === 'closed';
   const members = quest.adventurers ?? [];
   const resting = monsterRest(quest);
-  const tooltip = `이슈 #${quest.number} · ${quest.title}`;
+  const badge = quest.issueRecoveryBadge;
+  const tooltip = recoveryTooltip(
+    `이슈 #${quest.number} · ${quest.title}`,
+    badge,
+  );
   const label = [
     tooltip,
     defeated ? '이슈 닫힘' : quest.reopened ? '이슈 다시 열림' : '이슈 열림',
@@ -115,6 +156,7 @@ export function MonsterMarker({
   return (
     <button
       data-road-issue={quest.number}
+      data-recovery={badge?.kind}
       data-working={
         (activeStages.has(quest.stage) && quest.stage !== 'queued') || undefined
       }
@@ -131,12 +173,15 @@ export function MonsterMarker({
       {pulse !== undefined && (
         <span key={pulse} className="party-pulse" aria-hidden="true" />
       )}
-      <MonsterGlyph
-        boss={boss}
-        defeated={defeated}
-        reopened={quest.reopened}
-        commits={quest.activity?.commits}
-      />
+      <span className="monster-marker-art">
+        <MonsterGlyph
+          boss={boss}
+          defeated={defeated}
+          reopened={quest.reopened}
+          commits={quest.activity?.commits}
+        />
+        {badge && <RecoveryGlyph badge={badge} className="monster-recovery" />}
+      </span>
       <small className="expedition-number">{`#${quest.number}`}</small>
       <AdventurerParty
         members={members}
@@ -228,25 +273,7 @@ export function FacilityMarker({
   );
   const leader = partyLeaderState(pull);
   const badge = pull.recoveryBadge;
-  const badgeName =
-    badge &&
-    {
-      waiting: '자동 수정 대기',
-      repairing: '자동 수정 중',
-      checking: '수정 후 CI 재검사 중',
-      stopped: '작업 중단',
-    }[badge.kind];
-  const tooltip = [
-    `PR #${pull.number} · ${pull.title}`,
-    badgeName,
-    badge?.attempt && badge.limit
-      ? `${badge.attempt}/${badge.limit}회`
-      : undefined,
-    badge?.reason,
-  ]
-    .filter(Boolean)
-    .join(' · ');
-  const RecoveryIcon = badge?.kind === 'stopped' ? OctagonPause : TriangleAlert;
+  const tooltip = recoveryTooltip(`PR #${pull.number} · ${pull.title}`, badge);
   const label = [
     tooltip,
     pullActivity(pull),
@@ -304,7 +331,9 @@ export function FacilityMarker({
           {pull.stage === 'merging' && (
             <GitPullRequest className="facility-result" size={13} />
           )}
-          {badge && <RecoveryIcon className="facility-recovery" size={16} />}
+          {badge && (
+            <RecoveryGlyph badge={badge} className="facility-recovery" />
+          )}
           {!badge && alerts.has(pull.stage) && (
             <Skull className="facility-result" size={13} />
           )}

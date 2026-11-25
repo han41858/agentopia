@@ -83,7 +83,7 @@ export type ActivityEntry = Source & {
 };
 export type ActivityPage = { entries: ActivityEntry[]; next?: number };
 
-type RecoveryBadge = {
+export type RecoveryBadge = {
   kind: 'waiting' | 'repairing' | 'checking' | 'stopped';
   reason?: string;
   attempt?: number;
@@ -105,6 +105,7 @@ export type Quest = {
   reopened?: boolean;
   workPull?: number;
   recoveryBadge?: RecoveryBadge;
+  issueRecoveryBadge?: RecoveryBadge;
   workReviewer?: Agent;
   issueComments?: number;
   subIssueCount?: number;
@@ -858,6 +859,10 @@ export function makeQuests(
     if (state?.status === 'needs_human' && !/[\p{L}\p{N}]/u.test(reason ?? ''))
       reason =
         '자동화가 사람 확인을 요청했습니다. 실행 기록에 구체적인 중단 사유가 없습니다.';
+    const issueStop: RecoveryBadge | undefined =
+      issue.state === 'open' && state?.status === 'needs_human'
+        ? { kind: 'stopped', reason }
+        : undefined;
     let detail = state?.detail;
     const outcome = run && runStage(run);
     if (
@@ -1068,6 +1073,7 @@ export function makeQuests(
           ? workPull?.number
           : undefined,
       recoveryBadge,
+      issueRecoveryBadge: issueStop ?? recoveryBadge,
       adventurers: [...adventurers.values()],
       activities,
       activity,
