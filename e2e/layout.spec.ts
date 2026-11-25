@@ -368,7 +368,9 @@ for (const width of [1280, 390, 320]) {
         const previousHeritage = await heritageArtGaps(area);
         const previous = await measure();
         const [previousWithoutBridge] = await boxes(withoutBridge);
-        await previousSpacing.evaluate((node) => node.remove());
+        await previousSpacing.evaluate((node) => {
+          node.parentNode?.removeChild(node);
+        });
 
         expect(currentHeritage.above).toBeGreaterThan(0);
         expect(currentHeritage.below).toBeGreaterThan(0);
@@ -459,7 +461,9 @@ for (const width of [1280, 390, 320]) {
           `,
         });
         const previous = await measure();
-        await previousSpacing.evaluate((node) => node.remove());
+        await previousSpacing.evaluate((node) => {
+          node.parentNode?.removeChild(node);
+        });
 
         expect(current.branchGap).toBeGreaterThan(0);
         expect(current.branchGap).toBeLessThan(previous.branchGap);
