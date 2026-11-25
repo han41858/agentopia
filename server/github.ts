@@ -7,6 +7,7 @@ import {
   activityPage,
   activitySummary,
 } from './github-activity.ts';
+import type { ActivitySummaryField } from './github-activity.ts';
 import { repositoryHeritage } from './github-heritage.ts';
 
 export async function githubResponse(
@@ -47,9 +48,18 @@ export async function githubResponse(
         !/^[1-9]\d{0,11}$/.test(number)
       )
         return reply(400, { error: '조회할 GitHub 활동을 확인해 주세요.' });
+      const requested = url.searchParams.get('counts')?.split(',');
+      const fields = requested?.filter(
+        (field): field is ActivitySummaryField =>
+          field === 'comments' ||
+          (summary === 'pull' &&
+            (field === 'commits' || field === 'shas' || field === 'reviews')),
+      );
+      if (fields?.length !== requested?.length)
+        return reply(400, { error: '조회할 GitHub 활동을 확인해 주세요.' });
       return reply(
         200,
-        await activitySummary(region, summary, number, authorization),
+        await activitySummary(region, summary, number, authorization, fields),
       );
     }
     const activity = url.searchParams.get('activity');

@@ -35,7 +35,26 @@ test.describe('상세 창', () => {
   test('PR 시설: 상태와 활동을 보여 주고, 눌렀을 때만 기록을 조회한다', async ({
     page,
   }) => {
-    const github = await openWorld(page);
+    const github = await mockGitHub(page);
+    const report = structuredClone(alphaReport);
+    const pull = report.forges?.find(({ number }) => number === 11);
+    if (!pull) throw new Error('alphaReport에 PR #11 픽스처가 없습니다.');
+    pull.activity = { commits: 1, partialCommits: true, pullComments: 2 };
+    pull.activities = { commits: 3, reviews: 1 };
+    await page.route('**/api/github?**', async (route) => {
+      const params = new URL(route.request().url()).searchParams;
+      if (
+        params.get('repo') !== alpha ||
+        ['summary', 'activity', 'heritage', 'repository', 'reviews'].some(
+          (key) => params.has(key),
+        )
+      )
+        return route.fallback();
+      await route.fulfill({ json: report });
+    });
+    await seedSettings(page, [alpha]);
+    await page.goto('/');
+    await settled(page);
     await page.getByRole('button', { name: /PR #11/ }).click();
     const dialog = page.getByRole('dialog', { name: 'PR #11' });
 
@@ -98,8 +117,71 @@ test.describe('상세 창', () => {
     await expect(failure).toHaveText('failure');
     await expect(latest).toHaveCSS('font-size', '11px');
     expect(github.queries('summary')).toEqual([
-      { repo: alpha, summary: 'pull', number: '12' },
+      {
+        repo: alpha,
+        summary: 'pull',
+        number: '12',
+        counts: 'commits,comments,reviews',
+      },
     ]);
+  });
+
+  test('PR 시설: 닫으면 집계를 취소하고 실패를 0으로 표시하지 않는다', async ({
+    page,
+  }) => {
+    await page.addInitScript(() => {
+      const fetch = window.fetch;
+      window.fetch = (input, options) => {
+        if (String(input).includes('summary=pull')) {
+          options?.signal?.addEventListener('abort', () => {
+            document.documentElement.dataset.summaryAborted = 'true';
+          });
+        }
+        return fetch(input, options);
+      };
+    });
+    const github = await openWorld(page);
+    let release = () => {};
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let calls = 0;
+    await page.route('**/api/github?**', async (route) => {
+      const params = new URL(route.request().url()).searchParams;
+      if (params.get('summary') !== 'pull') return route.fallback();
+      if (++calls === 1) {
+        await held;
+        await route.abort().catch(() => {});
+        return;
+      }
+      await route.fulfill({ status: 502, json: { error: '집계 조회 실패' } });
+    });
+    const marker = page.getByRole('button', { name: /PR #12/ });
+    const dialog = page.getByRole('dialog', { name: 'PR #12' });
+    try {
+      await marker.click();
+      await expect.poll(() => calls).toBe(1);
+      await expect(dialog.getByRole('status')).toHaveText(
+        'GitHub 활동 집계 확인 중…',
+      );
+      await page.keyboard.press('Escape');
+      await expect(dialog).toBeHidden();
+      await expect(page.locator('html')).toHaveAttribute(
+        'data-summary-aborted',
+        'true',
+      );
+    } finally {
+      release();
+    }
+    await marker.click();
+    await expect(dialog.getByRole('status')).toHaveText(
+      '일부 활동을 조회하지 못했습니다.',
+    );
+    await expect(
+      dialog.getByRole('button', { name: '커밋', exact: true }),
+    ).toHaveText('—');
+    expect(calls).toBe(2);
+    expect(github.count('activity')).toBe(0);
   });
 
   test('이슈와 PR 팝업에서 최신 Actions 실행을 먼저 표시한다', async ({
@@ -620,8 +702,103 @@ test.describe('상세 창', () => {
         .locator('.activity-counter'),
     ).toHaveText(['0', '6', '0', '0']);
     expect(github.queries('summary')).toEqual([
-      { repo: alpha, summary: 'issue', number: '2' },
+      { repo: alpha, summary: 'issue', number: '2', counts: 'comments' },
     ]);
+  });
+
+  test('몬스터: 연결 PR의 고유 커밋을 동시 요청 한도 안에서 집계한다', async ({
+    page,
+  }) => {
+    const github = await mockGitHub(page);
+    await seedSettings(page, [alpha]);
+    await page.addInitScript(() => {
+      const fetch = window.fetch;
+      let started = 0;
+      window.fetch = (input, options) => {
+        if (String(input).includes('summary=')) {
+          document.documentElement.dataset.summaryRequests = String(++started);
+        }
+        return fetch(input, options);
+      };
+    });
+
+    const report = structuredClone(alphaReport);
+    const issue = report.quests.find(({ number }) => number === 2)!;
+    issue.activity = { pullComments: 0, reviews: 1 };
+    const forges = report.forges;
+    if (!forges || forges.length < 3) {
+      throw new Error('alphaReport에 PR 픽스처가 3개 이상 필요합니다.');
+    }
+    issue.pulls = forges
+      .slice(0, 3)
+      .map(({ number, title, url }) => ({ number, title, url }));
+    const replies: Record<string, object> = {
+      '2': { comments: 0 },
+      '11': { commits: 2, shas: ['a', 'b'] },
+      '12': { commits: 3, shas: ['b', 'c'] },
+      '13': { commits: 1, shas: ['d'] },
+    };
+    const queries = [
+      { repo: alpha, summary: 'issue', number: '2', counts: 'comments' },
+      ...issue.pulls.map(({ number }) => ({
+        repo: alpha,
+        summary: 'pull',
+        number: String(number),
+        counts: 'shas',
+      })),
+    ];
+    const calls: Record<string, string>[] = [];
+    const sortedCalls = () =>
+      [...calls].sort((a, b) => Number(a.number) - Number(b.number));
+    let release = () => {};
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    await page.route('**/api/github?**', async (route) => {
+      const params = new URL(route.request().url()).searchParams;
+      if (params.has('branches') && params.get('repo') === alpha) {
+        return route.fulfill({ json: report });
+      }
+      if (!params.has('summary')) return route.fallback();
+      calls.push(Object.fromEntries(params));
+      await held;
+      await route.fulfill({
+        json: {
+          ...replies[params.get('number') ?? ''],
+          people: [],
+          complete: false,
+        },
+      });
+    });
+    await page.goto('/');
+    await settled(page);
+    const counters = page
+      .getByRole('dialog', { name: '이슈 #2' })
+      .getByRole('group', { name: '이슈 활동' });
+    try {
+      await page.getByRole('button', { name: /^이슈 #2 / }).click();
+      await expect.poll(sortedCalls).toEqual(queries.slice(0, 3));
+      await expect(page.locator('html')).toHaveAttribute(
+        'data-summary-requests',
+        '3',
+      );
+      await expect(
+        counters.getByRole('button', { name: '이슈 댓글 미확인' }),
+      ).toHaveText('—');
+    } finally {
+      release();
+    }
+    await expect(
+      counters.getByRole('button', { name: '고유 커밋 4개 이상' }),
+    ).toHaveText('4+');
+    await expect(counters.locator('.activity-counter')).toHaveText([
+      '4+',
+      '0',
+      '0',
+      '1',
+    ]);
+    expect(sortedCalls()).toEqual(queries);
+    expect(github.count('activity')).toBe(0);
   });
 
   test('몬스터: 별도 성공은 실패 표시를 지우지 않고 재개 기록은 지운다', async ({

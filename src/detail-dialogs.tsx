@@ -203,7 +203,16 @@ export function PullDetail({
     region: region.slug,
     token,
     pulls: String(pull.number),
-    initial: pull.activity,
+    initial: {
+      ...pull.activity,
+      commits: pull.activity?.partialCommits
+        ? (pull.activities?.commits ?? pull.activity.commits)
+        : (pull.activity?.commits ?? pull.activities?.commits),
+      partialCommits:
+        pull.activity?.partialCommits && pull.activities?.commits === undefined,
+      pullComments: pull.activity?.pullComments ?? pull.activities?.comments,
+      reviews: pull.activity?.reviews ?? pull.activities?.reviews,
+    },
   });
   const { counters, entries } = useActivityBrowser(
     {
@@ -211,14 +220,12 @@ export function PullDetail({
       number: pull.number,
       token,
       counts: {
-        commits: activity?.partialCommits
-          ? (pull.activities?.commits ?? activity.commits)
-          : (activity?.commits ?? pull.activities?.commits),
-        comments: activity?.pullComments ?? pull.activities?.comments,
-        reviews: activity?.reviews ?? pull.activities?.reviews,
+        commits: activity.commits,
+        comments: activity.pullComments,
+        reviews: activity.reviews,
       },
     },
-    activity?.partialCommits && pull.activities?.commits === undefined,
+    activity.partialCommits,
   );
   return (
     <Dialog
