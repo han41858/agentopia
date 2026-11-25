@@ -308,7 +308,7 @@ svg {
 .expeditions > li,
 .guild-parties > li {
   flex: 0 0 auto;
-  min-inline-size: min(53px, 100%);
+  min-inline-size: 53px;
   max-width: 100%;
 }
 .expeditions > .guild-branch,
