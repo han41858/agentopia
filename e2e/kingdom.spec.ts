@@ -21,22 +21,22 @@ test.describe('왕국 기본 표시', () => {
       .poll(() => labels(roads.getByRole('button')))
       .toEqual([
         '개발 광장 · dev',
-        '브랜치 docs/guide',
         '브랜치 feature/facility',
         '브랜치 fix/road',
+        '브랜치 docs/guide',
       ]);
 
     // 머지되거나 취소된 PR(#9, #8)은 시설로 남지 않고, 도로 순서대로 놓입니다.
     const facilities = kingdom
       .getByRole('list', { name: 'alpha 왕국 내부' })
       .locator('.facility-marker');
-    await expect(facilities).toHaveText(['PR #13', 'PR #11', 'PR #12']);
-    await expect(facilities.nth(0)).toHaveAttribute('data-facility', 'library');
-    await expect(facilities.nth(1)).toHaveAttribute('data-facility', 'forge');
-    await expect(facilities.nth(2)).toHaveAttribute('data-facility', 'wall');
-    await expect(facilities.nth(0)).toHaveAccessibleName(/초안/);
-    await expect(facilities.nth(1)).toHaveAccessibleName(/Codex · 개발 중/);
-    await expect(facilities.nth(2)).toHaveAccessibleName(/실행 실패/);
+    await expect(facilities).toHaveText(['PR #11', 'PR #12', 'PR #13']);
+    await expect(facilities.nth(0)).toHaveAttribute('data-facility', 'forge');
+    await expect(facilities.nth(1)).toHaveAttribute('data-facility', 'wall');
+    await expect(facilities.nth(2)).toHaveAttribute('data-facility', 'library');
+    await expect(facilities.nth(0)).toHaveAccessibleName(/Codex · 개발 중/);
+    await expect(facilities.nth(1)).toHaveAccessibleName(/실행 실패/);
+    await expect(facilities.nth(2)).toHaveAccessibleName(/초안/);
 
     // 닫힌 이슈(#5)는 몬스터로 나오지 않습니다.
     const monsters = kingdom

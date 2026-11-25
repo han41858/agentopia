@@ -1,4 +1,5 @@
 import type { Locator, Page } from '@playwright/test';
+import type { PullQuest, Quest } from '../server/model.ts';
 import { alpha, alphaReport, emptyReport, noPlaza, owner } from './fixtures.ts';
 import { mockGitHub, openWorld, seedSettings, settled } from './github.ts';
 import { expect, test } from './test.ts';
@@ -239,6 +240,147 @@ test.describe('높은 데스크톱의 왕국 하나', () => {
     const gap = firstWall.y - headerBottom;
     expect(gap).toBeGreaterThanOrEqual(12);
     expect(gap).toBeLessThanOrEqual(20);
+  });
+});
+
+test.describe('월드맵 배치 순서', () => {
+  test.use({
+    viewport: { width: 1600, height: 1000 },
+    reducedMotion: 'reduce',
+  });
+
+  test('브랜치와 이슈 연결을 따라 같은 순서를 두 모드에서 유지한다', async ({
+    page,
+  }) => {
+    let shuffled = false;
+    let failed = true;
+    const arrange = <T>(items: T[]) =>
+      shuffled ? [...items].reverse() : items;
+
+    await mockGitHub(page);
+    await page.route('**/api/github?**', async (route) => {
+      const params = new URL(route.request().url()).searchParams;
+      if (
+        params.get('repo') !== alpha ||
+        ['owner', 'heritage', 'summary', 'activity', 'repository'].some((key) =>
+          params.has(key),
+        )
+      ) {
+        await route.fallback();
+        return;
+      }
+      const forges = [100, 101, 99].map((number): PullQuest => ({
+        number,
+        title: `배치 테스트 PR ${number}`,
+        url: `https://github.com/${alpha}/pull/${number}`,
+        draft: false,
+        stage: number === 99 ? (failed ? 'failed' : 'ci') : 'idle',
+        issues: number === 99 ? [9, 10] : number === 100 ? [9, 15] : [],
+        runs: [],
+      }));
+      const quests = [20, 10, 2, 9, 15].map((number): Quest => ({
+        ...alphaReport.quests[0],
+        number,
+        title: `배치 테스트 이슈 ${number}`,
+        url: `https://github.com/${alpha}/issues/${number}`,
+        state: 'open',
+        stage: number === 10 && failed ? 'failed' : 'idle',
+        parent: [10, 2, 9].includes(number) ? 20 : undefined,
+        subIssueCount: number === 20 ? 3 : undefined,
+        workPull: undefined,
+        pulls: [],
+        adventurers: [],
+      }));
+      await route.fulfill({
+        json: {
+          ...alphaReport,
+          quests: arrange(quests),
+          forges: arrange(forges),
+          branchInventory: {
+            defaultBranch: 'develop',
+            names: arrange(['main', 'develop', 'a-topic', 'z-topic']),
+            partial: false,
+          },
+          branchPulls: arrange(
+            forges.map(({ number }) => ({
+              number,
+              base: 'develop',
+              head: number === 100 ? 'a-topic' : 'z-topic',
+              merged: false,
+            })),
+          ),
+        },
+      });
+    });
+    await seedSettings(page, [alpha]);
+    await page.goto('/');
+    await settled(page);
+
+    const kingdom = page.getByRole('region', { name: 'alpha', exact: true });
+    const children = kingdom.getByRole('list', {
+      name: '이슈 #20의 하위 이슈',
+    });
+    const issue = (scope: Locator, number: number) =>
+      scope.getByTitle(new RegExp(`^이슈 #${number} · `));
+    const failure = kingdom.locator('[data-road-pr="99"] .facility-result');
+
+    async function expectLeftToRight(label: string, markers: Locator[]) {
+      const centers: number[] = [];
+      for (const marker of markers) {
+        await expect(marker).toBeVisible();
+        const [box] = await boxes(marker);
+        centers.push(box.x + box.width / 2);
+      }
+      for (let index = 1; index < centers.length; index++) {
+        expect(
+          centers[index],
+          `${label} 중심 x: ${centers.join(', ')}`,
+        ).toBeGreaterThan(centers[index - 1]);
+      }
+    }
+
+    async function checkPlacement() {
+      await expect(
+        kingdom.locator('.branch-road-lines path').first(),
+      ).toBeAttached();
+      await expectLeftToRight('형제 브랜치 z-topic → a-topic', [
+        kingdom.getByRole('button', { name: '브랜치 z-topic', exact: true }),
+        kingdom.getByRole('button', { name: '브랜치 a-topic', exact: true }),
+      ]);
+      await expectLeftToRight(
+        'PR 99 → 101 → 100',
+        [99, 101, 100].map((number) =>
+          kingdom.locator(`[data-road-pr="${number}"]`),
+        ),
+      );
+      await expectLeftToRight('연결된 이슈 → 미연결 부모 이슈', [
+        issue(kingdom, 15),
+        issue(kingdom, 20),
+      ]);
+      await expectLeftToRight(
+        '같은 PR에 연결된 하위 이슈 9 → 10 → 미연결 이슈 2',
+        [9, 10, 2].map((number) => issue(children, number)),
+      );
+      const [parentBox] = await boxes(issue(kingdom, 20));
+      const [childrenBox] = await boxes(children);
+      const parentBottom = parentBox.y + parentBox.height;
+      expect(
+        childrenBox.y,
+        `부모 이슈 아래 묶음: 부모 하단 y=${parentBottom}, 묶음 상단 y=${childrenBox.y}`,
+      ).toBeGreaterThanOrEqual(parentBottom);
+    }
+
+    await expect(failure).toBeVisible();
+    await checkPlacement();
+
+    shuffled = true;
+    failed = false;
+    await page.locator('.refresh-button').click();
+    await expect(failure).toHaveCount(0);
+    await checkPlacement();
+
+    await switchToSimple(page, false);
+    await checkPlacement();
   });
 });
 
