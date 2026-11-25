@@ -761,6 +761,16 @@ svg {
   display: flex;
   flex-direction: column;
 }
+.dialog[data-constrained-viewport] {
+  position: fixed;
+  inset: var(--dialog-viewport-center) 0 auto;
+  margin: 0 auto;
+  max-height: min(82dvh, 800px, calc(var(--dialog-viewport-height) - 24px));
+  transform: translateY(-50%);
+}
+.dialog[data-constrained-viewport] .dialog-heading {
+  padding-block: 10px;
+}
 .repository-dialog {
   width: min(393px, calc(100% - 32px));
 }
@@ -921,6 +931,12 @@ svg {
   background: #151020;
   color: inherit;
   padding: 9px 11px;
+}
+@media (pointer: coarse) {
+  /* Prevent Safari from zooming in when a settings field receives focus. */
+  .token-form input {
+    font-size: 16px;
+  }
 }
 .repository-options {
   display: grid;
