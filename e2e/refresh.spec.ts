@@ -49,23 +49,19 @@ test.describe('갱신 요청 수', () => {
     test(`${shortcut}: 화면은 유지하고 저장소마다 강제 갱신한다`, async ({
       page,
     }) => {
-      await page.setViewportSize({ width: 480, height: 400 });
+      await page.setViewportSize({ width: 480, height: 320 });
       const github = await openWorld(page, [alpha, noPlaza]);
       await expect(page.locator('.heritage-slot')).toHaveCount(3);
       await page.getByRole('button', { name: /PR #11/ }).click();
       const dialog = page.getByRole('dialog', { name: 'PR #11' });
       await expect(dialog).toBeVisible();
 
-      const map = page.locator('.map-viewport');
-      const offset = await map.evaluate((node) => {
-        node.scrollTo({
-          left: node.scrollWidth,
-          top: node.scrollHeight,
-          behavior: 'instant',
-        });
-        return [node.scrollLeft, node.scrollTop];
+      // 지도 영역 자체가 아니라 문서가 스크롤됩니다.
+      const offset = await page.evaluate(() => {
+        window.scrollTo({ top: 100, behavior: 'instant' });
+        return window.scrollY;
       });
-      expect(offset.some((position) => position > 0)).toBe(true);
+      expect(offset).toBeGreaterThan(0);
 
       const before = github.calls.length;
       let navigations = 0;
@@ -86,9 +82,7 @@ test.describe('갱신 요청 수', () => {
       await expect(dialog).toBeVisible();
       await expect(page.locator('[data-display-mode="world"]')).toHaveCount(1);
       await expect(page.locator('.facility-marker')).toHaveCount(4);
-      expect(
-        await map.evaluate((node) => [node.scrollLeft, node.scrollTop]),
-      ).toEqual(offset);
+      expect(await page.evaluate(() => window.scrollY)).toBe(offset);
     });
   }
 
