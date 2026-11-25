@@ -147,6 +147,27 @@ for (const viewport of ['desktop', 'mobile']) {
       await page.emulateMedia({ reducedMotion: 'reduce' });
     }
     await openWorld(page);
+    const kingdom = page.getByRole('region', { name: 'alpha' });
+    const unbadgedArt = kingdom.locator(
+      '.monster-marker:not([data-recovery]) .monster-marker-art',
+    );
+    await expect(unbadgedArt).toHaveCount(alphaReport.quests.length);
+    const unbadgedWidths = await unbadgedArt.evaluateAll((elements) =>
+      elements.map((element) => ({
+        art: element.getBoundingClientRect().width,
+        glyph: element.querySelector('.monster-glyph')!.getBoundingClientRect()
+          .width,
+      })),
+    );
+    await testInfo.attach('배지 없는 이슈의 그림 영역과 글리프 너비', {
+      body: JSON.stringify(unbadgedWidths, null, 2),
+      contentType: 'application/json',
+    });
+    for (const { art, glyph } of unbadgedWidths) {
+      expect(glyph).toBeGreaterThan(0);
+      expect(art).toBe(glyph);
+    }
+
     const repairing = { kind: 'repairing', attempt: 1, limit: 1 };
     const stopped = { kind: 'stopped', reason: '사람 확인 필요' };
     const adventurers = [{ agent: 'codex', roles: ['develop'] }];
@@ -266,7 +287,6 @@ for (const viewport of ['desktop', 'mobile']) {
         }
       }
 
-      const kingdom = page.getByRole('region', { name: 'alpha' });
       await expect(kingdom.locator('svg.monster-recovery')).toHaveCount(4);
       const markers = await kingdom
         .locator('.monster-marker, .facility-marker')
@@ -282,6 +302,12 @@ for (const viewport of ['desktop', 'mobile']) {
               name: element.textContent?.trim(),
               box: bounds(element),
               badge: badge ? bounds(badge) : null,
+              contents: Array.from(
+                element.querySelectorAll(
+                  '.monster-glyph, .expedition-number, .adventurer-party',
+                ),
+                (target) => ({ name: target.className, box: bounds(target) }),
+              ),
             };
           });
         });
@@ -301,13 +327,24 @@ for (const viewport of ['desktop', 'mobile']) {
         expect(badge.right, label).toBeLessThanOrEqual(box.right);
         expect(badge.bottom, label).toBeLessThanOrEqual(box.bottom);
 
+        const isDisjoint = (target: typeof box) =>
+          badge.right <= target.left ||
+          target.right <= badge.left ||
+          badge.bottom <= target.top ||
+          target.bottom <= badge.top;
+
+        for (const target of marker.contents) {
+          const { left, right, top, bottom } = target.box;
+          if (left === right || top === bottom) continue;
+          expect(
+            isDisjoint(target.box),
+            `${label}와 자기 마커의 ${target.name} 영역은 겹치지 않는다`,
+          ).toBe(true);
+        }
         for (const other of markers) {
           if (other === marker) continue;
           expect(
-            badge.right <= other.box.left ||
-              other.box.right <= badge.left ||
-              badge.bottom <= other.box.top ||
-              other.box.bottom <= badge.top,
+            isDisjoint(other.box),
             `${label}와 ${other.name} 마커는 겹치지 않는다`,
           ).toBe(true);
         }

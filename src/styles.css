@@ -1156,7 +1156,9 @@ svg {
 .monster-marker-art {
   position: relative;
   display: grid;
-  /* Reserve the badge lane without moving the centered sprite when it appears. */
+}
+.monster-marker[data-recovery] > .monster-marker-art {
+  /* Leave room for the badge while keeping the sprite centered. */
   padding-inline: 16px;
 }
 .monster-recovery {
