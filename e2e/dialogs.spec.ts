@@ -703,10 +703,18 @@ test.describe('상세 창', () => {
     const dialog = page.getByRole('dialog', { name: '이슈 #78' });
     await expect(dialog.getByRole('img', { name: '실행 실패' })).toBeVisible();
     await expect(dialog.getByText(reason)).toBeVisible();
-    await expect(dialog.locator('.workflow-run-status')).toHaveText([
+    const actions = dialog.getByRole('region', { name: 'GitHub Actions' });
+    await expect(actions.locator('.workflow-run-status')).toHaveText([
       'success',
       'failure',
     ]);
+    const failureRow = actions.getByRole('listitem').filter({
+      has: page.getByText('failure', { exact: true }),
+    });
+    await expect(failureRow.getByText('근거', { exact: true })).toBeVisible();
+    await expect(
+      dialog.getByRole('link', { name: /GitHub Actions 상태 기록/ }),
+    ).toHaveCount(0);
     await dialog.getByRole('button', { name: '닫기' }).click();
 
     resumed = true;
@@ -719,7 +727,14 @@ test.describe('상세 창', () => {
     await expect(dialog).toBeVisible();
     await expect(dialog.getByRole('img', { name: '실행 실패' })).toHaveCount(0);
     await expect(dialog.getByText(reason)).toHaveCount(0);
-    await expect(dialog.locator('.workflow-run-status')).toHaveText([
+    const recoveryEvidence = dialog.getByRole('link', {
+      name: /GitHub Actions 상태 기록.*developing/,
+    });
+    await expect(recoveryEvidence).toHaveAttribute('href', recovery.html_url);
+    await expect(recoveryEvidence.locator('.workflow-run-status')).toHaveText(
+      'developing',
+    );
+    await expect(actions.locator('.workflow-run-status')).toHaveText([
       'in_progress',
       'success',
       'failure',
