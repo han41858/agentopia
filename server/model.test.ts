@@ -1511,29 +1511,35 @@ test('a pending parallel trigger does not hide the current checkpoint or its Mar
   const siblings = [pending, started];
   const observe = (runs: Run[], ...comments: Comment[]) =>
     makeQuests(commitTrail, [issue(95)], [], runs, comments, new Map(), [])[0];
-  const codex = [{ agent: 'codex', roles: ['develop'], active: 'develop' }];
+  const activeCodex = { agent: 'codex', roles: ['develop'], active: 'develop' };
+  const partyWithHistory = [
+    { agent: 'claude', roles: ['develop'] },
+    activeCodex,
+  ];
 
-  // Together, then separately: selection with an explicit role, and parsing
-  // without a competing run. The original HTML format also still works.
+  // Isolate run selection from progress parsing with an explicit role.
+  const explicitRole = observe(
+    siblings,
+    comment(95, 'developing', { runId: started.id, developer: 'codex' }),
+  );
+  assert.equal(explicitRole.stage, 'developing');
+  assert.deepEqual(explicitRole.pulls, []);
+  assert.deepEqual(explicitRole.adventurers, [activeCodex]);
+  assert.equal(observe(siblings).stage, 'queued');
+
+  // Keep earlier participants idle in both progress formats, even when the
+  // pending run has its own checkpoint.
+  const queuedRecord = comment(95, 'queued', { runId: pending.id });
   for (const quest of [
     observe(siblings, markdown),
-    observe(
-      siblings,
-      comment(95, 'developing', { runId: started.id, developer: 'codex' }),
-    ),
     observe([started], markdown),
     observe([started], html),
+    observe(siblings, markdown, queuedRecord),
   ]) {
     assert.equal(quest.stage, 'developing');
     assert.deepEqual(quest.pulls, []);
-    assert.deepEqual(quest.adventurers, codex);
+    assert.deepEqual(quest.adventurers, partyWithHistory);
   }
-  assert.equal(observe(siblings).stage, 'queued');
-  const queuedRecord = comment(95, 'queued', { runId: pending.id });
-  assert.deepEqual(
-    observe(siblings, markdown, queuedRecord).adventurers,
-    codex,
-  );
 
   const retry = {
     ...started,
