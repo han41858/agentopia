@@ -603,7 +603,16 @@ async function main() {
         const actual = await openPull();
         if (!isSha(remote) || (actual && actual.head.sha !== remote))
           throw new Stop('게시한 작업의 HEAD를 확인할 수 없습니다.');
-        if (intent.kind === 'commit') {
+        const unpublished =
+          intent.kind === 'commit'
+            ? remote === intent.parent &&
+              intent.parent === recovery.head &&
+              pullIdentity(actual) === recovery.pull
+            : !actual &&
+              remote === intent.head &&
+              remote === recovery.head &&
+              recovery.pull === null;
+        if (!unpublished && intent.kind === 'commit') {
           if (
             intent.parent !== recovery.head ||
             pullIdentity(actual) !== recovery.pull
@@ -616,7 +625,7 @@ async function main() {
           if (intent.draft) recovery.draft = intent.draft;
           if (intent.repairingCI) recovery.ciReviewHead = remote;
           delete state.reviews;
-        } else {
+        } else if (!unpublished) {
           if (
             remote !== intent.head ||
             !actual ||
@@ -634,7 +643,9 @@ async function main() {
         delete recovery.publication;
         await save(
           'recovering',
-          '예약된 게시 결과를 원격 저장소에서 확인했습니다.',
+          unpublished
+            ? '원격이 게시 전 상태임을 확인해 기존 작업을 재개합니다.'
+            : '예약된 게시 결과를 원격 저장소에서 확인했습니다.',
         );
       }
       const pull = await verifyArtifacts(true);

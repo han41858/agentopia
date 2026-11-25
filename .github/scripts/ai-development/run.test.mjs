@@ -48,6 +48,8 @@ for (const testCase of [
   'interrupted-review',
   'interrupted-commit',
   'interrupted-created-pr',
+  'interrupted-before-commit',
+  'interrupted-before-pr',
   'merged-resume',
   'merge-conflict',
   'adjacent-line',
@@ -339,6 +341,8 @@ for (const testCase of [
       assert.equal(hostname, 'api.github.com');
       if (pathname === '/graphql') {
         assert.equal(options.headers.authorization, 'Bearer mock-publisher');
+        if (scenario === 'interrupted-before-commit' && !resumed)
+          throw Error('not accepted');
         const input = body.variables.input;
         if (scenario === 'issue-title-fallback')
           assert.equal(
@@ -452,6 +456,8 @@ for (const testCase of [
         assert.equal(body.base, 'dev');
         assert.equal(body.head, branch);
         assert.equal(pr, undefined);
+        if (scenario === 'interrupted-before-pr' && !resumed)
+          throw Error('not accepted');
         creations++;
         pr = {
           number: 23,
@@ -749,6 +755,17 @@ for (const testCase of [
       await manualResume();
       assert.match(saved().reason, /머지/);
       assert.equal(developmentCalls, 1);
+      assert.equal(reviewCalls, 1);
+      return;
+    }
+    if (
+      ['interrupted-before-commit', 'interrupted-before-pr'].includes(scenario)
+    ) {
+      await manualResume();
+      assert.equal(
+        developmentCalls,
+        scenario === 'interrupted-before-commit' ? 2 : 1,
+      );
       assert.equal(reviewCalls, 1);
       return;
     }
