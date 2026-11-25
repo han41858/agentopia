@@ -2,8 +2,8 @@
 import hashlib
 import json
 import os
+import re
 import subprocess
-from urllib.parse import urlsplit
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -68,22 +68,41 @@ def reconcile(number, evidence):
         if not recorded:
             if automatic_check:
                 evidence = verify_queries()
-            url = urlsplit(evidence)
-            if url.scheme != "https" or url.netloc != "github.com" or not url.path.startswith(f"/{REPO}/"):
-                print("자식 완료. 부모 본문의 통합 완료 기준을 검증하고 결과 링크를 지정하세요.")
+            if not re.fullmatch(r"https://github\.com/han41858/agentopia/[A-Za-z0-9_./%?#=&~-]+", evidence):
+                pending = "<!-- agentopia-parent-awaiting-evidence -->"
+                if snapshot(number) == first and not any(
+                    c["user"]["login"] == "github-actions[bot]" and c["body"].endswith(pending)
+                    for page in comments for c in page
+                ):
+                    api(f"issues/{number}/comments", "-f",
+                        f"body=모든 서브 이슈가 완료되었습니다. 부모 본문의 통합 완료 기준을 확인한 뒤 "
+                        f"Parent issue completion에서 부모 번호와 검증 결과 링크를 입력해 주세요.\n\n{pending}")
                 return
             api(f"issues/{number}/comments", "-f", f"body=부모 통합 검증 완료 · {evidence}\n\n{marker}")
     if snapshot(number) == first:
         api(f"issues/{number}", "-X", "PATCH", "-f", "state=closed", "-f", "state_reason=completed")
+        return True
+
+
+def parent_of(child):
+    parent = api(f"issues/{child}/parent", missing=True)
+    if parent and parent["repository_url"] == f"https://api.github.com/repos/{REPO}":
+        return parent["number"]
+    return None
+
+
+def reconcile_chain(number, evidence):
+    seen = set()
+    while number and number not in seen:
+        seen.add(number)
+        if not reconcile(number, evidence):
+            break
+        number = parent_of(number)
+        evidence = ""
 
 
 if __name__ == "__main__":
     number = int(os.environ["ISSUE"])
     if number < 1:
         raise ValueError("양의 이슈 번호가 필요합니다.")
-    if os.environ["MODE"] == "child":
-        parent = api(f"issues/{number}/parent", missing=True)
-        if parent and parent["repository_url"] == f"https://api.github.com/repos/{REPO}":
-            reconcile(parent["number"], "")
-    else:
-        reconcile(number, os.environ.get("EVIDENCE", ""))
+    reconcile_chain(number, os.environ.get("EVIDENCE", ""))

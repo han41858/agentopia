@@ -37,3 +37,26 @@ class ParentCompletionTest(unittest.TestCase):
         ), patch.object(parents, "api", return_value=[]) as api, self.assertRaises(RuntimeError):
             parents.reconcile(1, "")
         self.assertTrue(all(len(call.args) == 3 and call.args[1] == "--paginate" for call in api.call_args_list))
+
+    def test_missing_or_injected_evidence_leaves_one_waiting_notice(self):
+        comments = []
+        def api(path, *args):
+            self.assertIn("/comments", path)
+            if "--paginate" in args:
+                return [comments]
+            comments.append({"user": {"login": "github-actions[bot]"}, "body": args[-1][5:]})
+        with patch.object(parents, "api", side_effect=api), patch.object(
+            parents, "snapshot", return_value=("same", set(), {2: "completed"})
+        ):
+            parents.reconcile(1, "https://github.com/han41858/agentopia/issues/2\n@team")
+            parents.reconcile(1, "")
+        self.assertEqual(len(comments), 1)
+        self.assertIn("통합 완료 기준", comments[0]["body"])
+
+    def test_closure_continues_up_chain_without_reusing_child_evidence(self):
+        with patch.object(parents, "reconcile", side_effect=[True, None]) as reconcile, patch.object(
+            parents, "parent_of", return_value=7
+        ) as lookup:
+            parents.reconcile_chain(8, "manual-evidence")
+        self.assertEqual([call.args for call in reconcile.call_args_list], [(8, "manual-evidence"), (7, "")])
+        lookup.assert_called_once_with(8)
