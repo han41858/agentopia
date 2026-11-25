@@ -191,7 +191,9 @@ function isInspectable(path) {
     isEditable(path) ||
     path === 'AGENTS.md' ||
     path === 'e2e/github.ts' ||
-    path === 'e2e/fixtures.ts'
+    path === 'e2e/fixtures.ts' ||
+    path === '.github/scripts/ai-development/run.mjs' ||
+    path === '.github/scripts/ai-completion.py'
   );
 }
 

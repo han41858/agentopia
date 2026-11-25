@@ -216,3 +216,27 @@ test('literal lookup locates UI text without counting as a full UI spec read', (
     /허용된 소스 및 문서 범위를 벗어난 경로/,
   );
 });
+
+test('development and review can inspect recovery producers without editing them', () => {
+  const work = gitSnapshot('HEAD', 'HEAD');
+  for (const [path, text] of [
+    ['.github/scripts/ai-development/run.mjs', 'recovery.ciReviewHead'],
+    ['.github/scripts/ai-completion.py', 'def current_ci('],
+  ]) {
+    const hits = work.inspect('find_in_file', { path, text });
+    assert.ok(hits.includes(text));
+    const line = Number.parseInt(hits, 10);
+    assert.ok(work.inspect('read_file', { path, line }).includes(text));
+    assert.throws(
+      () => resolveEdits([{ path, before: text, after: 'changed' }], work),
+      /허용 범위/,
+    );
+  }
+  assert.match(
+    work.inspect('read_file', {
+      path: '.github/scripts/ai-development/config.mjs',
+      line: 1,
+    }),
+    /허용된 소스 및 문서 범위를 벗어난 경로/,
+  );
+});
