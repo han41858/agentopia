@@ -608,7 +608,7 @@ for (const width of [1280, 390]) {
           const simple = currentMode === 'simple';
           await expect(footer).toHaveCSS(
             'background-color',
-            simple ? 'rgb(27, 22, 44)' : 'rgb(102, 104, 106)',
+            simple ? 'rgb(27, 22, 44)' : 'rgba(255, 255, 255, 0.2)',
           );
           await expect(footer).toHaveCSS('background-image', 'none');
           await expect(footer).toHaveCSS('opacity', '1');
@@ -632,11 +632,14 @@ for (const width of [1280, 390]) {
         };
         const measure = () =>
           footer.evaluate((node) => {
-            const { right, bottom } = node.getBoundingClientRect();
+            const { right, bottom, width, height } =
+              node.getBoundingClientRect();
             return {
               scrollY: window.scrollY,
               rightGap: document.documentElement.clientWidth - right,
               bottomGap: document.documentElement.clientHeight - bottom,
+              width,
+              height,
             };
           });
 
@@ -671,6 +674,8 @@ for (const width of [1280, 390]) {
         for (const position of [scrolled, returned]) {
           expect(position.rightGap).toBeCloseTo(before.rightGap, 1);
           expect(position.bottomGap).toBeCloseTo(before.bottomGap, 1);
+          expect(position.width).toBeCloseTo(before.width, 1);
+          expect(position.height).toBeCloseTo(before.height, 1);
         }
         await expect(footer).toHaveCSS('position', 'fixed');
 
@@ -685,13 +690,31 @@ for (const width of [1280, 390]) {
           if (width < 640) {
             await page.locator('.header-bookmark').tap();
           }
-          await page.getByRole('button', { name: '간단 모드' }).click();
-          await expect(displayMode).toHaveAttribute(
-            'data-display-mode',
-            'simple',
-          );
-          await expect(legendFor('simple')).toBeInViewport({ ratio: 1 });
-          await expectLegendStyle('simple');
+          const modeSwitch = page.getByRole('button', { name: '간단 모드' });
+          for (const nextMode of ['simple', 'world'] as const) {
+            await modeSwitch.click();
+            await expect(displayMode).toHaveAttribute(
+              'data-display-mode',
+              nextMode,
+            );
+            await expect(legendFor(nextMode)).toBeInViewport({ ratio: 1 });
+            await expectLegendStyle(nextMode);
+            const switched = await measure();
+            console.log(
+              `모드 전환 후 범례 위치 (px): ${JSON.stringify({
+                width,
+                mode: nextMode,
+                ...switched,
+              })}`,
+            );
+            expect(switched.rightGap).toBeCloseTo(before.rightGap, 1);
+            expect(switched.bottomGap).toBeCloseTo(before.bottomGap, 1);
+            if (nextMode === 'world') {
+              expect(switched.width).toBeCloseTo(before.width, 1);
+              expect(switched.height).toBeCloseTo(before.height, 1);
+            }
+          }
+          await expect(idleAvatar).toHaveCSS('opacity', '0.67');
         }
       });
     }

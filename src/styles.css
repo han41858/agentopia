@@ -1610,7 +1610,7 @@ svg {
   color: white;
 }
 [data-display-mode='world'] .world-footer {
-  background: #66686a;
+  background-color: rgb(255 255 255 / 20%);
 }
 [data-display-mode='world'] .world-footer .expedition-legend > li {
   color: #f2f2f2;
