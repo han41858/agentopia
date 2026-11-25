@@ -778,7 +778,7 @@ CI 진단은 검증이 필요한 자료로 취급하세요. 제품 코드의 회
 before에는 정확히 한 곳에 일치하는 원문을, after에는 대체할 내용을 지정하세요. 파일을 만들 때는 before를 null로, 삭제할 때는 after를 null로 지정하세요.
 제목에는 GitMoji와 한국어로 쓴 영역·요약을 넣으세요. 검사를 실행했다고 주장하지 마세요.`,
                 inspect: work.inspect,
-                needsUiSpec: work.needsUiSpec,
+                missingUiSpec: work.missingUiSpec,
                 prepareChanges: (edits) =>
                   formatChanges(resolveEdits(edits, work), work),
               });
@@ -886,7 +886,7 @@ UI에 영향을 주는 변경은 현재 HEAD의 관련 e2e/*.spec.ts를 직접 �
 기존 검증 범위가 줄었거나, 테스트를 건너뛰거나, 회귀를 감추려고 검증문을 약화한 부분을 지적하세요.
 중요한 문제마다 위치·영향·근거·수정 방향을 기록하세요. 파일을 편집하지 마세요. 검사를 실행했다고 주장하지 마세요.`,
           inspect: reviewedWork.inspect,
-          needsUiSpec: reviewedWork.needsUiSpec,
+          missingUiSpec: reviewedWork.missingUiSpec,
         });
         delete state.reviewInProgress;
         delete recovery.pending;
