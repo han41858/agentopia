@@ -433,8 +433,11 @@ export function createModels({
               (response
                 ? '응답 본문 수신 또는 해석 실패'
                 : 'HTTP 응답 수신 실패'));
-        throw new ModelError(
-          `${name} API 응답을 확인할 수 없습니다. (${stage}, ${reason})`,
+        throw Object.assign(
+          new ModelError(
+            `${name} API 응답을 확인할 수 없습니다. (${stage}, ${reason})`,
+          ),
+          { requestTimedOut: timeout.aborted || idle.signal.aborted },
         );
       } finally {
         clearTimeout(timer);

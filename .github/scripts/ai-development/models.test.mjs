@@ -762,3 +762,26 @@ test('partial development edits never reach preparation', async () => {
     ['final'],
   );
 });
+
+test('development timeout is distinguishable from an unclassified transport failure', async () => {
+  const models = createModels({
+    keys: { codex: 'fixture', claude: 'fixture' },
+    modelNames: { codex: 'mock', claude: 'mock' },
+    limits: { ...config.limits, requestTimeout: 10 },
+    log: () => {},
+    request: async (_url, options) => {
+      await new Promise((resolve) => setTimeout(resolve, 25));
+      options.signal.throwIfAborted();
+    },
+  });
+  await assert.rejects(
+    models.run({
+      agent: 'codex',
+      mode: 'development',
+      instructions: '검증',
+      context: 'fixture',
+      inspect: () => '',
+    }),
+    (error) => error.requestTimedOut === true,
+  );
+});

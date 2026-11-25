@@ -13,6 +13,10 @@ import { test } from 'node:test';
 
 for (const testCase of [
   'duplicate',
+  'output-recovery',
+  'timeout-recovery',
+  'timeout-stop',
+  'output-exhausted',
   'review-revision',
   'review-revision-delayed-pr',
   'review-limit',
@@ -172,6 +176,14 @@ for (const testCase of [
       postedReview,
       reviews = 0,
       blocked = scenario === 'initial-stop';
+    if (scenario.startsWith('timeout-')) {
+      const timeout = AbortSignal.timeout.bind(AbortSignal);
+      t.mock.method(AbortSignal, 'timeout', (ms) =>
+        ms === 180_000 && developmentCalls === 0
+          ? AbortSignal.abort(new DOMException('timed out', 'TimeoutError'))
+          : timeout(ms),
+      );
+    }
     t.mock.method(globalThis, 'fetch', async (url, options) => {
       const { hostname, pathname, searchParams } = new URL(url);
       const body = options.body && JSON.parse(options.body);
@@ -190,6 +202,20 @@ for (const testCase of [
       }
       if (claudeDeveloper ? anthropic : openai) {
         developmentCalls++;
+        if (scenario.startsWith('timeout-') && developmentCalls === 1) {
+          blocked = scenario === 'timeout-stop';
+          options.signal.throwIfAborted();
+          assert.fail('expected provider timeout');
+        }
+        if (
+          scenario === 'output-exhausted' ||
+          (scenario === 'output-recovery' && developmentCalls === 1)
+        )
+          return Response.json({
+            status: 'incomplete',
+            incomplete_details: { reason: 'max_output_tokens' },
+          });
+
         if (scenario === 'development-human') {
           const context = JSON.parse(body.input[0].content);
           if (!resumed) {
@@ -527,6 +553,13 @@ for (const testCase of [
     });
 
     const runner = new URL('./run.mjs?case=' + testCase, import.meta.url);
+    if (scenario === 'output-exhausted') {
+      await assert.rejects(import(runner + '?exhausted'));
+      assert.equal(saved().recovery.modelRecoveries, 2);
+      assert.equal(developmentCalls, 3);
+      assert.equal(commits, 0);
+      return;
+    }
     if (scenario === 'repeated-stale-edit' || scenario === 'blocked-edit') {
       await assert.rejects(import(runner + '?first'));
       assert.equal(saved().status, 'failed');
@@ -547,6 +580,13 @@ for (const testCase of [
     )
       await assert.rejects(import(runner + '?first'));
     else await import(runner + '?first');
+    if (scenario === 'timeout-stop') {
+      assert.equal(saved().status, 'needs_human');
+      assert.equal(saved().failureCode, 'stop_requested');
+      assert.equal(developmentCalls, 1);
+      assert.equal(commits, 0);
+      return;
+    }
     if (scenario === 'development-human') {
       assert.equal(saved().status, 'needs_human');
       writeFileSync(
@@ -849,7 +889,11 @@ for (const testCase of [
     assert.equal(saved().reviews[0].head, saved().head);
     assert.equal(
       developmentCalls,
-      ['before', 'stale-edit'].includes(scenario) ? 2 : 1,
+      ['before', 'stale-edit', 'output-recovery', 'timeout-recovery'].includes(
+        scenario,
+      )
+        ? 2
+        : 1,
     );
     assert.equal(commits, 1);
     assert.equal(creations, 1);
