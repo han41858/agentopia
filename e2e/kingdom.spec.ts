@@ -138,51 +138,128 @@ test.describe('왕국 기본 표시', () => {
   });
 });
 
-test('복구 및 중단 글리프는 같은 PR의 두 표시 모드에서 유지된다', async ({
-  page,
-}) => {
-  await openWorld(page);
-  await page.route('**/api/github?**', async (route) => {
-    const query = new URL(route.request().url()).searchParams;
-    if (
-      query.get('repo') !== alpha ||
-      [...query.keys()].some((k) =>
-        ['heritage', 'activity', 'summary'].includes(k),
+for (const viewport of ['desktop', 'mobile']) {
+  test(`${viewport}: 이슈와 PR의 복구·중단 글리프는 모드 전환 후에도 유지된다`, async ({
+    page,
+  }, testInfo) => {
+    if (viewport === 'mobile') {
+      await page.setViewportSize({ width: 390, height: 844 });
+      await page.emulateMedia({ reducedMotion: 'reduce' });
+    }
+    await openWorld(page);
+    const repairing = { kind: 'repairing', attempt: 1, limit: 1 };
+    const stopped = { kind: 'stopped', reason: '사람 확인 필요' };
+    const adventurers = [{ agent: 'codex', roles: ['develop'] }];
+    await page.route('**/api/github?**', async (route) => {
+      const query = new URL(route.request().url()).searchParams;
+      if (
+        query.get('repo') !== alpha ||
+        [...query.keys()].some((k) =>
+          ['heritage', 'activity', 'summary'].includes(k),
+        )
       )
-    )
-      return route.fallback();
-    await route.fulfill({
-      json: {
-        ...alphaReport,
-        forges: alphaReport.forges!.map((pull) => {
-          if (pull.number === 11)
-            return {
-              ...pull,
-              stage: 'revising',
-              recoveryBadge: { kind: 'repairing', attempt: 1, limit: 1 },
-            };
-          if (pull.number === 12)
-            return {
-              ...pull,
-              stage: 'attention',
-              recoveryBadge: { kind: 'stopped', reason: '사람 확인 필요' },
-            };
-          return pull;
-        }),
-      },
+        return route.fallback();
+      await route.fulfill({
+        json: {
+          ...alphaReport,
+          quests: alphaReport.quests.map((quest) => {
+            if (quest.number === 1)
+              return {
+                ...quest,
+                stage: 'revising',
+                issueRecoveryBadge: repairing,
+              };
+            if (quest.number === 4)
+              return {
+                ...quest,
+                stage: 'attention',
+                pulls: [],
+                adventurers,
+                issueRecoveryBadge: stopped,
+              };
+            return quest;
+          }),
+          forges: alphaReport.forges!.map((pull) => {
+            if (pull.number === 11)
+              return { ...pull, stage: 'revising', recoveryBadge: repairing };
+            if (pull.number === 12)
+              return {
+                ...pull,
+                stage: 'attention',
+                adventurers,
+                recoveryBadge: stopped,
+              };
+            return pull;
+          }),
+        },
+      });
     });
+    await page.reload();
+
+    for (const mode of ['world', 'simple']) {
+      if (mode === 'simple') {
+        if (viewport === 'mobile')
+          await page.locator('.header-bookmark').click();
+        await page.getByRole('button', { name: '간단 모드' }).click();
+      }
+      await expect(page.locator('[data-display-mode]')).toHaveAttribute(
+        'data-display-mode',
+        mode,
+      );
+      for (const [name, kind, isStopped] of [
+        ['이슈 #1', 'monster', false],
+        ['이슈 #4', 'monster', true],
+        ['PR #11', 'facility', false],
+        ['PR #12', 'facility', true],
+      ] as const) {
+        const marker = page.getByRole('button', {
+          name: new RegExp(`^${name} · `),
+        });
+        const description = isStopped
+          ? /작업 중단 · 사람 확인 필요/
+          : /자동 수정 중 · 1\/1회/;
+        await expect(marker).toHaveAttribute('title', description);
+        await expect(marker).toHaveAccessibleName(description);
+        if (isStopped) await expect(marker).toHaveClass(/blocked/);
+        else await expect(marker).not.toHaveClass(/blocked/);
+        const badge = marker.locator(`svg.${kind}-recovery`);
+        await expect(badge).toBeVisible();
+
+        if (viewport !== 'mobile') continue;
+        const targets = [
+          marker.locator('.expedition-number'),
+          marker.locator('.adventurer-party'),
+        ];
+        if (kind === 'monster') targets.push(marker.locator('.monster-glyph'));
+        const badgeBox = await badge.boundingBox();
+        const withBadge = await Promise.all(
+          targets.map((target) => target.boundingBox()),
+        );
+        await badge.evaluate((element) => {
+          element.style.display = 'none';
+        });
+        const withoutBadge = await Promise.all(
+          targets.map((target) => target.boundingBox()),
+        );
+        await badge.evaluate((element) => {
+          element.style.removeProperty('display');
+        });
+        await testInfo.attach(`${mode} ${name} 배지·번호·캐릭터 경계 상자`, {
+          body: JSON.stringify({ badgeBox, withBadge, withoutBadge }, null, 2),
+          contentType: 'application/json',
+        });
+        expect(badgeBox).not.toBeNull();
+        expect(withBadge).toEqual(withoutBadge);
+        for (const target of withBadge) {
+          expect(target).not.toBeNull();
+          expect(
+            badgeBox!.x + badgeBox!.width <= target!.x ||
+              target!.x + target!.width <= badgeBox!.x ||
+              badgeBox!.y + badgeBox!.height <= target!.y ||
+              target!.y + target!.height <= badgeBox!.y,
+          ).toBe(true);
+        }
+      }
+    }
   });
-  await page.reload();
-  for (const mode of ['world', 'simple']) {
-    if (mode === 'simple')
-      await page.getByRole('button', { name: '간단 모드' }).click();
-    const repair = page.getByRole('button', { name: /^PR #11 · / });
-    const stop = page.getByRole('button', { name: /^PR #12 · / });
-    await expect(repair).toHaveAttribute('title', /자동 수정 중 · 1\/1회/);
-    await expect(repair).not.toHaveClass(/blocked/);
-    await expect(repair.locator('svg.facility-recovery')).toBeVisible();
-    await expect(stop).toHaveAccessibleName(/작업 중단 · 사람 확인 필요/);
-    await expect(stop).toHaveClass(/blocked/);
-    await expect(stop.locator('svg.facility-recovery')).toBeVisible();
-  }
-});
+}

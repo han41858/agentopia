@@ -1141,16 +1141,27 @@ svg {
 .working-party-leader {
   animation: forge-test 1.6s ease-in-out infinite;
 }
-.facility-recovery {
+.facility-recovery,
+.monster-recovery {
   position: absolute;
-  right: -3px;
-  bottom: 0;
   color: #ffe197;
   background: #46371e;
   border-radius: 3px;
   pointer-events: none;
 }
-.facility-marker[data-recovery='stopped'] .facility-recovery {
+.facility-recovery {
+  right: -3px;
+  bottom: 0;
+}
+.monster-marker-art {
+  position: relative;
+  display: grid;
+}
+.monster-recovery {
+  inset-block-start: 0;
+  inset-inline-start: 100%;
+}
+[data-recovery='stopped'] :is(.facility-recovery, .monster-recovery) {
   color: #ffd4ce;
   background: #813a35;
 }
