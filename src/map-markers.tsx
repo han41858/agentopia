@@ -114,6 +114,7 @@ function RecoveryGlyph({
   badge: RecoveryBadge;
   className: string;
 }) {
+  if (badge.kind !== 'stopped' && badge.kind !== 'waiting') return null;
   const Icon = badge.kind === 'stopped' ? OctagonPause : TriangleAlert;
   return <Icon className={className} size={16} aria-hidden="true" />;
 }
@@ -197,6 +198,9 @@ export function MonsterMarker({
           commits={quest.activity?.commits}
         />
         {badge && <RecoveryGlyph badge={badge} className="monster-recovery" />}
+        {!badge && alerts.has(quest.stage) && (
+          <Skull className="monster-failure" size={13} aria-hidden="true" />
+        )}
       </span>
       <small className="expedition-number">{`#${quest.number}`}</small>
       <AdventurerParty
@@ -260,6 +264,7 @@ export function pullActivity(pull: PullQuest) {
 }
 
 export function partyLeaderState(pull: PullQuest) {
+  if (pull.ciQueued) return 'resting';
   if (pull.quality === 'ci' || pull.stage === 'ci') return 'active';
   if (pull.ciParticipated) return 'resting';
 }
@@ -297,7 +302,9 @@ export function FacilityMarker({
     !pull.cancelled && pull.stage !== 'idle'
       ? pull.stage === 'complete'
         ? 'PR 병합됨'
-        : markerStageLabels[pull.stage]
+        : pull.stage === 'ci' && pull.ciQueued
+          ? issueCILabels.waiting
+          : markerStageLabels[pull.stage]
       : undefined,
     leader === 'active' && pull.stage !== 'ci'
       ? markerStageLabels.ci

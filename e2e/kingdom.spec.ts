@@ -290,7 +290,8 @@ for (const viewport of ['desktop', 'mobile']) {
       expect(art).toBe(glyph);
     }
 
-    const repairing = { kind: 'repairing', attempt: 1, limit: 1 };
+    let kind: 'waiting' | 'repairing' | 'checking' = 'waiting';
+    let ciQueued = false;
     const stopped = { kind: 'stopped', reason: '사람 확인 필요' };
     const adventurers = [{ agent: 'codex', roles: ['develop'] }];
     await page.route('**/api/github?**', async (route) => {
@@ -302,6 +303,9 @@ for (const viewport of ['desktop', 'mobile']) {
         )
       )
         return route.fallback();
+      const recovery = { kind, attempt: 1, limit: 1 };
+      const stage =
+        kind === 'waiting' ? 'queued' : kind === 'checking' ? 'ci' : 'revising';
       await route.fulfill({
         json: {
           ...alphaReport,
@@ -309,8 +313,8 @@ for (const viewport of ['desktop', 'mobile']) {
             if (quest.number === 1)
               return {
                 ...quest,
-                stage: 'revising',
-                issueRecoveryBadge: repairing,
+                stage,
+                issueRecoveryBadge: recovery,
               };
             if (quest.number === 4)
               return {
@@ -323,13 +327,13 @@ for (const viewport of ['desktop', 'mobile']) {
             if (quest.number === 2 || quest.number === 3)
               return {
                 ...quest,
-                issueRecoveryBadge: quest.number === 2 ? stopped : repairing,
+                issueRecoveryBadge: quest.number === 2 ? stopped : recovery,
               };
             return quest;
           }),
           forges: alphaReport.forges!.map((pull) => {
             if (pull.number === 11)
-              return { ...pull, stage: 'revising', recoveryBadge: repairing };
+              return { ...pull, stage, ciQueued, recoveryBadge: recovery };
             if (pull.number === 12)
               return {
                 ...pull,
@@ -365,7 +369,7 @@ for (const viewport of ['desktop', 'mobile']) {
         });
         const description = isStopped
           ? /작업 중단 · 사람 확인 필요/
-          : /자동 수정 중 · 1\/1회/;
+          : /자동 수정 대기 · 1\/1회/;
         await expect(marker).toHaveAttribute('title', description);
         await expect(marker).toHaveAccessibleName(description);
         if (isStopped) await expect(marker).toHaveClass(/blocked/);
@@ -373,6 +377,17 @@ for (const viewport of ['desktop', 'mobile']) {
         const badge = marker.locator(`svg.${kind}-recovery`);
         await expect(badge).toBeVisible();
 
+        const art = marker.locator(
+          kind === 'monster' ? '.monster-glyph' : '.facility-sprite',
+        );
+        const artBox = (await art.boundingBox())!;
+        const glyphBox = (await badge.boundingBox())!;
+        expect(glyphBox.y + glyphBox.height / 2).toBeLessThan(
+          artBox.y + artBox.height / 2,
+        );
+        expect(glyphBox.x + glyphBox.width / 2).toBeGreaterThan(
+          artBox.x + artBox.width / 2,
+        );
         if (viewport !== 'mobile') continue;
         const targets = [
           marker.locator('.expedition-number'),
@@ -469,6 +484,31 @@ for (const viewport of ['desktop', 'mobile']) {
             isDisjoint(other.box),
             `${label}와 ${other.name} 마커는 겹치지 않는다`,
           ).toBe(true);
+        }
+      }
+      for (const next of [
+        'repairing',
+        'checking',
+        'checking',
+        'waiting',
+      ] as const) {
+        ciQueued = next === 'checking' && kind !== 'checking';
+        kind = next;
+        await page.reload();
+        const pull = kingdom.locator('[data-road-pr="11"] .facility-marker');
+        const issue = kingdom.locator('[data-road-issue="1"]');
+        for (const marker of [issue, pull]) {
+          await expect(marker).toHaveAttribute('data-recovery', kind);
+          await expect(
+            marker.locator('.monster-recovery, .facility-recovery'),
+          ).toHaveCount(kind === 'waiting' ? 1 : 0);
+        }
+        if (kind === 'checking') {
+          await expect(
+            pull.locator(
+              ciQueued ? '.resting-party-leader' : '.working-party-leader',
+            ),
+          ).toBeVisible();
         }
       }
     }

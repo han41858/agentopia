@@ -136,6 +136,7 @@ export type PullQuest = Source & {
   adventurers?: Adventurer[];
   quality?: Stage;
   recoveryBadge?: RecoveryBadge;
+  ciQueued?: boolean;
   ciParticipated?: boolean;
   activity?: ActivityProfile;
   activities?: ActivityCounts;
@@ -741,6 +742,9 @@ export function makeForges(
         issues: linkedPullIssues(pull, region, review),
         adventurers,
         recoveryBadge,
+        ciQueued:
+          (quality === 'ci' || recoveryBadge?.kind === 'checking') &&
+          ci?.status !== 'in_progress',
         ciParticipated:
           Boolean(ci) ||
           runs.some(
@@ -1017,6 +1021,8 @@ export function makeQuests(
       recordedPull && issue.state === 'open'
         ? pullRecoveryBadge(state, recordedPull, ci, run)
         : undefined;
+    if (recoveryBadge && evidence?.status !== 'ai:stop')
+      stage = recoveryStages[recoveryBadge.kind];
     const adventurers = new Map<Agent, Adventurer>();
     const issueCIStatus =
       stage !== 'ci'
@@ -1035,7 +1041,9 @@ export function makeQuests(
         ? undefined
         : issueCIStatus === 'running'
           ? 'active'
-          : automationRunning || readyToMerge
+          : automationRunning ||
+              readyToMerge ||
+              recoveryBadge?.kind === 'checking'
             ? 'resting'
             : undefined;
     const addAdventurer = (
@@ -1075,6 +1083,8 @@ export function makeQuests(
         running &&
           developer === assignedDeveloper &&
           recoveryBadge?.kind !== 'waiting' &&
+          (recoveryBadge?.kind !== 'repairing' ||
+            state?.recovery?.pending === 'development') &&
           state?.status === stage &&
           (stage === 'developing' || stage === 'revising'),
         matchingRun &&
