@@ -62,7 +62,10 @@ function App() {
   const [refreshUsage, setRefreshUsage] = useState<RefreshUsage>();
   const [selectedRoad, setSelectedRoad] = useState<RoadTarget>();
   const [selectedHeritage, setSelectedHeritage] = useState<HeritageSelection>();
-  const [inspected, setInspected] = useState<MapEntry>();
+  const [inspections, setInspections] = useState<
+    { entry: MapEntry; source: 'pointer' | 'focus' }[]
+  >([]);
+  const inspected = inspections.at(-1)?.entry;
   const updateSelectedHeritage = useCallback((slug: string, data: Heritage) => {
     setSelectedHeritage((current) => {
       if (!current || current.region.slug !== slug) return current;
@@ -70,17 +73,24 @@ function App() {
       return record ? { ...current, record } : current;
     });
   }, []);
-  const inspect = useCallback((entry: MapEntry, active: boolean) => {
-    setInspected((current) =>
-      active
-        ? entry
-        : current?.region.slug === entry.region.slug &&
-            current.number === entry.number &&
-            current.kind === entry.kind
-          ? undefined
-          : current,
-    );
-  }, []);
+  const inspect = useCallback(
+    (entry: MapEntry, active: boolean, source: 'pointer' | 'focus') => {
+      setInspections((current) => {
+        // Keep the other input active while giving the latest entry priority.
+        const remaining = current.filter(
+          (item) =>
+            item.source !== source ||
+            (!active &&
+              (item.entry.region.slug !== entry.region.slug ||
+                item.entry.number !== entry.number ||
+                item.entry.kind !== entry.kind)),
+        );
+        if (active) return [...remaining, { entry, source }];
+        return remaining.length === current.length ? current : remaining;
+      });
+    },
+    [],
+  );
   const refresh = useRef<(() => void) | null>(null);
   const [loading, setLoading] = useState(true);
   const refreshInterval = token ? 20_000 : 60_000;
