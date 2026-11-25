@@ -208,7 +208,13 @@ test.describe('왕국 기본 표시', () => {
       await expect(moving).toHaveCount(0);
 
       quest = { ...quest, issueCIStatus: 'running', issueLeader: 'active' };
-      forge = { ...forge, stage: 'ci', quality: 'ci', ciParticipated: true };
+      forge = {
+        ...forge,
+        stage: 'ci',
+        quality: 'ci',
+        ciParticipated: true,
+        automationParticipated: false,
+      };
       await page.reload();
       await expect(facility).toHaveAttribute('data-stage', 'ci');
       await expect(facility).not.toHaveAccessibleName(/CI 실행 기록/);
@@ -662,6 +668,8 @@ for (const viewport of ['desktop', 'mobile']) {
               return {
                 ...pull,
                 stage,
+                quality: kind === 'checking' ? 'ci' : undefined,
+                ciParticipated: kind === 'checking',
                 ciQueued,
                 adventurers:
                   kind === 'repairing'

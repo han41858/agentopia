@@ -478,6 +478,11 @@ test('CI history belongs to its PR, but only the current HEAD drives activity', 
     true,
     undefined,
   ]);
+  assert.deepEqual(observe([{ ...runningCI, status: 'queued' }]), [
+    'resting',
+    true,
+    'ci',
+  ]);
   assert.deepEqual(observe([runningCI]), ['active', true, 'ci']);
   assert.deepEqual(
     observe([{ ...runningCI, status: 'completed', conclusion: 'success' }]),
