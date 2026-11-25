@@ -275,7 +275,7 @@ test.describe('창 너비에 따른 왕국 줄바꿈', () => {
         'data-display-mode',
         mode,
       );
-      const areas = page.locator('.kingdoms > .kingdom-area');
+      const areas = page.locator('.kingdoms > .kingdom-region > .kingdom-area');
       await expect(areas).toHaveCount(4);
       await page.evaluate(async () => {
         await document.fonts.ready;
