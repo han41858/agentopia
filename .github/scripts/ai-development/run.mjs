@@ -23,6 +23,7 @@ const api = 'https://api.github.com';
 const isSha = (value) => /^[0-9a-f]{40}$/.test(value ?? '');
 
 class Stop extends Error {}
+class JournalWriteError extends Error {}
 class BaseChanged extends Error {}
 
 function fingerprint(...fields) {
@@ -74,7 +75,10 @@ async function request(
   if (missing && response.status === 404) return undefined;
   if (!response.ok) {
     const diagnostic = `GitHub ${method} HTTP ${response.status}`;
-    throw Object.assign(new Error(diagnostic), { diagnostic });
+    throw Object.assign(new Error(diagnostic), {
+      diagnostic,
+      status: response.status,
+    });
   }
   return response.status === 204 ? undefined : response.json();
 }
@@ -383,16 +387,56 @@ async function main() {
     });
     lastStatus = status;
     lastPullNumber = state.pullNumber;
-    if (comment) {
-      await repo(`/issues/comments/${comment.id}`, {
-        method: 'PATCH',
-        body: { body },
-      });
-    } else {
-      comment = await repo(`/issues/${number}/comments`, {
-        method: 'POST',
-        body: { body },
-      });
+    async function write() {
+      if (comment) {
+        await repo(`/issues/comments/${comment.id}`, {
+          method: 'PATCH',
+          body: { body },
+        });
+      } else {
+        comment = await repo(`/issues/${number}/comments`, {
+          method: 'POST',
+          body: { body },
+        });
+      }
+    }
+    for (let attempt = 0; ; attempt++) {
+      try {
+        await write();
+        break;
+      } catch (error) {
+        if (error.status && (error.status < 500 || error.status > 599))
+          throw new JournalWriteError('진행 댓글 쓰기가 거부되었습니다.', {
+            cause: error,
+          });
+        // A failed response can follow a successful write. Reconcile only this journal.
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+        let latest;
+        try {
+          latest = await checkpoint();
+        } catch (readError) {
+          throw new JournalWriteError(
+            '진행 댓글 게시 결과를 조회할 수 없습니다.',
+            { cause: readError },
+          );
+        }
+        if (
+          latest?.entry.body === body &&
+          (!comment || comment.id === latest.entry.id)
+        ) {
+          comment = latest.entry;
+          break;
+        }
+        const unchanged = comment
+          ? latest?.entry.id === comment.id &&
+            latest.entry.body === comment.body
+          : !latest;
+        if (!unchanged || attempt >= 1)
+          throw new JournalWriteError(
+            '진행 댓글을 안전하게 저장할 수 없습니다.',
+            { cause: error },
+          );
+      }
     }
     comment.body = body;
   }
@@ -1166,7 +1210,8 @@ UI에 영향을 주는 변경은 현재 HEAD의 관련 e2e/*.spec.ts를 직접 �
       }
     }
   } catch (error) {
-    if (!previous && !recovery.issue) throw error;
+    if (error instanceof JournalWriteError || (!previous && !recovery.issue))
+      throw error;
     if (error instanceof Stop) {
       await save('needs_human', error.message, error.code);
       return;

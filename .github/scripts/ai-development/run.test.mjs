@@ -13,6 +13,10 @@ import { test } from 'node:test';
 
 for (const testCase of [
   'duplicate',
+  'journal-before-write',
+  'journal-after-write',
+  'journal-unavailable',
+  'journal-conflicting',
   'output-recovery',
   'timeout-recovery',
   'timeout-stop',
@@ -184,6 +188,7 @@ for (const testCase of [
           : timeout(ms),
       );
     }
+    let journalPosts = 0;
     t.mock.method(globalThis, 'fetch', async (url, options) => {
       const { hostname, pathname, searchParams } = new URL(url);
       const body = options.body && JSON.parse(options.body);
@@ -538,7 +543,19 @@ for (const testCase of [
             : [],
         );
       if (path === '/issues/15/comments' || path === '/issues/comments/15') {
+        const firstPost = options.method === 'POST' && ++journalPosts === 1;
+        if (firstPost && scenario === 'journal-conflicting') {
+          last = '다른 갱신\n' + body.body;
+          return Response.json({}, { status: 503 });
+        }
+        if (
+          scenario === 'journal-unavailable' ||
+          (firstPost && scenario === 'journal-before-write')
+        )
+          return Response.json({}, { status: 500 });
         last = body.body;
+        if (firstPost && scenario === 'journal-after-write')
+          return Response.json({}, { status: 500 });
         const state = JSON.parse(
           Buffer.from(
             body.body.match(/agentopia-ai-state:([^ ]+)/)[1],
@@ -553,6 +570,18 @@ for (const testCase of [
     });
 
     const runner = new URL('./run.mjs?case=' + testCase, import.meta.url);
+    if (['journal-unavailable', 'journal-conflicting'].includes(scenario)) {
+      await assert.rejects(
+        import(runner + '?first'),
+        /진행 댓글을 안전하게 저장/,
+      );
+      assert.equal(journalPosts, scenario === 'journal-unavailable' ? 2 : 1);
+      assert.equal(developmentCalls, 0);
+      assert.equal(commits, 0);
+      if (scenario === 'journal-conflicting')
+        assert.ok(last.startsWith('다른 갱신'));
+      return;
+    }
     if (scenario === 'output-exhausted') {
       await assert.rejects(import(runner + '?exhausted'));
       assert.equal(saved().recovery.modelRecoveries, 2);
@@ -580,6 +609,13 @@ for (const testCase of [
     )
       await assert.rejects(import(runner + '?first'));
     else await import(runner + '?first');
+    if (scenario.startsWith('journal-')) {
+      assert.equal(saved().status, 'ready');
+      assert.equal(journalPosts, scenario === 'journal-after-write' ? 1 : 2);
+      assert.equal(developmentCalls, 1);
+      assert.equal(commits, 1);
+      return;
+    }
     if (scenario === 'timeout-stop') {
       assert.equal(saved().status, 'needs_human');
       assert.equal(saved().failureCode, 'stop_requested');
