@@ -1335,7 +1335,7 @@ svg {
 }
 .branch-roads:has(.branch-bridge) {
   /* Use the transparent space above the bridge; keep it joined to the plaza. */
-  margin-block: -14px var(--branch-facility-gap, 11px);
+  margin-block: -12px var(--branch-facility-gap, 11px);
 }
 .branch-roads:has(.branch-plaza):has(.branch-road-row:only-child) {
   /* Keep the regular spacing when another tier or a branch list is present. */
