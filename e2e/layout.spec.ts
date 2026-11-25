@@ -464,6 +464,98 @@ test.describe('창 너비에 따른 왕국 줄바꿈', () => {
   }
 });
 
+for (const width of [1280, 390]) {
+  test.describe(`화면 폭 ${width}px · 범례 고정`, () => {
+    test.use({
+      viewport: { width, height: 560 },
+      hasTouch: width < 640,
+      reducedMotion: 'reduce',
+    });
+
+    for (const mode of ['world', 'simple'] as const) {
+      test(`${mode}: 지도를 위아래로 스크롤해도 범례의 화면 가장자리 간격이 같다`, async ({
+        page,
+      }) => {
+        const repositories = Array.from(
+          { length: 24 },
+          (_, index) => `${owner}/legend-scroll-${index}`,
+        );
+        await mockGitHub(page);
+        await page.route('**/api/github?**', async (route) => {
+          const params = new URL(route.request().url()).searchParams;
+          if (
+            !repositories.includes(params.get('repo') ?? '') ||
+            ['owner', 'heritage', 'summary', 'activity', 'repository'].some(
+              (key) => params.has(key),
+            )
+          ) {
+            await route.fallback();
+            return;
+          }
+          await route.fulfill({ json: emptyReport });
+        });
+        await seedSettings(page, repositories, mode);
+        await page.goto('/');
+        await settled(page);
+        await expect(page.locator('[data-display-mode]')).toHaveAttribute(
+          'data-display-mode',
+          mode,
+        );
+        await expect(page.locator('.kingdoms > .kingdom-region')).toHaveCount(
+          repositories.length,
+        );
+
+        const footer = page.locator('.world-footer');
+        const legend = footer.getByRole('list', {
+          name: mode === 'simple' ? '활동 범례' : '기본 파티 구성',
+        });
+        const measure = () =>
+          footer.evaluate((node) => {
+            const { right, bottom } = node.getBoundingClientRect();
+            return {
+              scrollY: window.scrollY,
+              rightGap: document.documentElement.clientWidth - right,
+              bottomGap: document.documentElement.clientHeight - bottom,
+            };
+          });
+
+        const before = await measure();
+        await page.evaluate(() => {
+          window.scrollTo(0, document.documentElement.scrollHeight);
+        });
+        const scrolled = await measure();
+        await expect(legend).toBeInViewport({ ratio: 1 });
+        await page.evaluate(() => {
+          window.scrollTo(0, 0);
+        });
+        const returned = await measure();
+        await expect(legend).toBeInViewport({ ratio: 1 });
+
+        console.log(
+          `범례 위치 (px): ${JSON.stringify({
+            width,
+            mode,
+            before,
+            scrolled,
+            returned,
+          })}`,
+        );
+        expect(before.scrollY).toBe(0);
+        expect(scrolled.scrollY).toBeGreaterThan(0);
+        expect(returned.scrollY).toBe(0);
+        const inset = Math.min(32, Math.max(12, width * 0.03));
+        expect(before.rightGap).toBeCloseTo(inset, 1);
+        expect(before.bottomGap).toBeCloseTo(inset, 1);
+        for (const position of [scrolled, returned]) {
+          expect(position.rightGap).toBeCloseTo(before.rightGap, 1);
+          expect(position.bottomGap).toBeCloseTo(before.bottomGap, 1);
+        }
+        await expect(footer).toHaveCSS('position', 'fixed');
+      });
+    }
+  });
+}
+
 for (const width of [1280, 390, 320]) {
   // 좁은 화면은 터치 기기로 실행해 `pointer: coarse` 전용 스타일까지 확인합니다.
   const touch = width < 640;

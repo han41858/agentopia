@@ -54,10 +54,13 @@ svg {
   flex-shrink: 0;
 }
 .world {
+  --legend-edge: clamp(12px, 3vw, 32px);
   min-height: 100dvh;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  grid-template-rows: auto 1fr auto;
+  grid-template-rows: auto 1fr;
+  /* Let the last kingdom scroll clear of the fixed legend. */
+  padding-bottom: calc(116px + var(--legend-edge));
   background-color: #152b22;
   background-image:
     linear-gradient(#a9c79813 1px, transparent 1px),
@@ -69,14 +72,19 @@ svg {
     100% 100%;
 }
 
-.world-header,
-.world-footer {
+.world-header {
   margin: clamp(12px, 3vw, 32px);
 }
 .world-footer {
-  display: flex;
-  justify-content: flex-end;
-  margin-top: 4px;
+  position: fixed;
+  z-index: 1;
+  right: var(--legend-edge);
+  bottom: var(--legend-edge);
+  padding: 8px;
+  border: 1px solid var(--rim);
+  border-radius: 7px;
+  background: var(--panel);
+  pointer-events: none;
 }
 .world-header,
 .header-tools {
