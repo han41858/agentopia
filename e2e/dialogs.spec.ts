@@ -37,7 +37,8 @@ test.describe('상세 창', () => {
   }) => {
     const github = await mockGitHub(page);
     const report = structuredClone(alphaReport);
-    const pull = report.forges.find(({ number }) => number === 11)!;
+    const pull = report.forges?.find(({ number }) => number === 11);
+    if (!pull) throw new Error('alphaReport에 PR #11 픽스처가 없습니다.');
     pull.activity = { commits: 1, partialCommits: true, pullComments: 2 };
     pull.activities = { commits: 3, reviews: 1 };
     await page.route('**/api/github?**', async (route) => {
@@ -724,7 +725,11 @@ test.describe('상세 창', () => {
     const report = structuredClone(alphaReport);
     const issue = report.quests.find(({ number }) => number === 2)!;
     issue.activity = { pullComments: 0, reviews: 1 };
-    issue.pulls = report.forges
+    const forges = report.forges;
+    if (!forges || forges.length < 3) {
+      throw new Error('alphaReport에 PR 픽스처가 3개 이상 필요합니다.');
+    }
+    issue.pulls = forges
       .slice(0, 3)
       .map(({ number, title, url }) => ({ number, title, url }));
     const replies: Record<string, object> = {
