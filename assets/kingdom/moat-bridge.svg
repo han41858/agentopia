@@ -36,10 +36,4 @@
     <rect x="38" y="6" width="1.300" height="16" />
     <rect x="59" y="6" width="1.300" height="16" />
   </g>
-  <g fill="#f2b84b">
-    <circle cx="37.500" cy="8" r="1.100" />
-    <circle cx="37.500" cy="20" r="1.100" />
-    <circle cx="58.500" cy="8" r="1.100" />
-    <circle cx="58.500" cy="20" r="1.100" />
-  </g>
 </svg>
