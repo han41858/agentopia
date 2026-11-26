@@ -31,7 +31,201 @@ async function expectWorkflowRunRows(rows: Locator) {
   }
 }
 
+async function detailTextStyle(locator: Locator) {
+  return locator.evaluate((node) => {
+    const { fontFamily, fontSize, fontWeight, lineHeight, color } =
+      getComputedStyle(node);
+    return { fontFamily, fontSize, fontWeight, lineHeight, color };
+  });
+}
+
+async function detailAlignment(dialog: Locator) {
+  return dialog.evaluate((node) => {
+    const heading = node.querySelector('.dialog-heading h2')!;
+    const header = heading.querySelector('.dialog-title-link') ?? heading;
+    const body = node.querySelector('.dialog-body')!;
+    const first = body.querySelector('h3, h4')!;
+    const popupBox = node.getBoundingClientRect();
+    const headerBox = header.getBoundingClientRect();
+    const bodyBox = body.getBoundingClientRect();
+    const firstBox = first.getBoundingClientRect();
+    return {
+      popupWidth: popupBox.width,
+      headerX: headerBox.left,
+      headerY: headerBox.top,
+      firstX: firstBox.left,
+      firstRight: firstBox.right,
+      firstY: firstBox.top - bodyBox.top + body.scrollTop,
+      firstHeight: firstBox.height,
+      scrollHeight: body.scrollHeight,
+      clientHeight: body.clientHeight,
+    };
+  });
+}
+
 test.describe('상세 창', () => {
+  for (const mode of ['world', 'simple'] as const) {
+    for (const width of [1280, 320]) {
+      test(`공통 머리글과 본문 기준선: ${mode}, ${width}px`, async ({
+        page,
+      }, testInfo) => {
+        await page.setViewportSize({ width, height: 720 });
+        await mockGitHub(page);
+        await seedSettings(page, [alpha], mode);
+        const report = structuredClone(alphaReport);
+        const pull = report.forges!.find(({ number }) => number === 12)!;
+        const issue = report.quests.find(({ number }) => number === 2)!;
+        const history = report.forges!.find(({ merged }) => merged)!;
+        pull.title = `🐛 도로: ${'가'.repeat(1250)}`;
+        issue.title = `경로 겹침: ${'나'.repeat(1250)}`;
+        issue.runs = pull.runs;
+        report.forges!.push(
+          ...Array.from({ length: 20 }, (_, index) => ({
+            ...history,
+            number: 100 + index,
+          })),
+        );
+        await page.route('**/api/github?**', (route) => {
+          const params = new URL(route.request().url()).searchParams;
+          if (
+            params.get('repo') !== alpha ||
+            ['summary', 'activity', 'heritage', 'repository', 'owner'].some(
+              (key) => params.has(key),
+            )
+          )
+            return route.fallback();
+          return route.fulfill({ json: report });
+        });
+        await page.goto('/');
+        await settled(page);
+        await expect(page.locator('[data-display-mode]')).toHaveAttribute(
+          'data-display-mode',
+          mode,
+        );
+
+        await page.getByRole('button', { name: /^개발 광장/ }).click();
+        const plaza = page.getByRole('dialog', { name: '개발 광장' });
+        const plazaHeading = plaza.getByRole('heading', { level: 2 });
+        const plazaSection = plaza.getByRole('heading', { name: '작업중' });
+        const plazaRow = plaza.getByRole('button', { name: /\bPR #12\b/ });
+        await expect(plazaRow).toBeVisible();
+        const headerStyle = await detailTextStyle(plazaHeading);
+        const sectionStyle = await detailTextStyle(plazaSection);
+        const rowStyle = await detailTextStyle(plazaRow.locator('strong'));
+        const metaStyle = await detailTextStyle(plazaRow.locator('small'));
+        const plazaBox = await detailAlignment(plaza);
+        const historyList = plaza
+          .getByRole('region', { name: '작업 이력' })
+          .getByRole('list');
+        await historyList.getByRole('button').last().scrollIntoViewIfNeeded();
+        await expect
+          .poll(() => historyList.evaluate((node) => node.scrollTop))
+          .toBeGreaterThan(0);
+        await expect(plazaHeading).toBeInViewport();
+        await expect(
+          plaza.getByRole('button', { name: '닫기' }),
+        ).toBeInViewport();
+
+        await plazaRow.press('Enter');
+        const pr = page.getByRole('dialog', { name: 'PR #12' });
+        const prTitle = pr.getByRole('heading', { level: 3 });
+        await expect(prTitle).toHaveText(pull.title);
+        const titleStyle = await detailTextStyle(prTitle);
+        const linkedIssue = pr.getByRole('link', {
+          name: '이슈 #2',
+          exact: true,
+        });
+        await expect(linkedIssue).toHaveAttribute(
+          'href',
+          `https://github.com/${alpha}/issues/2`,
+        );
+
+        const measurements = [];
+        for (const dialog of [
+          pr,
+          page.getByRole('dialog', { name: '이슈 #2' }),
+        ]) {
+          const heading = dialog.getByRole('heading', { level: 2 });
+          const title = dialog.getByRole('heading', { level: 3 });
+          const section = dialog.getByRole('heading', {
+            name: 'GitHub Actions',
+          });
+          const runs = dialog.getByRole('list', {
+            name: 'GitHub Actions 실행 목록',
+          });
+          await expect(section).toBeVisible();
+          const headerLink = heading.getByRole('link');
+          expect(await detailTextStyle(headerLink)).toEqual(headerStyle);
+          expect(await detailTextStyle(title)).toEqual(titleStyle);
+          expect(await detailTextStyle(section)).toEqual(sectionStyle);
+          expect(
+            await detailTextStyle(runs.getByRole('link', { name: 'CI' })),
+          ).toEqual(rowStyle);
+          expect(await detailTextStyle(runs.locator('time'))).toEqual(
+            metaStyle,
+          );
+          await expect(title).toHaveCSS('text-align', 'left');
+
+          const box = await detailAlignment(dialog);
+          expect(box.popupWidth).toBeCloseTo(plazaBox.popupWidth, 0);
+          expect(box.headerX).toBeCloseTo(plazaBox.headerX, 0);
+          expect(box.firstX).toBeCloseTo(box.headerX, 0);
+          expect(box.firstRight).toBeCloseTo(plazaBox.firstRight, 0);
+          expect(box.firstY).toBeCloseTo(plazaBox.firstY, 0);
+          expect(box.firstHeight).toBeGreaterThan(
+            2 * parseFloat(titleStyle.lineHeight),
+          );
+          expect(box.scrollHeight).toBeGreaterThan(box.clientHeight);
+          for (const locator of [section, runs]) {
+            const x = await locator.evaluate(
+              (node) => node.getBoundingClientRect().left,
+            );
+            expect(x).toBeCloseTo(box.firstX, 0);
+          }
+          const scrollTop = await dialog
+            .locator('.dialog-body')
+            .evaluate((node) => {
+              node.scrollTop = node.scrollHeight;
+              return node.scrollTop;
+            });
+          expect(scrollTop).toBeGreaterThan(0);
+          await expect(heading).toBeInViewport();
+          await expect(
+            dialog.getByRole('button', { name: '닫기' }),
+          ).toBeInViewport();
+          expect((await detailAlignment(dialog)).headerY).toBeCloseTo(
+            box.headerY,
+            0,
+          );
+          await runs.focus();
+          await expect(runs).toBeFocused();
+          await page.keyboard.press('Tab');
+          await expect(runs.getByRole('link', { name: 'CI' })).toBeFocused();
+          measurements.push({ ...box, scrollTop });
+          if (dialog === pr) await linkedIssue.press('Enter');
+          else await expect(title).toHaveText(issue.title);
+        }
+        expect(plazaBox.firstX).toBeCloseTo(plazaBox.headerX, 0);
+        await testInfo.attach('상세 팝업 위치와 서체', {
+          body: JSON.stringify(
+            {
+              plazaBox,
+              measurements,
+              headerStyle,
+              titleStyle,
+              sectionStyle,
+              rowStyle,
+              metaStyle,
+            },
+            null,
+            2,
+          ),
+          contentType: 'application/json',
+        });
+      });
+    }
+  }
+
   test('PR 시설: 상태와 활동을 보여 주고, 눌렀을 때만 기록을 조회한다', async ({
     page,
   }) => {

@@ -92,7 +92,7 @@ export function QuestDetail({
   const runs = [...runsByUrl.values()];
   return (
     <Dialog
-      className="issue-dialog"
+      className="detail-dialog issue-dialog"
       title={`이슈 #${quest.number}`}
       titleHref={quest.url}
       showLinkIcon={false}
@@ -239,7 +239,7 @@ export function PullDetail({
   );
   return (
     <Dialog
-      className={pull.draft ? 'pull-dialog draft' : 'pull-dialog'}
+      className={`detail-dialog pull-dialog${pull.draft ? ' draft' : ''}`}
       title={`PR #${pull.number}`}
       titleHref={pull.url}
       showLinkIcon={false}
@@ -362,7 +362,7 @@ export function PlazaDetail({
       (right.finishedAt ?? '').localeCompare(left.finishedAt ?? ''),
     );
   return (
-    <Dialog title={title} close={close}>
+    <Dialog className="detail-dialog" title={title} close={close}>
       <h4>작업중</h4>
       {current.length ? (
         <FacilityRows entries={current} openPull={openPull} />
