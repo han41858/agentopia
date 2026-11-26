@@ -1,4 +1,4 @@
-name: Parent issue completion
+name: 부모 이슈 검증 및 종료
 on:
   issues:
     types: [closed, reopened]

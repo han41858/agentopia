@@ -36,8 +36,8 @@ class PreviewTest(unittest.TestCase):
         with patch.object(preview, "vercel", side_effect=[
             {"deployments": []}, deployment, {"deployments": [deployment]}
         ]) as api:
-            self.assertEqual(preview.preview(self.pull), "https://example.vercel.app")
-            self.assertEqual(preview.preview(self.pull), "https://example.vercel.app")
+            self.assertEqual(preview.preview(self.pull), ("https://example.vercel.app", False))
+            self.assertEqual(preview.preview(self.pull), ("https://example.vercel.app", True))
         self.assertEqual(api.call_count, 3)
         body = api.call_args_list[1].args[2]
         self.assertEqual(body["gitSource"]["sha"], self.pull["head"]["sha"])
@@ -51,7 +51,7 @@ class PreviewTest(unittest.TestCase):
         with patch.dict(preview.os.environ, {"GITHUB_EVENT_PATH": "event.json"}), patch.object(
             Path, "read_text", return_value=preview.json.dumps(event)
         ), patch.object(preview, "github", side_effect=[preview.json.dumps(self.pull), ""]) as gh, patch.object(
-            preview, "preview", return_value="https://example.vercel.app"
+            preview, "preview", return_value=("https://example.vercel.app", False)
         ):
             self.assertEqual(preview.main(), 0)
         args = gh.call_args.args
