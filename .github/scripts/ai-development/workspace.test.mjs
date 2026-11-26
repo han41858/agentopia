@@ -220,6 +220,7 @@ test('literal lookup locates UI text without counting as a full UI spec read', (
 test('development and review can inspect recovery producers without editing them', () => {
   const work = gitSnapshot('HEAD', 'HEAD');
   for (const [path, text] of [
+    ['.github/scripts/ai-development/publication.mjs', 'reviewPublisher'],
     ['.github/scripts/ai-development/run.mjs', 'recovery.ciReviewHead'],
     ['.github/scripts/ai-completion.py', 'def current_ci('],
   ]) {
