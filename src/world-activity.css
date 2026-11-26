@@ -739,7 +739,7 @@
 }
 
 .branch-plaza .branch-bridge {
-  aspect-ratio: 96 / 34;
+  aspect-ratio: 96 / 28;
 }
 .branch-road-node[data-road-role='plaza'] img {
   aspect-ratio: 96 / 72;
