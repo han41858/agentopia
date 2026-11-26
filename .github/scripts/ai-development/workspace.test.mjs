@@ -222,6 +222,7 @@ test('development and review can inspect recovery producers without editing them
   for (const [path, text] of [
     ['.github/scripts/ai-development/run.mjs', 'recovery.ciReviewHead'],
     ['.github/scripts/ai-completion.py', 'def current_ci('],
+    ['.github/scripts/issue_journal.py', 'def checkpoint('],
   ]) {
     const hits = work.inspect('find_in_file', { path, text });
     assert.ok(hits.includes(text));
