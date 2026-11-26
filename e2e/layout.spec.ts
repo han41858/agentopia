@@ -1,6 +1,15 @@
 import type { Locator, Page } from '@playwright/test';
 import type { PullQuest, Quest } from '../server/model.ts';
-import { alpha, alphaReport, emptyReport, noPlaza, owner } from './fixtures.ts';
+import {
+  added,
+  alpha,
+  alphaReport,
+  denied,
+  empty,
+  emptyReport,
+  noPlaza,
+  owner,
+} from './fixtures.ts';
 import { mockGitHub, openWorld, seedSettings, settled } from './github.ts';
 import { expect, test } from './test.ts';
 
@@ -337,6 +346,131 @@ test.describe('높은 데스크톱의 왕국 하나', () => {
     expect(gap).toBeLessThanOrEqual(20);
   });
 });
+
+for (const width of [1280, 390, 320]) {
+  const mobile = width <= 640;
+
+  test.describe(`${width}px에서 스크롤하는 월드맵`, () => {
+    test.use({
+      viewport: { width, height: mobile ? 700 : 550 },
+      hasTouch: mobile,
+      reducedMotion: 'reduce',
+    });
+
+    for (const mode of ['world', 'simple'] as const) {
+      test(`${mode}: 스크롤 후에도 상단 도구가 같은 자리에서 동작한다`, async ({
+        page,
+      }, testInfo) => {
+        const repositories = [alpha, noPlaza, empty, denied, added];
+        await openWorld(page, repositories, mode);
+        await settled(page);
+        await expect(page.locator('.kingdom-wall')).toHaveCount(
+          repositories.length,
+        );
+        await page.evaluate(() => document.fonts.ready.then(() => undefined));
+
+        const heading = page.locator('.world-heading');
+        const title = page.getByRole('heading', { name: 'Agentopia' });
+        const bookmark = page.locator('.header-bookmark');
+        const buttons = page.locator('.world-controls > button');
+        const wall = page.locator('.kingdom-wall').first();
+        const tools = mobile ? bookmark : buttons;
+        const [headingBefore] = await boxes(heading);
+        const toolsBefore = await boxes(tools);
+        const [wallBefore] = await boxes(wall);
+        expect(await page.evaluate(() => window.scrollY)).toBe(0);
+        expect(wallBefore.y).toBeGreaterThanOrEqual(
+          Math.max(
+            headingBefore.y + headingBefore.height,
+            ...toolsBefore.map((tool) => tool.y + tool.height),
+          ),
+        );
+
+        await page.evaluate(() => window.scrollTo(0, 220));
+        await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(220);
+        const [headingAfter] = await boxes(heading);
+        const toolsAfter = await boxes(tools);
+        const [wallAfter] = await boxes(wall);
+        expect(headingAfter).toEqual(headingBefore);
+        expect(toolsAfter).toEqual(toolsBefore);
+        expect(wallBefore.y - wallAfter.y).toBeCloseTo(220, 0);
+
+        const gapLeft = headingAfter.x + headingAfter.width;
+        const gapRight = Math.min(...toolsAfter.map((tool) => tool.x));
+        expect(gapRight).toBeGreaterThan(gapLeft);
+        const mapReceivesPointer = await page.evaluate(
+          ({ x, y }) =>
+            !!document.elementFromPoint(x, y)?.closest('.map-viewport'),
+          {
+            x: (gapLeft + gapRight) / 2,
+            y: headingAfter.y + headingAfter.height / 2,
+          },
+        );
+        expect(mapReceivesPointer).toBe(true);
+
+        let expanded: Box[] = [];
+        let closed: Box[] = [];
+        if (mobile) {
+          await bookmark.tap();
+          await expect(bookmark).toHaveAttribute('aria-expanded', 'true');
+          await expect(buttons).toHaveCount(4);
+          expanded = await boxes(buttons);
+          const [anchor] = toolsBefore;
+          expect(await boxes(bookmark)).toEqual(toolsBefore);
+          expect(anchor.width).toBe(touchTarget);
+          expect(anchor.height).toBe(touchTarget);
+          for (const button of expanded) {
+            expect(button.x).toBeGreaterThanOrEqual(0);
+            expect(button.x + button.width).toBeLessThanOrEqual(anchor.x);
+            expect(button.y + button.height / 2).toBeCloseTo(
+              anchor.y + anchor.height / 2,
+              1,
+            );
+          }
+          expect(await boxes(wall)).toEqual([wallAfter]);
+          await bookmark.tap();
+          await expect(bookmark).toHaveAttribute('aria-expanded', 'false');
+          closed = await boxes(bookmark);
+          expect(closed).toEqual(toolsBefore);
+          expect(await boxes(wall)).toEqual([wallAfter]);
+          expect(await boxes(heading)).toEqual([headingBefore]);
+          await expect(title).toBeInViewport({ ratio: 1 });
+          await bookmark.tap();
+        }
+
+        const addRepository = page.getByRole('button', { name: '저장소 추가' });
+        if (mobile) await addRepository.tap();
+        else await addRepository.click();
+        const dialog = page.getByRole('dialog');
+        await expect(dialog).toBeVisible();
+        await page.keyboard.press('Escape');
+        await expect(dialog).toBeHidden();
+        await expect(mobile ? bookmark : addRepository).toBeFocused();
+
+        await testInfo.attach('fixed-header-bounds', {
+          contentType: 'application/json',
+          body: JSON.stringify({
+            width,
+            mode,
+            scrollY: 220,
+            before: {
+              heading: headingBefore,
+              tools: toolsBefore,
+              wall: wallBefore,
+            },
+            after: {
+              heading: headingAfter,
+              tools: toolsAfter,
+              wall: wallAfter,
+            },
+            expanded,
+            closed,
+          }),
+        });
+      });
+    }
+  });
+}
 
 test.describe('월드맵 배치 순서', () => {
   test.use({
@@ -1511,11 +1645,14 @@ for (const width of [1280, 390, 320]) {
           expect(expandedFace.x + expandedFace.width).toBe(
             row[0].x + row[0].width,
           );
-          expect(row[0].x).toBeLessThan(collapsedHit.x);
-          expect(row[4].x + row[4].width).toBe(width);
-          for (const [index, button] of row.entries()) {
+          expect(row[0]).toEqual(collapsedHit);
+          expect(expandedFace).toEqual(collapsedFace);
+          const visualOrder = [...row.slice(1), row[0]];
+          for (const [index, button] of visualOrder.entries()) {
             expect(button.x).toBeGreaterThanOrEqual(
-              index ? row[index - 1].x + row[index - 1].width : 0,
+              index
+                ? visualOrder[index - 1].x + visualOrder[index - 1].width
+                : 0,
             );
             expect(button.y + button.height / 2).toBeCloseTo(centerY, 1);
             expect(button.x + button.width).toBeLessThanOrEqual(width);
