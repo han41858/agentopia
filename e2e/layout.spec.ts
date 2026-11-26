@@ -446,6 +446,7 @@ for (const width of [1280, 390, 320]) {
         await page.keyboard.press('Escape');
         await expect(dialog).toBeHidden();
         await expect(mobile ? bookmark : addRepository).toBeFocused();
+        expect(await page.evaluate(() => window.scrollY)).toBe(220);
 
         await testInfo.attach('fixed-header-bounds', {
           contentType: 'application/json',
@@ -1775,6 +1776,7 @@ for (const width of [1280, 390, 320]) {
           await expect(controls).toBeHidden();
           await dialog.getByRole('button', { name: '닫기' }).tap();
           await expect(dialog).toBeHidden();
+          await expect(open).toBeFocused();
         }
       });
 
