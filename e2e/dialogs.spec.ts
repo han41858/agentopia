@@ -1,7 +1,7 @@
 import type { Locator } from '@playwright/test';
 import { makeQuests, repositoryRegion } from '../server/model.ts';
 import type { Comment, Run, SubIssue, SubIssueList } from '../server/model.ts';
-import { alpha, alphaReport } from './fixtures.ts';
+import { alpha, alphaHeritage, alphaReport } from './fixtures.ts';
 import { mockGitHub, openWorld, seedSettings, settled } from './github.ts';
 import { expect, test } from './test.ts';
 
@@ -109,17 +109,20 @@ test.describe('상세 창', () => {
           })),
         );
         await page.route('**/api/github?**', (route) => {
-          const url = new URL(route.request().url());
-          const params = url.searchParams;
+          const params = new URL(route.request().url()).searchParams;
           if (params.get('repo') !== repo) return route.fallback();
+          if (repo !== alpha && params.has('heritage')) {
+            return route.fulfill({ json: alphaHeritage });
+          }
+          if (repo !== alpha && params.has('repository')) {
+            return route.fulfill({ json: { slug: repo, private: false } });
+          }
           if (
             ['summary', 'activity', 'heritage', 'repository', 'owner'].some(
               (key) => params.has(key),
             )
           ) {
-            if (repo === alpha) return route.fallback();
-            params.set('repo', alpha);
-            return route.fallback({ url: url.href });
+            return route.fallback();
           }
           return route.fulfill({ json: report });
         });
@@ -239,8 +242,9 @@ test.describe('상세 창', () => {
             .getByRole('dialog', { name: '이슈 #2' })
             .getByRole('button', { name: '닫기' })
             .click();
-          await page.getByTitle(/^왕궁 · /).press('Enter');
+          await page.getByTitle(/^왕궁 · /).click();
           const palace = page.getByRole('dialog', { name: repo, exact: true });
+          await expect(palace).toBeVisible();
           const repoLink = palace
             .getByRole('heading', { level: 2 })
             .getByRole('link');
@@ -320,11 +324,11 @@ test.describe('상세 창', () => {
 
           await page
             .getByRole('button', { name: '완공 기념비', exact: true })
-            .press('Enter');
+            .click();
           const heritage = page.getByRole('dialog', { name: '완공 기념비' });
           const metric = heritage.locator('.heritage-total dt');
           const count = heritage.locator('.heritage-total dd');
-          await expect(metric).toHaveText(/\S/);
+          await expect(metric).toHaveText('머지된 PR');
           await expect(count).toHaveText('1,234');
           expect(await detailTextStyle(metric)).toEqual(sectionStyle);
           expect(await detailTextStyle(count)).toEqual(rowStyle);
