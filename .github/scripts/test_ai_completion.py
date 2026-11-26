@@ -2,6 +2,7 @@ import base64
 import json
 import importlib.util
 import unittest
+from tempfile import TemporaryDirectory
 from pathlib import Path
 from unittest.mock import Mock, patch
 
@@ -83,13 +84,17 @@ class CompletionTest(unittest.TestCase):
 
     def test_interruption_notice_only_for_same_ready_run(self):
         state = {"runId": 7, "head": "a" * 40, "pullNumber": 2}
-        with patch.object(completion, "ready_state", return_value=state), patch.object(
-            completion, "eligible", return_value=True
-        ), patch.object(completion, "record_event") as journal:
-            completion.report_interruption(1, 6)
-            journal.assert_not_called()
-            completion.report_interruption(1, 7)
-            self.assertEqual(journal.call_args.kwargs["status"], "ready")
+        with TemporaryDirectory() as tmp:
+            output = Path(tmp) / "outputs"
+            with patch.dict(completion.os.environ, GITHUB_OUTPUT=str(output)), patch.object(
+                completion, "ready_state", return_value=state
+            ), patch.object(completion, "eligible", return_value=True), patch.object(completion, "record_event") as journal:
+                completion.report_interruption(1, 6)
+                journal.assert_not_called()
+                self.assertFalse(output.exists())
+                completion.report_interruption(1, 7)
+                self.assertEqual(journal.call_args.kwargs["status"], "ready")
+                self.assertEqual(output.read_text(), "reported=true\n")
 
     def test_cancelled_ci_is_retryable(self):
         self.assertEqual(self.run_case(ci="cancelled"), [])

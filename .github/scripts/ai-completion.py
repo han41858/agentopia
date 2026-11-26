@@ -297,6 +297,9 @@ def report_interruption(issue, run_id):
     if state and state["runId"] == run_id and state.get("pullNumber") and eligible(issue, state.get("developer", "codex")):
         record_event(issue, state, state["pullNumber"], f"resume-completion:{run_id}:{state['head']}",
                      "리뷰 통과 · 완료 단계 재개 필요. AI completion에서 이슈 번호로 재개하세요.", status="ready")
+        if output := os.environ.get("GITHUB_OUTPUT"):
+            with open(output, "a", encoding="utf-8") as handoff:
+                print("reported=true", file=handoff)
 
 
 def main():
