@@ -1,8 +1,8 @@
+import { indexPulls } from './pull-index.ts';
 import { preferredPalaceBranches } from './branch-roads.ts';
 import type { BranchInventory } from './branch-roads.ts';
 import { observeGitHub } from './github-query.ts';
 import {
-  linkedPullIssues,
   makeForges,
   makeQuests,
   readState,
@@ -195,12 +195,11 @@ export async function getReport(
         });
     }
   }
+  const index = indexPulls(region, pulls, runs, pullLinks);
   const linked = [
     ...new Set([
       ...runs.map(runIssue),
-      ...pulls.flatMap((pull) =>
-        linkedPullIssues(pull, region, pullLinks.get(pull.number)),
-      ),
+      ...[...index.values()].flatMap((entry) => entry.issues),
     ]),
   ];
   const missing = linked.filter(
@@ -353,8 +352,9 @@ export async function getReport(
     parents,
     releases,
     pullLinks,
+    index,
   );
-  const forges = makeForges(region, pulls, runs, pullLinks, quests);
+  const forges = makeForges(region, pulls, runs, pullLinks, quests, index);
   return {
     quests: quests.map((quest) => ({
       ...quest,

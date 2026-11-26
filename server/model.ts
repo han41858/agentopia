@@ -1,4 +1,5 @@
-import { branchIssueNumber } from './branch-roads.ts';
+import { indexPulls, pullIssue } from './pull-index.ts';
+export { linkedPullIssues, pullIssue } from './pull-index.ts';
 import type { BranchInventory, BranchPull } from './branch-roads.ts';
 import { summarizeActivity } from './activity.ts';
 import type { ActivityProfile, PullActivity } from './activity.ts';
@@ -288,11 +289,6 @@ export function runIssue(run: Run) {
   return match ? Number(match[1]) : undefined;
 }
 
-export function pullIssue(pull: Pull, region: Region) {
-  if (pull.head.repo?.full_name.toLowerCase() !== region.slug) return;
-  return branchIssueNumber(pull.head.ref);
-}
-
 export function pullActor(login?: string, type?: string): Agent | undefined {
   const account = login?.toLowerCase();
   if (type !== 'Bot' && !account?.endsWith('[bot]')) return;
@@ -308,41 +304,6 @@ export function pullActor(login?: string, type?: string): Agent | undefined {
     case 'claude-code[bot]':
       return 'claude';
   }
-}
-
-export function linkedPullIssues(
-  pull: Pull,
-  region: Region,
-  native?: PullLinks,
-) {
-  const numbers = new Set(native?.issues ?? []);
-  const branch = pullIssue(pull, region);
-  if (branch !== undefined) numbers.add(branch);
-  const body = (pull.body ?? '')
-    .replace(/<!--[\s\S]*?-->/g, '')
-    .replace(/^[ \t]*`{3,}[\s\S]*?^[ \t]*`{3,}[^\n]*/gm, '')
-    .replace(/^[ \t]*~{3,}[\s\S]*?^[ \t]*~{3,}[^\n]*/gm, '')
-    .replace(/^[ \t]*>.*$/gm, '')
-    .replace(/`+[^`]*`+/g, '');
-  const references = body.matchAll(
-    /\b(?:clos(?:e[sd]?)|fix(?:e[sd])?|resolv(?:e[sd]?))[ \t]*:?[ \t]+((?:[\w.-]+\/[\w.-]+)?#\d+|https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/issues\/\d+)(?![\w/])/gi,
-  );
-  for (const [, reference] of references) {
-    const match =
-      /^(?:(?<repo>[\w.-]+\/[\w.-]+)?#|https:\/\/github\.com\/(?<urlRepo>[\w.-]+\/[\w.-]+)\/issues\/)(?<number>\d+)$/i.exec(
-        reference,
-      );
-    if (!match?.groups) continue;
-    const repo = (match.groups.repo ?? match.groups.urlRepo)?.toLowerCase();
-    const number = Number(match.groups.number);
-    if (
-      (!repo || repo === region.slug) &&
-      Number.isSafeInteger(number) &&
-      number > 0
-    )
-      numbers.add(number);
-  }
-  return [...numbers];
 }
 
 export function readState(comment: Comment, region: Region) {
@@ -581,16 +542,6 @@ function latestWorkflowRuns(runs: WorkflowRunRecord[]): WorkflowRunRecord[] {
     .map(({ run }) => run);
 }
 
-function matchesPullHead(run: Run, region: Region, pull: Pull) {
-  if (run.head_sha !== pull.head.sha) return false;
-  if (run.pull_requests.length)
-    return run.pull_requests.some(({ number }) => number === pull.number);
-  return (
-    pull.head.repo?.full_name.toLowerCase() === region.slug &&
-    run.head_branch === pull.head.ref
-  );
-}
-
 function automationRunParticipated(run: Run) {
   return (
     run.conclusion !== 'skipped' &&
@@ -600,22 +551,6 @@ function automationRunParticipated(run: Run) {
 
 function referencesPull(run: Run, pull: Pull) {
   return run.pull_requests.some(({ number }) => number === pull.number);
-}
-
-function pullCIRuns(runs: Run[], region: Region, pull: Pull) {
-  return runs.filter(
-    (run) =>
-      run.path.split('@')[0] === '.github/workflows/ci.yml' &&
-      (run.pull_requests.length
-        ? referencesPull(run, pull)
-        : run.head_sha === pull.head.sha &&
-          pull.head.repo?.full_name.toLowerCase() === region.slug &&
-          run.head_branch === pull.head.ref),
-  );
-}
-
-function currentPullCI(history: Run[], pull: Pull) {
-  return history.find((run) => run.head_sha === pull.head.sha);
 }
 
 const recoveryStages: Record<RecoveryBadge['kind'], Stage> = {
@@ -696,6 +631,7 @@ export function makeForges(
   runs: Run[],
   links: ReadonlyMap<number, PullLinks>,
   quests: Quest[] = [],
+  index = indexPulls(region, pulls, runs, links),
 ): PullQuest[] {
   const work = new Map<number, Quest[]>();
   const automationPulls = new Set<number>();
@@ -715,11 +651,7 @@ export function makeForges(
         Boolean(pull.merged_at),
     )
     .map((pull) => {
-      const relatedRuns = runs.filter((run) =>
-        matchesPullHead(run, region, pull),
-      );
-      const ciHistory = pullCIRuns(runs, region, pull);
-      const ci = currentPullCI(ciHistory, pull);
+      const { relatedRuns, ciHistory, ci, issues } = index.get(pull.number)!;
       const outcome = ci ? runStage(ci) : 'idle';
       const review = links.get(pull.number);
       const cancelled = pull.state === 'closed' && !pull.merged_at;
@@ -798,7 +730,7 @@ export function makeForges(
         finishedAt:
           pull.merged_at ||
           (cancelled ? (pull.closed_at ?? pull.updated_at) : undefined),
-        issues: linkedPullIssues(pull, region, review),
+        issues,
         adventurers,
         reason:
           stage === 'failed' || stage === 'attention'
@@ -890,16 +822,13 @@ export function makeQuests(
   parents: Map<number, number>,
   releases: Release[],
   pullLinks: ReadonlyMap<number, PullLinks> = new Map(),
+  index = indexPulls(region, pulls, runs, pullLinks),
 ): Quest[] {
   const byIssue = selectIssueAutomation(region, runs, comments);
 
   const pullsByIssue = new Map<number, Pull[]>();
   for (const pull of pulls) {
-    for (const number of linkedPullIssues(
-      pull,
-      region,
-      pullLinks.get(pull.number),
-    )) {
+    for (const number of index.get(pull.number)!.issues) {
       const entries = pullsByIssue.get(number) ?? [];
       entries.push(pull);
       pullsByIssue.set(number, entries);
@@ -966,8 +895,9 @@ export function makeQuests(
           ? headPulls[0]
           : retryPull);
     const pull = workPull ?? issuePulls[0];
-    const ciHistory = pull ? pullCIRuns(runs, region, pull) : [];
-    const ci = pull ? currentPullCI(ciHistory, pull) : undefined;
+    const indexed = pull && index.get(pull.number);
+    const ciHistory = indexed?.ciHistory ?? [];
+    const ci = indexed?.ci;
     // Earlier CI attempts remain visible in Actions history after recovery changes the head.
     const earlierCI = ciHistory.filter((candidate) => candidate.id !== ci?.id);
     const automationRuns = automation.filter(automationRunParticipated);
@@ -991,7 +921,7 @@ export function makeQuests(
       checkpoints.length > 0 ||
       ciHistory.length > 0 ||
       issuePulls.some(
-        (item) => item !== pull && pullCIRuns(runs, region, item).length > 0,
+        (item) => item !== pull && index.get(item.number)!.ciHistory.length > 0,
       );
     const branch =
       pull && pullIssue(pull, region) === issue.number ? pull.head.ref : '';
