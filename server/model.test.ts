@@ -1,3 +1,4 @@
+import { indexPulls } from './pull-index.ts';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
@@ -2356,4 +2357,32 @@ test('PR recovery follows the trusted PR, HEAD and CI attempt through repair', (
     forge('needs_human', { reason: '자동 수정 한도 도달' }).recoveryBadge,
     { kind: 'stopped', reason: '자동 수정 한도 도달' },
   );
+});
+
+test('pull index keeps fork refs independent and retains CI history across head changes', () => {
+  const fork = {
+    ...pull,
+    number: 21,
+    head: { ...pull.head, repo: { full_name: 'other/fork' } },
+  };
+  const explicit = run(2, {
+    path: '.github/workflows/ci.yml',
+    head_sha: mergeSha,
+    pull_requests: [{ number: fork.number }, { number: fork.number }],
+  });
+  const local = run(2, {
+    path: '.github/workflows/ci.yml',
+    head_branch: pull.head.ref,
+  });
+  const index = indexPulls(
+    commitTrail,
+    [pull, fork],
+    [explicit, local],
+    new Map(),
+  );
+  assert.deepEqual(index.get(20)?.ciHistory, [local]);
+  assert.equal(index.get(20)?.ci, local);
+  assert.deepEqual(index.get(21)?.ciHistory, [explicit]);
+  assert.equal(index.get(21)?.ci, undefined);
+  assert.deepEqual(index.get(21)?.relatedRuns, []);
 });
