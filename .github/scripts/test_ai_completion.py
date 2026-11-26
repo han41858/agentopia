@@ -1,3 +1,4 @@
+import issue_journal
 import base64
 import json
 import importlib.util
@@ -164,8 +165,8 @@ class CompletionTest(unittest.TestCase):
             comment["body"] = body
             writes.append(body)
 
-        with patch.object(completion, "checkpoint", side_effect=lambda _: (comment, current)), patch.object(
-            completion, "repo", side_effect=patch_comment
+        with patch.object(issue_journal, "checkpoint", side_effect=lambda _: (comment, current)), patch.object(
+            issue_journal, "repo", side_effect=patch_comment
         ):
             args = (1, earlier, 2, "ci:11/1", "CI 실패")
             completion.record_event(*args, ci={"id": 11, "run_attempt": 1})

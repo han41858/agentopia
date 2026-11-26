@@ -1,3 +1,5 @@
+import json
+import subprocess
 import importlib.util
 from pathlib import Path
 import unittest
@@ -9,6 +11,21 @@ spec.loader.exec_module(progress)
 
 
 class ProgressSyncTest(unittest.TestCase):
+    def test_node_journal_projects_to_pr_history(self):
+        # Use the real renderer so format changes are checked across both runtimes.
+        state = {"issue": 7, "pullNumber": 9, "runId": 12, "attempt": 1,
+                 "status": "ready", "reason": "완료 단계 재개 필요"}
+        payload = {"repository": progress.journal.REPO, "state": state,
+                   "event": {"key": "resume", "text": state["reason"]}}
+        renderer = Path(__file__).parent / "ai-development" / "journal.mjs"
+        result = subprocess.run(["node", str(renderer)], input=json.dumps(payload),
+                                capture_output=True, text=True, check=True)
+        body = progress.pr_body(result.stdout, 9, 7)
+        self.assertIn(f"[이슈 #7]({progress.ROOT}/issues/7)", body)
+        self.assertIn("### 1차 실행", body)
+        self.assertIn("완료 단계 재개 필요", body.split("**진행 기록**")[1])
+        self.assertNotIn("agentopia-ai-state:", body)
+
     def test_same_pr_comment_survives_retry_and_keeps_reviews_and_user_comments(self):
         link = f"[PR #9]({progress.ROOT}/pull/9)"
         marker = "<!-- agentopia-pr-progress:7 -->"
@@ -33,7 +50,7 @@ class ProgressSyncTest(unittest.TestCase):
                 self.assertEqual(path, "issues/comments/3")
                 rows[-1]["body"] = body
 
-        with patch.object(progress.completion, "checkpoint", checkpoint), patch.object(progress, "repo", api):
+        with patch.object(progress.journal, "checkpoint", checkpoint), patch.object(progress, "repo", api):
             progress.sync(7)
             timeline += "\n### 2차 실행\n" + "\n".join(
                 f"- 10:0{i} · {event} {link}" for i, event in enumerate(["수정 커밋", "CI 통과", "머지"], 1))
@@ -50,9 +67,9 @@ class ProgressSyncTest(unittest.TestCase):
                                        ("Superseded by #8", "completed", False),
                                        ("Superseded by #8", "not_planned", True)]:
             source = {"body": text, "state": "closed", "state_reason": reason}
-            with self.subTest(text=text, reason=reason), patch.object(progress.completion, "checkpoint", return_value=({}, state)), patch.object(
+            with self.subTest(text=text, reason=reason), patch.object(progress.journal, "checkpoint", return_value=({}, state)), patch.object(
                 progress, "repo", side_effect=lambda path: source if path == "issues/7" else {}
-            ), patch.object(progress.completion, "record_event") as write:
+            ), patch.object(progress.journal, "record_event") as write:
                 progress.sync(7, closure=True)
                 self.assertEqual(write.called, reason == "not_planned")
                 if write.called and not recorded:
