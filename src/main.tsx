@@ -98,11 +98,27 @@ function App() {
   const [showAdd, setShowAdd] = useState(false);
   const { toolsOpen, setToolsOpen, narrowHeader, headerTools, bookmark } =
     useHeaderTools();
+  const settingsTrigger = useRef<HTMLButtonElement>(null);
   useEffect(installTouchPress, []);
-  function openSettings(kind: 'repository' | 'token') {
+  useEffect(() => {
+    if (showAdd || showConnect || !settingsTrigger.current) return;
+
+    const trigger = narrowHeader ? bookmark.current : settingsTrigger.current;
+    settingsTrigger.current = null;
+    // The settings dialog is unmounted on close, so restore focus explicitly.
+    // Do not take focus from another dialog opened in the same update.
+    if (!document.querySelector('dialog[open]')) {
+      trigger?.focus({ preventScroll: true });
+    }
+  }, [bookmark, narrowHeader, showAdd, showConnect]);
+
+  function openSettings(
+    kind: 'repository' | 'token',
+    trigger: HTMLButtonElement,
+  ) {
+    settingsTrigger.current = trigger;
     if (toolsOpen) {
-      // Leave a visible trigger for the dialog to restore focus to.
-      bookmark.current?.focus();
+      bookmark.current?.focus({ preventScroll: true });
       setToolsOpen(false);
     }
     if (kind === 'repository') setShowAdd(true);
@@ -332,7 +348,9 @@ function App() {
                 className="connect add-repository-button"
                 aria-label="저장소 추가"
                 title="저장소 추가"
-                onClick={() => openSettings('repository')}
+                onClick={(event) =>
+                  openSettings('repository', event.currentTarget)
+                }
               >
                 <Plus size={19} aria-hidden="true" />
               </button>
@@ -342,7 +360,7 @@ function App() {
                 data-tone={token ? tokenStatus.tone : undefined}
                 aria-label={token ? tokenStatus.label : 'GitHub 연결'}
                 title={token ? tokenStatus.label : 'GitHub 연결'}
-                onClick={() => openSettings('token')}
+                onClick={(event) => openSettings('token', event.currentTarget)}
               >
                 <Ticket size={19} aria-hidden="true" />
               </button>

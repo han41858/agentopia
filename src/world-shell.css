@@ -70,9 +70,6 @@ svg {
     100% 100%;
 }
 
-.world-header {
-  margin: clamp(12px, 3vw, 32px);
-}
 .world-footer {
   position: fixed;
   z-index: 1;
@@ -84,16 +81,27 @@ svg {
   background: var(--panel);
   pointer-events: none;
 }
-.world-header,
-.header-tools {
-  display: flex;
-  align-items: center;
-}
 .world-header {
   --header-button-size: 38px;
   --header-usage-space: 16px;
-  margin-block: clamp(8px, 1vw, 12px) 0;
-  gap: 12px;
+  --crest-size: 42px;
+  --header-top: clamp(8px, 1vw, 12px);
+  --header-row-size: max(var(--crest-size), var(--header-button-size));
+  /* Reserve only the initial clearance; the two fixed groups have no shared hit area. */
+  margin-block-start: var(--header-top);
+  min-height: var(--header-row-size);
+}
+.world-heading,
+.header-tools {
+  position: fixed;
+  top: calc(var(--header-top) + var(--header-row-size) / 2);
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+}
+.header-tools {
+  right: var(--legend-edge);
+  z-index: 11;
 }
 .header-tools,
 .world-controls {
@@ -127,10 +135,8 @@ svg {
   left: 0;
 }
 .world-heading {
-  --crest-size: 42px;
-  display: flex;
-  flex: 1;
-  align-items: center;
+  left: var(--legend-edge);
+  z-index: 10;
   gap: 10px;
   height: var(--crest-size);
 }

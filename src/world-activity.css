@@ -654,7 +654,6 @@
 @media (max-width: 420px), (pointer: coarse) {
   .world-header {
     --header-button-size: 44px;
-    gap: 8px;
   }
   .mode-switch-option {
     width: var(--header-button-size);
@@ -664,19 +663,15 @@
 @media (max-width: 640px) {
   .world-header {
     --header-button-size: 44px;
-    position: relative;
-    z-index: 10;
-    min-height: var(--header-button-size);
     /* Keep the map in place when the bookmark reveals the usage line. */
     margin-block-end: var(--header-usage-space);
   }
   .header-tools {
     --header-tool-gap: 4px;
     --header-tool-duration: 160ms;
-    position: absolute;
-    top: 50%;
-    right: calc(-1 * clamp(12px, 3vw, 32px));
-    transform: translateY(-50%);
+    right: 0;
+    /* Keep the bookmark first in tab order and at the right edge in both states. */
+    flex-direction: row-reverse;
     pointer-events: none;
   }
   .header-tools,
@@ -713,7 +708,7 @@
   .header-bookmark {
     position: relative;
     z-index: 1;
-    left: calc(100% - var(--header-button-size));
+    flex: none;
     visibility: visible;
     pointer-events: auto;
   }
@@ -743,18 +738,12 @@
     visibility: visible;
     pointer-events: auto;
   }
-  .header-tools[data-open='true'] .header-bookmark {
-    left: 0;
-  }
   .header-tools[data-open='true'] .header-bookmark .refresh-fill {
     visibility: hidden;
   }
 }
 
 @media (max-width: 640px) and (prefers-reduced-motion: no-preference) {
-  .header-bookmark {
-    transition: left var(--header-tool-duration) ease-out;
-  }
   .world-controls {
     transition:
       clip-path var(--header-tool-duration) ease-out,
