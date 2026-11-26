@@ -77,7 +77,7 @@ def preview(pull):
                           "ref": head["ref"], "sha": head["sha"]},
             "meta": {"agentopiaPreview": key},
         })
-    return "https://" + deployment["url"]
+    return "https://" + deployment["url"], bool(existing["deployments"])
 
 
 def main():
@@ -85,20 +85,28 @@ def main():
     repo = event["repository"]["full_name"]
     numbers = ([event["pull_request"]["number"]] if "pull_request" in event else
                related(repo, event["issue"]["number"], from_issue=True))
+    summary = []
     failed = False
     for number in numbers:
         try:
             pull = json.loads(github(f"repos/{repo}/pulls/{number}"))
             if eligible(repo, pull):
-                url = preview(pull)
+                url, reused = preview(pull)
+                summary.append(f"PR #{number} · " + ("기존 프리뷰 재사용" if reused else "신규 프리뷰 요청"))
                 print(f"PR #{number} · {url}", flush=True)
                 github("--method", "POST", f"repos/{repo}/statuses/{pull['head']['sha']}",
                        "-f", "context=Vercel Preview URL", "-f", "state=success",
                        "-f", "description=Preview URL assigned", "-f", f"target_url={url}",
                        "--silent")
+            else:
+                summary.append(f"PR #{number} · 대상 아님")
         except Exception as error:
+            summary.append(f"PR #{number} · 처리 실패")
             print(f"PR #{number}: {error}", file=sys.stderr)
             failed = True
+    if output := os.environ.get("GITHUB_STEP_SUMMARY"):
+        with open(output, "a", encoding="utf-8") as stream:
+            print("\n\n".join(summary) or "대상 PR 없음", file=stream)
     return int(failed)
 
 

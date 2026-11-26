@@ -1,4 +1,4 @@
-name: Superseded issue progress
+name: 계획 없음으로 종료된 이슈 기록
 on:
   issues:
     types: [closed, edited]

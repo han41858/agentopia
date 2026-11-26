@@ -42,6 +42,7 @@ permissions: {}
 
 jobs:
   develop:
+    name: 개발 및 리뷰
     if: >-
       github.repository == 'han41858/agentopia' &&
       github.ref == 'refs/heads/dev' &&
@@ -93,7 +94,7 @@ jobs:
           AI_ISSUE: ${{ github.event.issue.number || inputs.issue }}
 
   complete:
-    name: 리뷰 결과로 완료 워크플로 시작
+    name: CI 확인 · 머지 · 이슈 종료
     needs: develop
     if: needs.develop.outputs.ready == 'true'
     uses: ./.github/workflows/ai-completion.yml
