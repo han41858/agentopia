@@ -1,14 +1,9 @@
 """Publish PR-visible history from the current trusted issue checkpoint."""
-import importlib.util
 import os
-from pathlib import Path
 import re
-
-spec = importlib.util.spec_from_file_location("completion", Path(__file__).with_name("ai-completion.py"))
-completion = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(completion)
-repo = completion.repo
-ROOT = f"https://github.com/{completion.REPO}"
+import issue_journal as journal
+from issue_journal import repo
+ROOT = f"https://github.com/{journal.REPO}"
 BOT = "github-actions[bot]"
 
 
@@ -35,7 +30,7 @@ def pr_body(body, number, issue):
 
 
 def sync(issue, *, closure=False):
-    comment, state = completion.checkpoint(issue)
+    comment, state = journal.checkpoint(issue)
     if not state or state.get("issue") != issue:
         return
     if closure:
@@ -53,8 +48,8 @@ def sync(issue, *, closure=False):
                 status = "superseded"
                 reason = f"요구사항 변경으로 종료 · 후속 #{successor}"
                 key = f"superseded:{successor}"
-        completion.record_event(issue, state, state.get("pullNumber"), key, reason, status=status)
-        comment, state = completion.checkpoint(issue)
+        journal.record_event(issue, state, state.get("pullNumber"), key, reason, status=status)
+        comment, state = journal.checkpoint(issue)
     number = state.get("pullNumber")
     if not number:
         return

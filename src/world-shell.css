@@ -1,0 +1,232 @@
+:root {
+  font-family: 'Noto Sans KR', system-ui, sans-serif;
+  color: #eee9f7;
+  background: #152b22;
+  font-synthesis: none;
+  color-scheme: dark;
+  --gold: #eec781;
+  --muted: #afa6c0;
+  --panel: #1b162c;
+  --rim: #382c4c;
+  --display: Cinzel, Georgia, serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+html {
+  scroll-behavior: smooth;
+}
+body {
+  margin: 0;
+  min-width: 320px;
+}
+a {
+  color: inherit;
+  text-decoration: none;
+}
+button,
+input {
+  font: inherit;
+}
+button {
+  cursor: pointer;
+  color: inherit;
+}
+button:disabled {
+  cursor: wait;
+  opacity: 0.64;
+}
+:focus-visible {
+  outline: 2px solid #f0d18f;
+  outline-offset: 4px;
+}
+h1,
+h2,
+h3,
+h4,
+p {
+  margin: 0;
+}
+svg {
+  flex-shrink: 0;
+}
+.world {
+  --legend-edge: clamp(12px, 3vw, 32px);
+  min-height: 100dvh;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto 1fr;
+  /* Let the last kingdom scroll clear of the fixed legend. */
+  padding-bottom: calc(116px + var(--legend-edge));
+  background-color: #152b22;
+  background-image:
+    linear-gradient(#a9c79813 1px, transparent 1px),
+    linear-gradient(90deg, #a9c79813 1px, transparent 1px),
+    radial-gradient(ellipse at 51% 37%, #324f39, transparent 76%);
+  background-size:
+    36px 36px,
+    36px 36px,
+    100% 100%;
+}
+
+.world-footer {
+  position: fixed;
+  z-index: 1;
+  right: var(--legend-edge);
+  bottom: var(--legend-edge);
+  padding: 8px;
+  border: 1px solid var(--rim);
+  border-radius: 7px;
+  background: var(--panel);
+  pointer-events: none;
+}
+.world-header {
+  --header-button-size: 38px;
+  --header-usage-space: 16px;
+  --crest-size: 42px;
+  --header-top: clamp(8px, 1vw, 12px);
+  --header-row-size: max(var(--crest-size), var(--header-button-size));
+  /* Reserve only the initial clearance; the two fixed groups have no shared hit area. */
+  margin-block-start: var(--header-top);
+  min-height: var(--header-row-size);
+}
+.world-heading,
+.header-tools {
+  position: fixed;
+  top: calc(var(--header-top) + var(--header-row-size) / 2);
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+}
+.header-tools {
+  right: var(--legend-edge);
+  z-index: 11;
+}
+.header-tools,
+.world-controls {
+  flex: none;
+  gap: 6px;
+}
+.world-controls {
+  position: relative;
+  display: grid;
+  grid-template-areas: 'mode add token refresh';
+  align-items: center;
+}
+.world-controls > .mode-switch {
+  grid-area: mode;
+}
+.world-controls > .add-repository-button {
+  grid-area: add;
+}
+.world-controls > .ticket-button {
+  grid-area: token;
+}
+.world-controls > .refresh-button,
+.refresh-usage {
+  grid-area: refresh;
+}
+.refresh-usage {
+  /* Attach usage to the refresh cell without changing the row height or tab order. */
+  position: absolute;
+  top: 100%;
+  right: 0;
+  left: 0;
+}
+.world-heading {
+  left: var(--legend-edge);
+  z-index: 10;
+  gap: 10px;
+  height: var(--crest-size);
+}
+.crest {
+  flex: none;
+  width: var(--crest-size);
+  height: var(--crest-size);
+  display: grid;
+  place-items: center;
+  color: var(--gold);
+  border: 1px solid #b5945966;
+  border-radius: 9px;
+  background: #20262f;
+}
+.brand {
+  flex: none;
+  color: #f6dc9f;
+  font: 800 20px/1.2 var(--display);
+  white-space: nowrap;
+}
+.connect {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 12px;
+  border: 1px solid #536372;
+  border-radius: 7px;
+  background: #15212f;
+  font-size: 13px;
+  min-width: 0;
+  text-align: left;
+}
+.connect:hover {
+  border-color: var(--gold);
+}
+.add-repository-button,
+.ticket-button,
+.refresh-button,
+.header-bookmark {
+  width: var(--header-button-size);
+  height: var(--header-button-size);
+  padding: 0;
+}
+.add-repository-button,
+.ticket-button {
+  justify-content: center;
+}
+.ticket-button[data-tone='checking'] {
+  color: #e6c488;
+}
+.ticket-button[data-tone='verified'] {
+  color: #a5e1bc;
+}
+.ticket-button[data-tone='warning'] {
+  color: #ffb6ad;
+}
+.ticket-button[data-filled='true'] svg path:first-child {
+  fill: currentColor;
+}
+.ticket-button[data-filled='true'] svg path:not(:first-child) {
+  stroke: #15212f;
+}
+.token-status {
+  --token-tone: #e6c488;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--token-tone);
+}
+.token-status[data-tone='verified'] {
+  --token-tone: #a5e1bc;
+}
+.token-status[data-tone='warning'] {
+  --token-tone: #ffb6ad;
+}
+.token-status::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: currentColor;
+}
+.token-result {
+  margin-top: 12px;
+  padding: 9px 11px;
+  border: 1px solid var(--rim);
+  border-radius: 7px;
+  font-size: 13px;
+}
+.token-result p {
+  margin-top: 4px;
+}

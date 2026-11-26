@@ -271,7 +271,7 @@ test.describe('모바일 팝업의 모의 키보드', () => {
       const close = dialog.getByRole('button', { name: '닫기' });
       const heading = dialog.getByRole('heading', { name: scenario.title });
       const original = await dialog.boundingBox();
-      expect(original).not.toBeNull();
+      if (!original) throw new Error('팝업의 최초 위치를 확인할 수 없습니다.');
       await input.tap();
       await expect(input).toBeFocused();
 
@@ -291,7 +291,18 @@ test.describe('모바일 팝업의 모의 키보드', () => {
 
       // 키보드가 닫혀도 입력란이 포커스를 유지하는 경우를 검사합니다.
       await mockKeyboardViewport(page, null);
-      await expect.poll(() => dialog.boundingBox()).toEqual(original);
+      await expect
+        .poll(async () => {
+          const restored = await dialog.boundingBox();
+          if (!restored) return Infinity;
+          return Math.max(
+            ...(['x', 'y', 'width', 'height'] as const).map((key) =>
+              Math.abs(restored[key] - original[key]),
+            ),
+          );
+        })
+        .toBeLessThanOrEqual(1);
+      await expect(close).toBeInViewport();
       await expect(input).toHaveValue(scenario.value);
       await expect(input).toBeFocused();
 

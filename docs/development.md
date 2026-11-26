@@ -33,7 +33,7 @@ npm run test:ui
 
 화면에 새 동작을 추가하면 해당 흐름의 테스트를 함께 추가합니다. 요청이 없어야 함을 확인할 때는 뒤이은 요청이 도착한 다음에 요청 기록을 비교합니다.
 
-PR과 `dev` 푸시에서는 [CI](../.github/workflows/ci.yml)의 **UI test** 작업이 [변경 경로](../.github/scripts/ui_test_scope.py)를 보고, 화면에 영향을 주는 파일(`src/`, `server/`, `api/`, `assets/`, `e2e/`, 빌드 설정)이 바뀐 경우에만 브라우저 테스트를 실행합니다. 그 밖의 변경에서는 테스트 단계를 건너뛰고 성공으로 끝납니다. **Test and build**와 같은 워크플로이므로 AI completion은 두 작업이 모두 통과한 뒤에 머지합니다.
+`dev` 또는 `main` 대상 PR과 `dev` 푸시에서는 [CI](../.github/workflows/ci.yml)의 **UI test** 작업이 [변경 경로](../.github/scripts/ui_test_scope.py)를 보고, 화면에 영향을 주는 파일(`src/`, `server/`, `api/`, `assets/`, `e2e/`, 빌드 설정)이 바뀐 경우에만 브라우저 테스트를 실행합니다. 그 밖의 변경에서는 테스트 단계를 건너뛰고 성공으로 끝납니다. **Test and build**와 같은 워크플로이므로 AI completion은 두 작업이 모두 통과한 뒤에 머지합니다.
 
 ## Vercel 배포
 
@@ -124,7 +124,7 @@ CI 수정으로 새 커밋이 게시되면 리뷰어는 그 커밋의 변경을 
 
 ### 부모 이슈 완료
 
-추적만 하는 부모에 관리자가 `ai:tracking-only` 라벨을 지정하면 모든 직접 자식이 completed로 종료된 뒤 부모를 닫습니다. 수동 종료와 AI 완료 경로 모두 같은 검사를 사용합니다. 통합 기준이 있는 부모는 검증 결과를 GitHub에 기록한 뒤 Parent issue completion을 dev에서 부모 번호와 evidence 링크로 실행합니다. 미확인·계획 취소·열린 자식 또는 ai:stop이 있으면 완료를 보류합니다.
+추적만 하는 부모에 관리자가 `ai:tracking-only` 라벨을 지정하면 모든 직접 자식이 completed로 종료된 뒤 부모를 닫습니다. 수동 종료와 AI 완료 경로 모두 같은 검사를 사용합니다. 통합 기준이 있는 부모는 검증 결과를 GitHub에 기록한 뒤 부모 이슈 검증 및 종료를 dev에서 부모 번호와 evidence 링크로 실행합니다. 미확인·계획 취소·열린 자식 또는 ai:stop이 있으면 완료를 보류합니다.
 
 GitHub 조회 최적화 통합 기준에는 `ai:verify-api-queries` 라벨을 사용합니다. 이 정책은 동일한 대형 고정 응답으로 변경 전후 첫 조회·자동 갱신·팝업·부분 실패를 포함한 수동 갱신을 실행하며, 성공한 실행 링크를 기록합니다.
 

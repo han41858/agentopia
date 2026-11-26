@@ -42,6 +42,7 @@ permissions: {}
 
 jobs:
   develop:
+    name: 개발 및 리뷰
     if: >-
       github.repository == 'han41858/agentopia' &&
       github.ref == 'refs/heads/dev' &&
@@ -93,7 +94,7 @@ jobs:
           AI_ISSUE: ${{ github.event.issue.number || inputs.issue }}
 
   complete:
-    name: 리뷰 결과로 완료 워크플로 시작
+    name: CI 확인 · 머지 · 이슈 종료
     needs: develop
     if: needs.develop.outputs.ready == 'true'
     uses: ./.github/workflows/ai-completion.yml
@@ -106,7 +107,8 @@ jobs:
       issues: write
       pull-requests: read
     with:
-      issue: ${{ github.event.issue.number || inputs.issue }}
+      # workflow_dispatch can supply a string even for a numeric input.
+      issue: ${{ fromJSON(format('{0}', github.event.issue.number || inputs.issue)) }}
       review_run: ${{ format('{0}', github.run_id) }}
 
   report-completion-failure:
@@ -120,12 +122,20 @@ jobs:
     permissions:
       contents: read
       issues: write
+      pull-requests: write
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           persist-credentials: false
       - name: 진행 댓글에 완료 단계 재개 안내
+        id: interruption
         run: python3 .github/scripts/ai-completion.py --report-interruption
+        env:
+          GH_TOKEN: ${{ github.token }}
+          AI_ISSUE: ${{ github.event.issue.number || inputs.issue }}
+      - name: PR 진행 댓글에 최종 상태 반영
+        if: steps.interruption.outputs.reported == 'true'
+        run: python3 .github/scripts/progress-sync.py
         env:
           GH_TOKEN: ${{ github.token }}
           AI_ISSUE: ${{ github.event.issue.number || inputs.issue }}

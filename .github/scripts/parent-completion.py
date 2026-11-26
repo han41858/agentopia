@@ -76,7 +76,7 @@ def reconcile(number, evidence):
                 ):
                     api(f"issues/{number}/comments", "-f",
                         f"body=모든 서브 이슈가 완료되었습니다. 부모 본문의 통합 완료 기준을 확인한 뒤 "
-                        f"Parent issue completion에서 부모 번호와 검증 결과 링크를 입력해 주세요.\n\n{pending}")
+                        f"부모 이슈 검증 및 종료에서 부모 번호와 검증 결과 링크를 입력해 주세요.\n\n{pending}")
                 return
             api(f"issues/{number}/comments", "-f", f"body=부모 통합 검증 완료 · {evidence}\n\n{marker}")
     if snapshot(number) == first:

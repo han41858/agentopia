@@ -22,13 +22,7 @@ import { placeBranchRoads } from './branch-road-map.tsx';
 import type { RoadPlacement } from './branch-road-map.tsx';
 import { reportForges } from './snapshot.ts';
 import type { Snapshot } from './snapshot.ts';
-import {
-  getTokenStatus,
-  legacyRepositoryListKey,
-  settingsVersion,
-  settingsKey,
-  readSettings,
-} from './settings.ts';
+import { getTokenStatus, readSettings } from './settings.ts';
 import type { MapEntry } from './map-markers.tsx';
 import { OutLink, Dialog } from './dialog.tsx';
 import {
@@ -45,9 +39,9 @@ import type { RoadTarget } from './kingdom-region.tsx';
 import { useRegionRefresh } from './use-region-refresh.ts';
 import type { RefreshJobs, RefreshUsage } from './use-region-refresh.ts';
 import { installTouchPress } from './touch-press.ts';
+import { useHeaderTools } from './use-header-tools.ts';
+import { useSettingsStorage } from './use-settings-storage.ts';
 import './styles.css';
-
-const narrowHeaderQuery = '(max-width: 640px)';
 
 function App() {
   const isSimple = useDisplayMode() === 'simple';
@@ -102,94 +96,37 @@ function App() {
   const refreshJobs = useRef<RefreshJobs>({ token, jobs: new Map() });
   const [showConnect, setShowConnect] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
-  const [toolsOpen, setToolsOpen] = useState(false);
-  const [narrowHeader, setNarrowHeader] = useState(
-    () => window.matchMedia(narrowHeaderQuery).matches,
-  );
-  const headerTools = useRef<HTMLDivElement>(null);
-  const bookmark = useRef<HTMLButtonElement>(null);
-
+  const { toolsOpen, setToolsOpen, narrowHeader, headerTools, bookmark } =
+    useHeaderTools();
+  const settingsTrigger = useRef<HTMLButtonElement>(null);
   useEffect(installTouchPress, []);
-
   useEffect(() => {
-    const media = window.matchMedia(narrowHeaderQuery);
+    if (showAdd || showConnect || !settingsTrigger.current) return;
 
-    function syncHeader(matches: boolean) {
-      setNarrowHeader(matches);
-      if (!matches) setToolsOpen(false);
+    const trigger = narrowHeader ? bookmark.current : settingsTrigger.current;
+    settingsTrigger.current = null;
+    // The settings dialog is unmounted on close, so restore focus explicitly.
+    // Do not take focus from another dialog opened in the same update.
+    if (!document.querySelector('dialog[open]')) {
+      trigger?.focus({ preventScroll: true });
     }
+  }, [bookmark, narrowHeader, showAdd, showConnect]);
 
-    function onChange(event: MediaQueryListEvent) {
-      syncHeader(event.matches);
-    }
-
-    media.addEventListener('change', onChange);
-    syncHeader(media.matches);
-    return () => media.removeEventListener('change', onChange);
-  }, []);
-
-  useEffect(() => {
-    if (!narrowHeader || !toolsOpen) return;
-
-    function dismissOutside(event: PointerEvent) {
-      if (
-        event.target instanceof Node &&
-        !headerTools.current?.contains(event.target)
-      ) {
-        setToolsOpen(false);
-      }
-    }
-
-    function dismissOnEscape(event: KeyboardEvent) {
-      if (
-        event.key !== 'Escape' ||
-        event.defaultPrevented ||
-        document.querySelector('dialog[open]')
-      )
-        return;
-      event.preventDefault();
-      setToolsOpen(false);
-      bookmark.current?.focus();
-    }
-
-    document.addEventListener('pointerdown', dismissOutside);
-    document.addEventListener('keydown', dismissOnEscape);
-    return () => {
-      document.removeEventListener('pointerdown', dismissOutside);
-      document.removeEventListener('keydown', dismissOnEscape);
-    };
-  }, [narrowHeader, toolsOpen]);
-
-  function openSettings(kind: 'repository' | 'token') {
+  function openSettings(
+    kind: 'repository' | 'token',
+    trigger: HTMLButtonElement,
+  ) {
+    settingsTrigger.current = trigger;
     if (toolsOpen) {
-      // Leave a visible trigger for the dialog to restore focus to.
-      bookmark.current?.focus();
+      bookmark.current?.focus({ preventScroll: true });
       setToolsOpen(false);
     }
     if (kind === 'repository') setShowAdd(true);
     else setShowConnect(true);
   }
 
-  useEffect(() => {
-    try {
-      localStorage.setItem(
-        settingsKey,
-        JSON.stringify({ version: settingsVersion, ...settings }),
-      );
-      localStorage.removeItem(legacyRepositoryListKey);
-    } catch {
-      // The current tab can still use the settings when storage is unavailable.
-    }
-  }, [settings]);
-
-  useEffect(() => {
-    function restoreSettings(event: StorageEvent) {
-      if (
-        event.storageArea !== localStorage ||
-        (event.key !== null && event.key !== settingsKey)
-      )
-        return;
-      const next = readSettings();
+  const restoreSettings = useCallback(
+    (next: ReturnType<typeof readSettings>) => {
       refreshJobs.current.jobs.clear();
       setSelectedHeritage(undefined);
       setSelectedRoad(undefined);
@@ -199,11 +136,10 @@ function App() {
       setSelectedQuest(undefined);
       setLoading(true);
       if (next.token !== token) setShowAdd(false);
-    }
-
-    window.addEventListener('storage', restoreSettings);
-    return () => window.removeEventListener('storage', restoreSettings);
-  }, [token]);
+    },
+    [token],
+  );
+  useSettingsStorage(settings, restoreSettings);
 
   useRegionRefresh({
     token,
@@ -412,7 +348,9 @@ function App() {
                 className="connect add-repository-button"
                 aria-label="저장소 추가"
                 title="저장소 추가"
-                onClick={() => openSettings('repository')}
+                onClick={(event) =>
+                  openSettings('repository', event.currentTarget)
+                }
               >
                 <Plus size={19} aria-hidden="true" />
               </button>
@@ -422,7 +360,7 @@ function App() {
                 data-tone={token ? tokenStatus.tone : undefined}
                 aria-label={token ? tokenStatus.label : 'GitHub 연결'}
                 title={token ? tokenStatus.label : 'GitHub 연결'}
-                onClick={() => openSettings('token')}
+                onClick={(event) => openSettings('token', event.currentTarget)}
               >
                 <Ticket size={19} aria-hidden="true" />
               </button>
