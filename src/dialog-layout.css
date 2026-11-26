@@ -37,12 +37,11 @@
 .dialog-heading .icon-button {
   flex: none;
 }
-.palace-dialog .dialog-heading {
-  gap: 4px;
-}
 .palace-dialog .dialog-heading h2 {
   flex: 1;
-  margin-right: 4px;
+}
+.palace-dialog .dialog-title-link {
+  display: block;
 }
 .icon-button.remove-region,
 .primary.remove-region {
@@ -136,8 +135,9 @@
   text-align: left;
   overflow-wrap: anywhere;
 }
-.detail-dialog .dialog-body h4 {
+.detail-dialog .dialog-body :is(h4, .detail-section-label) {
   margin: 0 0 var(--detail-heading-gap);
+  color: var(--gold);
   font-family: inherit;
   font-size: 13px;
   font-weight: 700;
@@ -153,7 +153,9 @@
   min-width: 0;
   text-align: left;
 }
-.detail-dialog .dialog-body :is(.quest-row-title strong, .workflow-run-row a) {
+.detail-dialog
+  .dialog-body
+  :is(.quest-row-title strong, .workflow-run-row a, .detail-primary) {
   color: var(--detail-text);
   font-family: inherit;
   font-size: 13px;
@@ -172,17 +174,49 @@
   :is(
     .quest-row-title small,
     .source small,
+    .detail-meta,
     .workflow-run-row > :not(a, .workflow-run-status)
   ) {
   color: var(--detail-muted);
 }
 .detail-dialog
   .dialog-body
-  :is(small, .badge, .workflow-run-status, .workflow-run-row > :not(a)) {
+  :is(
+    small,
+    .badge,
+    .detail-meta,
+    .workflow-run-status,
+    .workflow-run-row > :not(a)
+  ) {
   font-family: inherit;
   font-size: 11px;
   font-weight: 600;
   line-height: 16px;
+}
+.palace-dialog .release-history {
+  max-height: none;
+  overflow: visible;
+}
+.palace-dialog .release-row {
+  display: grid;
+  grid-template-columns: max-content max-content minmax(0, 1fr);
+}
+.palace-dialog .release-name {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.heritage-dialog .heritage-total {
+  display: block;
+  margin: 0 0 var(--detail-heading-gap);
+  padding: 0;
+  text-align: left;
+}
+.heritage-dialog .heritage-total dd {
+  margin: 0;
+}
+.heritage-dialog .facility-detail {
+  justify-content: flex-start;
+  margin-block-start: var(--detail-section-gap);
 }
 .reason {
   margin: 12px 0;

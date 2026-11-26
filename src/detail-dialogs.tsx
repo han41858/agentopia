@@ -454,7 +454,7 @@ export function RegionDetail({
       title={region.slug}
       titleHref={`https://github.com/${region.slug}`}
       showLinkIcon={false}
-      className="palace-dialog"
+      className="detail-dialog palace-dialog"
       close={close}
       headingActions={
         <button
@@ -478,9 +478,9 @@ export function RegionDetail({
         <p>배포 기록이 없습니다.</p>
       )}
       {history.length > 0 && (
-        <>
+        <section>
           <h4>
-            배포 기록 <small>(KST)</small>
+            배포 기록 <small className="detail-meta">(KST)</small>
           </h4>
           <div className="release-history">
             {history.slice(0, visibleCount).map((release) => {
@@ -498,6 +498,7 @@ export function RegionDetail({
                 >
                   {release.at && Number.isFinite(Date.parse(release.at)) ? (
                     <time
+                      className="detail-meta"
                       dateTime={release.at}
                       title={
                         status === '태그'
@@ -508,12 +509,16 @@ export function RegionDetail({
                       {releaseTime.format(new Date(release.at))}
                     </time>
                   ) : (
-                    <span aria-label="시각 미확인">—</span>
+                    <span className="detail-meta" aria-label="시각 미확인">
+                      —
+                    </span>
                   )}
                   <span className={`badge ${release.stage}`}>
                     {status === '태그' ? '태그 · 커밋' : status}
                   </span>
-                  <span className="release-name">{release.title}</span>
+                  <span className="release-name detail-primary">
+                    {release.title}
+                  </span>
                 </a>
               );
             })}
@@ -536,7 +541,7 @@ export function RegionDetail({
           {report?.tagsPartial && (
             <p>익명 조회는 GitHub가 반환한 첫 30개 태그 안에서 정렬합니다.</p>
           )}
-        </>
+        </section>
       )}
     </Dialog>
   );
@@ -558,26 +563,34 @@ export function HeritageDetail({
   const { region, metric, record } = selection;
   const { title, label, sprite } = heritageBuildings[metric];
   return (
-    <Dialog title={title} close={close}>
-      <div className="facility-detail">
-        <WorldArt
-          sprite={sprite}
-          size={heritageSize(heritageTier(metric, record?.count))}
-          className="facility-sprite"
-        />
-        <span>{region.name}</span>
-      </div>
-      <dl className="heritage-total">
-        <dt>{label}</dt>
-        <dd>{record ? record.count.toLocaleString('ko-KR') : '미확인'}</dd>
-      </dl>
-      {!record && <p>현재 조회 범위에서 전체 합계를 확인하지 못했습니다.</p>}
-      {record?.source === 'search' && (
-        <p>GitHub 검색 인덱스 기준이며 최근 변경 반영이 늦을 수 있습니다.</p>
-      )}
-      {metric === 'comments' && record && (
-        <p>이슈·PR 대화 댓글과 PR 코드 리뷰 댓글을 합산합니다.</p>
-      )}
+    <Dialog
+      className="detail-dialog heritage-dialog"
+      title={title}
+      close={close}
+    >
+      <h3>{region.name}</h3>
+      <section>
+        <dl className="heritage-total">
+          <dt className="detail-section-label">{label}</dt>
+          <dd className="detail-primary">
+            {record ? record.count.toLocaleString('ko-KR') : '미확인'}
+          </dd>
+        </dl>
+        {!record && <p>현재 조회 범위에서 전체 합계를 확인하지 못했습니다.</p>}
+        {record?.source === 'search' && (
+          <p>GitHub 검색 인덱스 기준이며 최근 변경 반영이 늦을 수 있습니다.</p>
+        )}
+        {metric === 'comments' && record && (
+          <p>이슈·PR 대화 댓글과 PR 코드 리뷰 댓글을 합산합니다.</p>
+        )}
+        <div className="facility-detail">
+          <WorldArt
+            sprite={sprite}
+            size={heritageSize(heritageTier(metric, record?.count))}
+            className="facility-sprite"
+          />
+        </div>
+      </section>
     </Dialog>
   );
 }
