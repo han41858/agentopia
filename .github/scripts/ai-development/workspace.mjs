@@ -193,7 +193,8 @@ function isInspectable(path) {
     path === 'e2e/github.ts' ||
     path === 'e2e/fixtures.ts' ||
     path === '.github/scripts/ai-development/run.mjs' ||
-    path === '.github/scripts/ai-completion.py'
+    path === '.github/scripts/ai-completion.py' ||
+    path === '.github/scripts/issue_journal.py'
   );
 }
 
