@@ -11,4 +11,10 @@
     <polygon points="16,32 19,15 29,15 32,32" fill="#f1ece2" />
     <polygon points="19,15 24,4 29,15" fill="#f2b84b" />
   </g>
+  <polygon points="24,5.800 28,14.300 24,14.300" fill="#c98a26" opacity=".6" />
+  <polygon points="24,15.800 28.400,15.800 31.100,31.300 24,31.300" fill="#8f8572" opacity=".35" />
+  <rect x="12.800" y="32.700" width="22.400" height="1.800" fill="#8f8572" opacity=".5" />
+  <rect x="7.800" y="38.700" width="32.400" height="1.600" fill="#8f8572" opacity=".5" />
+  <polygon points="24,19.500 26.200,23 24,26.500 21.800,23" fill="#f2b84b" />
+  <polygon points="24,19.500 26.200,23 24,26.500" fill="#c98a26" />
 </svg>
