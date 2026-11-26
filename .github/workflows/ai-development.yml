@@ -107,7 +107,8 @@ jobs:
       issues: write
       pull-requests: read
     with:
-      issue: ${{ github.event.issue.number || inputs.issue }}
+      # workflow_dispatch can supply a string even for a numeric input.
+      issue: ${{ fromJSON(format('{0}', github.event.issue.number || inputs.issue)) }}
       review_run: ${{ format('{0}', github.run_id) }}
 
   report-completion-failure:
