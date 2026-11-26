@@ -73,14 +73,6 @@
 .dialog h3 {
   margin-bottom: 9px;
 }
-.issue-dialog .dialog-body {
-  scrollbar-gutter: stable both-edges;
-}
-.issue-dialog .issue-title {
-  text-align: left;
-  overflow-wrap: anywhere;
-  line-height: 1.4;
-}
 .dialog h4 {
   margin: 20px 0 9px;
   color: var(--gold);
@@ -90,6 +82,89 @@
   font-size: 13px;
   line-height: 1.6;
   overflow-wrap: anywhere;
+}
+.detail-dialog {
+  --detail-inset: clamp(14px, 4vw, 22px);
+  --detail-section-gap: 16px;
+  --detail-heading-gap: 8px;
+  --detail-text: #e6daf1;
+  --detail-muted: #bbafcb;
+}
+.detail-dialog .dialog-heading,
+.detail-dialog .dialog-body {
+  padding-inline: var(--detail-inset);
+}
+.detail-dialog .dialog-body {
+  /* Only reserve space at the end; the header and body share the start edge. */
+  scrollbar-gutter: stable;
+  font-size: 13px;
+  line-height: 1.6;
+}
+.detail-dialog .dialog-heading h2 {
+  margin: 0;
+  font-family: inherit;
+  font-weight: 700;
+  line-height: 1.25;
+  color: var(--gold);
+  text-align: left;
+}
+.detail-dialog .dialog-body > h3 {
+  margin: 0 0 var(--detail-heading-gap);
+  color: var(--detail-text);
+  font-family: inherit;
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1.4;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+.detail-dialog .dialog-body h4 {
+  margin: 0 0 var(--detail-heading-gap);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.4;
+}
+.detail-dialog .dialog-body > :not([hidden]) ~ section {
+  margin-block-start: var(--detail-section-gap);
+}
+.detail-dialog .dialog-body .quest-tree {
+  padding-inline-start: 0;
+}
+.detail-dialog .dialog-body .quest-row-title {
+  min-width: 0;
+  text-align: left;
+}
+.detail-dialog .dialog-body :is(.quest-row-title strong, .workflow-run-row a) {
+  color: var(--detail-text);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.6;
+}
+.detail-dialog .dialog-body .workflow-run-row a:hover {
+  color: var(--gold);
+}
+.detail-dialog .dialog-body .quest-row-title strong {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.detail-dialog
+  .dialog-body
+  :is(
+    .quest-row-title small,
+    .source small,
+    .workflow-run-row > :not(a, .workflow-run-status)
+  ) {
+  color: var(--detail-muted);
+}
+.detail-dialog
+  .dialog-body
+  :is(small, .badge, .workflow-run-status, .workflow-run-row > :not(a)) {
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 16px;
 }
 .reason {
   margin: 12px 0;
