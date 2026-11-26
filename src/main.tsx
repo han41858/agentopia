@@ -22,13 +22,7 @@ import { placeBranchRoads } from './branch-road-map.tsx';
 import type { RoadPlacement } from './branch-road-map.tsx';
 import { reportForges } from './snapshot.ts';
 import type { Snapshot } from './snapshot.ts';
-import {
-  getTokenStatus,
-  legacyRepositoryListKey,
-  settingsVersion,
-  settingsKey,
-  readSettings,
-} from './settings.ts';
+import { getTokenStatus, readSettings } from './settings.ts';
 import type { MapEntry } from './map-markers.tsx';
 import { OutLink, Dialog } from './dialog.tsx';
 import {
@@ -45,9 +39,9 @@ import type { RoadTarget } from './kingdom-region.tsx';
 import { useRegionRefresh } from './use-region-refresh.ts';
 import type { RefreshJobs, RefreshUsage } from './use-region-refresh.ts';
 import { installTouchPress } from './touch-press.ts';
+import { useHeaderTools } from './use-header-tools.ts';
+import { useSettingsStorage } from './use-settings-storage.ts';
 import './styles.css';
-
-const narrowHeaderQuery = '(max-width: 640px)';
 
 function App() {
   const isSimple = useDisplayMode() === 'simple';
@@ -102,64 +96,9 @@ function App() {
   const refreshJobs = useRef<RefreshJobs>({ token, jobs: new Map() });
   const [showConnect, setShowConnect] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
-  const [toolsOpen, setToolsOpen] = useState(false);
-  const [narrowHeader, setNarrowHeader] = useState(
-    () => window.matchMedia(narrowHeaderQuery).matches,
-  );
-  const headerTools = useRef<HTMLDivElement>(null);
-  const bookmark = useRef<HTMLButtonElement>(null);
-
+  const { toolsOpen, setToolsOpen, narrowHeader, headerTools, bookmark } =
+    useHeaderTools();
   useEffect(installTouchPress, []);
-
-  useEffect(() => {
-    const media = window.matchMedia(narrowHeaderQuery);
-
-    function syncHeader(matches: boolean) {
-      setNarrowHeader(matches);
-      if (!matches) setToolsOpen(false);
-    }
-
-    function onChange(event: MediaQueryListEvent) {
-      syncHeader(event.matches);
-    }
-
-    media.addEventListener('change', onChange);
-    syncHeader(media.matches);
-    return () => media.removeEventListener('change', onChange);
-  }, []);
-
-  useEffect(() => {
-    if (!narrowHeader || !toolsOpen) return;
-
-    function dismissOutside(event: PointerEvent) {
-      if (
-        event.target instanceof Node &&
-        !headerTools.current?.contains(event.target)
-      ) {
-        setToolsOpen(false);
-      }
-    }
-
-    function dismissOnEscape(event: KeyboardEvent) {
-      if (
-        event.key !== 'Escape' ||
-        event.defaultPrevented ||
-        document.querySelector('dialog[open]')
-      )
-        return;
-      event.preventDefault();
-      setToolsOpen(false);
-      bookmark.current?.focus();
-    }
-
-    document.addEventListener('pointerdown', dismissOutside);
-    document.addEventListener('keydown', dismissOnEscape);
-    return () => {
-      document.removeEventListener('pointerdown', dismissOutside);
-      document.removeEventListener('keydown', dismissOnEscape);
-    };
-  }, [narrowHeader, toolsOpen]);
-
   function openSettings(kind: 'repository' | 'token') {
     if (toolsOpen) {
       // Leave a visible trigger for the dialog to restore focus to.
@@ -170,26 +109,8 @@ function App() {
     else setShowConnect(true);
   }
 
-  useEffect(() => {
-    try {
-      localStorage.setItem(
-        settingsKey,
-        JSON.stringify({ version: settingsVersion, ...settings }),
-      );
-      localStorage.removeItem(legacyRepositoryListKey);
-    } catch {
-      // The current tab can still use the settings when storage is unavailable.
-    }
-  }, [settings]);
-
-  useEffect(() => {
-    function restoreSettings(event: StorageEvent) {
-      if (
-        event.storageArea !== localStorage ||
-        (event.key !== null && event.key !== settingsKey)
-      )
-        return;
-      const next = readSettings();
+  const restoreSettings = useCallback(
+    (next: ReturnType<typeof readSettings>) => {
       refreshJobs.current.jobs.clear();
       setSelectedHeritage(undefined);
       setSelectedRoad(undefined);
@@ -199,11 +120,10 @@ function App() {
       setSelectedQuest(undefined);
       setLoading(true);
       if (next.token !== token) setShowAdd(false);
-    }
-
-    window.addEventListener('storage', restoreSettings);
-    return () => window.removeEventListener('storage', restoreSettings);
-  }, [token]);
+    },
+    [token],
+  );
+  useSettingsStorage(settings, restoreSettings);
 
   useRegionRefresh({
     token,

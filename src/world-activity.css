@@ -1,0 +1,814 @@
+.activity-aura {
+  display: grid;
+  grid-template-columns: minmax(0, auto) auto minmax(0, auto);
+  align-items: center;
+  justify-items: center;
+  gap: 2px;
+}
+.aura-core {
+  grid-area: 1 / 2;
+  display: grid;
+  place-items: center;
+}
+.aura-runes {
+  grid-row: 1;
+  display: grid;
+  gap: 1px;
+}
+.aura-runes {
+  grid-column: 3;
+  color: #ead0ff;
+}
+.aura-opinion {
+  grid-column: 1 / -1;
+  display: grid;
+  place-items: center;
+  padding: 1px 3px;
+  border: 1px solid currentColor;
+}
+.aura-opinion.approved {
+  border-radius: 50%;
+  color: #b8f8b0;
+}
+.aura-opinion.changes {
+  border-radius: 2px;
+  color: #ffb3a6;
+}
+.monster-glyph.defeated > img {
+  transform: rotate(64deg) scale(0.85);
+}
+.monster-remains {
+  position: absolute;
+  bottom: 0;
+  right: 0;
+}
+.monster-revival {
+  position: absolute;
+  inset: 1px;
+  border: 1px dashed currentColor;
+  border-radius: 40%;
+  animation: revive-monster 900ms ease-out;
+}
+@keyframes revive-monster {
+  from {
+    transform: scale(0.65);
+    opacity: 0.35;
+  }
+}
+.kingdom-region {
+  position: relative;
+  isolation: isolate;
+  --land: oklch(66% 0.09 var(--kingdom-hue));
+  --accent: oklch(86% 0.11 var(--kingdom-hue));
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  justify-items: center;
+  align-content: start;
+  min-width: min(100%, 285px);
+  max-width: min(100%, 720px);
+}
+.kingdom-fields {
+  width: 100%;
+  position: relative;
+  max-width: 100%;
+  padding-inline: 4px;
+  background: radial-gradient(
+    ellipse at top,
+    color-mix(in srgb, var(--land) 12%, transparent),
+    transparent 70%
+  );
+}
+.kingdom-fields > .expeditions,
+.kingdom-workshops {
+  justify-content: center;
+}
+.kingdom-fields > .expeditions {
+  margin-top: 0;
+  row-gap: 2px;
+}
+.facility-marker .activity-aura {
+  position: relative;
+  display: block;
+}
+.facility-marker .aura-runes {
+  position: absolute;
+  top: 50%;
+  right: 0;
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+.facility-core {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 50px;
+  height: 50px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+}
+.facility-core[data-draft='true'] {
+  border-style: dashed;
+  border-color: color-mix(in srgb, currentColor, #142430 55%);
+}
+.facility-tool,
+.facility-result {
+  position: absolute;
+  top: -4px;
+  right: -3px;
+  border-radius: 2px;
+  color: #ffdc8d;
+  background: #242329;
+}
+.facility-tool,
+.facility-marker .adventurer-role {
+  background: transparent;
+  filter: drop-shadow(0 1px 1px #10171c);
+}
+.resting-party-leader {
+  opacity: 0.7;
+  filter: saturate(0.6);
+}
+.working-party-leader {
+  animation: forge-test 1.6s ease-in-out infinite;
+}
+.facility-recovery,
+.monster-recovery {
+  position: absolute;
+  color: #ffe197;
+  background: #46371e;
+  border-radius: 3px;
+  pointer-events: none;
+}
+.facility-recovery {
+  right: -3px;
+  top: -4px;
+}
+.monster-marker-art {
+  position: relative;
+  display: grid;
+  margin-inline: 16px;
+}
+.monster-marker-art > .monster-recovery {
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline-start: 100%;
+}
+.adventurer {
+  position: relative;
+}
+.adventurer > :is(.monster-recovery, .facility-recovery) {
+  top: 0;
+  right: 0;
+  width: 14px;
+  height: 14px;
+}
+:is(.monster-recovery, .facility-recovery)[data-status='stopped'] {
+  color: #f4dbff;
+  background: #553563;
+}
+:is(.monster-recovery, .facility-recovery)[data-status='failed'] {
+  color: #ffaea9;
+  background: #722c2c;
+  fill: currentColor;
+  padding: 2px;
+}
+.facility-core > .aura-opinion {
+  position: absolute;
+  top: -5px;
+  left: -5px;
+  padding: 1px;
+  background: #242329;
+}
+.facility-marker[data-stage='developing'] .facility-tool,
+.facility-marker[data-stage='revising'] .facility-tool {
+  transform-origin: bottom right;
+  animation: forge-hammer 1.5s ease-in-out infinite;
+}
+.facility-marker[data-stage='reviewing'] .facility-tool {
+  animation: read-scroll 1.8s ease-in-out infinite;
+}
+.facility-marker.blocked .facility-result {
+  color: #ffb3a6;
+}
+@keyframes forge-hammer {
+  45% {
+    transform: rotate(35deg) translateY(2px);
+  }
+  60% {
+    transform: rotate(-13deg);
+  }
+}
+@keyframes forge-test {
+  45% {
+    transform: translateY(-2px);
+  }
+}
+
+.facility-issues {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  list-style: none;
+  padding: 0;
+}
+
+.adventurer-glyph.crafting.develop .adventurer-avatar {
+  animation: forge-test 1.7s ease-in-out infinite;
+}
+.adventurer-glyph.crafting.develop .adventurer-role {
+  animation: forge-hammer 1.7s ease-in-out infinite;
+}
+
+.facility-sprite {
+  display: block;
+  flex: none;
+  filter: drop-shadow(0 1px #10171c);
+}
+.facility-detail {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+.facility-history {
+  margin-block: 10px;
+}
+.facility-history .quest-tree {
+  max-block-size: min(18rem, 40dvh);
+  overflow-y: auto;
+}
+
+.map-viewport .expedition {
+  min-width: var(--map-hit-size);
+  min-height: var(--map-hit-size);
+  padding-block: 2px;
+  row-gap: 1px;
+}
+.kingdom-area:has(.kingdom-workshops) {
+  padding-bottom: 12px;
+}
+.kingdom-region:has(.heritage-slot),
+.kingdom-area:has(.heritage-slot) {
+  min-width: min(100%, 261px);
+}
+.kingdom-area:has(.heritage-slot) {
+  /* Flatten the arch so the outer monuments still clear the wall. */
+  --kingdom-arch-depth: 56;
+  padding-top: 38px;
+  padding-inline: 28px;
+}
+.heritage-arc {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  width: max-content;
+  column-gap: 4px;
+  margin: 0 auto;
+}
+.heritage-arc:empty {
+  /* Keep a target for the lazy-load observer without reserving a row. */
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline-start: 50%;
+  width: 1px;
+  min-height: 1px;
+  margin: 0;
+}
+.heritage-arc:not(:empty) + .kingdom {
+  /* Move the art up without shrinking the palace button. */
+  padding-block: 0 6px;
+}
+.heritage-slot {
+  display: grid;
+  place-items: end center;
+  position: relative;
+  align-self: start;
+  min-height: var(--map-hit-size);
+  width: 100%;
+  min-width: var(--map-hit-size);
+  margin-top: var(--arc-drop);
+  padding: 0 0 2px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: #e4dbad;
+}
+.heritage-slot:focus-visible {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+.heritage-building {
+  display: flex;
+  align-items: center;
+  flex-direction: column;
+  max-width: 100%;
+}
+.heritage-building .facility-sprite {
+  transition:
+    width 250ms ease,
+    height 250ms ease;
+}
+.heritage-total dd {
+  margin: 4px 0 0;
+  font-size: 1.45rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.world-header:has(.github-usage) {
+  /* Reserve the absolute usage line below the controls without moving the row. */
+  margin-block-end: var(--header-usage-space);
+}
+.github-usage {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  z-index: 3;
+}
+.github-usage-value {
+  display: block;
+  padding: 3px 0 0;
+  border: 0;
+  color: #adc2b9;
+  background: transparent;
+  font: 10px/1.3 var(--mono, monospace);
+  white-space: nowrap;
+}
+.github-usage-tooltip {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  width: min(232px, calc(100vw - 32px));
+  padding: 8px 10px;
+  border: 1px solid #4a6359;
+  border-radius: 5px;
+  color: #e1ebe5;
+  background: #1c3028;
+  box-shadow: 0 6px 16px #10231b99;
+  font-size: 11px;
+}
+.github-usage-tooltip dl {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 12px;
+  margin: 0 0 5px;
+}
+.github-usage-tooltip dd {
+  margin: 0;
+  text-align: right;
+}
+
+.branch-roads {
+  display: grid;
+  justify-items: center;
+  row-gap: var(--branch-plaza-gap, 6px);
+  margin: 3px auto var(--branch-facility-gap, 14px);
+}
+.branch-roads:empty {
+  margin: 0;
+}
+.branch-roads:has(.branch-bridge) {
+  /* Use the transparent space above the bridge; keep it joined to the plaza. */
+  margin-block: -12px var(--branch-facility-gap, 11px);
+}
+.branch-roads:has(.branch-plaza):has(.branch-road-row:only-child) {
+  /* Keep the regular spacing when another tier or a branch list is present. */
+  --branch-plaza-gap: 2px;
+  --branch-facility-gap: 3px;
+}
+.branch-plaza,
+.branch-road-tiers {
+  display: grid;
+  justify-items: center;
+  row-gap: 5px;
+  width: 100%;
+}
+.branch-plaza {
+  row-gap: 0;
+}
+.branch-plaza img {
+  display: block;
+  height: auto;
+}
+.branch-bridge + .branch-road-node {
+  /* Bring the painted edges together across both SVGs' transparent margins. */
+  margin-block-start: -14px;
+}
+.branch-road-row {
+  display: grid;
+  width: 100%;
+  justify-items: center;
+}
+.branch-bridge {
+  max-width: 100%;
+}
+.branch-road-node[data-road-role='plaza'] {
+  width: auto;
+  height: auto;
+  border: none;
+  background: transparent;
+}
+.branch-road-node[data-road-role='road'] {
+  background: transparent;
+  border: none;
+}
+.branch-junction {
+  width: 7px;
+  height: 7px;
+  border: 1px solid #ddc78d;
+  border-radius: 50%;
+  background: #51684d;
+}
+.branch-road-node {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 25px;
+  padding: 0;
+  border: 1px solid #d0b98766;
+  border-radius: 4px;
+  background: #24392e;
+  color: #e5d6ab;
+}
+.branch-road-node[data-active='true'] {
+  border-color: #fae9a7;
+  color: #fff2c2;
+}
+.kingdom,
+.branch-road-node[data-road-role='plaza'] {
+  background: transparent;
+  outline: none;
+}
+.kingdom:focus-visible .kingdom-crest,
+.branch-road-node[data-road-role='plaza']:focus-visible img {
+  filter: drop-shadow(0 0 3px #fae9a7);
+}
+.map-viewport button {
+  --map-highlight-fill: color-mix(in srgb, var(--accent) 14%, transparent);
+  --map-highlight-outline: 2px solid #fae9a7;
+  --tap-press-fill: var(--map-highlight-fill);
+}
+.map-viewport .expedition[data-highlight] {
+  background-color: var(--map-highlight-fill);
+  outline: var(--map-highlight-outline);
+  outline-offset: 1px;
+}
+.map-viewport .expedition[data-highlight='related'] {
+  outline-style: dashed;
+}
+@media (hover: hover) {
+  .map-viewport button:hover {
+    background: var(--map-highlight-fill);
+    outline: var(--map-highlight-outline);
+    outline-offset: 1px;
+  }
+}
+.branch-road-lines {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+.branch-road-lines path {
+  fill: none;
+  stroke: #cbb581be;
+  stroke-width: 2.75px;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.branch-road-lines path[data-merged='true'] {
+  stroke-dasharray: 3 3;
+}
+.branch-road-lines path[data-active='true'] {
+  stroke: #ffdfa0;
+  stroke-width: 3.5px;
+}
+.branch-road-lines path[data-dimmed='true'] {
+  opacity: 0.55;
+}
+.branch-road-details {
+  display: grid;
+  gap: 10px;
+  padding: 0;
+  list-style: none;
+}
+.branch-road-details strong,
+.branch-road-details small {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.github-usage-tooltip small {
+  display: block;
+}
+
+:is(.issue-dialog, .pull-dialog) .dialog-heading {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 6px;
+}
+:is(.issue-dialog, .pull-dialog) .activity-counters {
+  justify-content: flex-start;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  padding: 2px;
+}
+:is(.issue-dialog, .pull-dialog) .dialog-title-link {
+  white-space: nowrap;
+}
+.pull-dialog.draft .dialog-title-link {
+  text-decoration: underline dotted;
+  text-underline-offset: 4px;
+}
+.pull-dialog .dialog-title-link [role='img'] {
+  display: inline-flex;
+}
+.issue-dialog .dialog-heading .activity-counters,
+.issue-dialog .dialog-heading .activity-counter {
+  color: inherit;
+}
+.issue-dialog .dialog-heading .activity-counter {
+  background: transparent;
+}
+.issue-dialog .dialog-heading .activity-counter svg {
+  stroke: currentColor;
+}
+.pull-dialog .dialog-title-link img {
+  width: 28px;
+  height: 28px;
+}
+:is(.issue-dialog, .pull-dialog) .activity-counter {
+  flex: none;
+  gap: 2px;
+  padding: 3px;
+}
+:is(.issue-dialog, .pull-dialog) .activity-counter[aria-expanded='true'] {
+  outline: 1px solid currentColor;
+}
+@media (max-width: 420px) {
+  :is(.issue-dialog, .pull-dialog) {
+    width: calc(100% - 12px);
+    max-width: calc(100% - 12px);
+  }
+  :is(.issue-dialog, .pull-dialog) .dialog-heading {
+    gap: 3px;
+    padding-inline: 4px;
+  }
+  :is(.issue-dialog, .pull-dialog) .activity-counters {
+    gap: 0;
+  }
+  :is(.issue-dialog, .pull-dialog) .dialog-title-link {
+    gap: 3px;
+    font-size: 18px;
+  }
+}
+
+@media (pointer: coarse) {
+  :is(.issue-dialog, .pull-dialog) .activity-counter {
+    min-width: 44px;
+    min-height: 44px;
+    justify-content: center;
+  }
+}
+
+.mode-switch {
+  display: inline-flex;
+  height: var(--header-button-size);
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid #536372;
+  border-radius: 7px;
+  background: #15212f;
+}
+.mode-switch-option {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: #b2bec6;
+}
+.mode-switch-option[data-active='true'] {
+  background: #354653;
+  border-color: #8ea6b5;
+  color: white;
+}
+[data-display-mode='world'] .world-footer {
+  background-color: rgb(255 255 255 / 20%);
+}
+[data-display-mode='world'] .world-footer .expedition-legend > li {
+  color: #f2f2f2;
+}
+[data-display-mode='world'] .world-footer .expedition-legend img {
+  opacity: 1;
+}
+[data-display-mode='simple'] .world {
+  background: #18232c;
+}
+[data-display-mode='simple'] .world-footer .expedition-legend > li {
+  color: #eee9f7;
+}
+[data-display-mode='simple'] .world-footer .expedition-legend img {
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  opacity: 1;
+}
+[data-display-mode='simple'] .map-viewport *,
+[data-display-mode='simple'] .expedition-legend * {
+  animation: none !important;
+  transition: none !important;
+}
+[data-display-mode='simple'] .kingdom-wall-crenels,
+[data-display-mode='simple'] .kingdom-wall-edge,
+[data-display-mode='simple'] .party-pulse,
+[data-display-mode='simple'] .aura-runes {
+  visibility: hidden;
+}
+[data-display-mode='simple'] .kingdom-wall-masonry {
+  fill: color-mix(in srgb, var(--land) 8%, #202c35);
+  stroke: var(--stone);
+  stroke-width: 1.5px;
+}
+[data-display-mode='simple'] .branch-road-lines path {
+  stroke: #91a9b9;
+  stroke-width: 1.5px;
+}
+[data-display-mode='simple'] .branch-road-lines path[data-active='true'] {
+  stroke: #d3eaf6;
+  stroke-width: 2.5px;
+}
+[data-display-mode='simple'] .expedition[data-working='true'],
+[data-display-mode='simple'] .adventurer-glyph.active,
+[data-display-mode='simple'] .working-party-leader {
+  box-shadow: inset 0 0 0 2px #a9d7d6;
+  border-radius: 5px;
+}
+[data-display-mode='simple'] .adventurer-glyph.active,
+[data-display-mode='simple'] .working-party-leader {
+  border-radius: 50%;
+}
+[data-display-mode='simple'] .facility-sprite {
+  filter: none;
+}
+@media (max-width: 420px), (pointer: coarse) {
+  .world-header {
+    --header-button-size: 44px;
+    gap: 8px;
+  }
+  .mode-switch-option {
+    width: var(--header-button-size);
+  }
+}
+
+@media (max-width: 640px) {
+  .world-header {
+    --header-button-size: 44px;
+    position: relative;
+    z-index: 10;
+    min-height: var(--header-button-size);
+    /* Keep the map in place when the bookmark reveals the usage line. */
+    margin-block-end: var(--header-usage-space);
+  }
+  .header-tools {
+    --header-tool-gap: 4px;
+    --header-tool-duration: 160ms;
+    position: absolute;
+    top: 50%;
+    right: calc(-1 * clamp(12px, 3vw, 32px));
+    transform: translateY(-50%);
+    pointer-events: none;
+  }
+  .header-tools,
+  .world-controls {
+    gap: var(--header-tool-gap);
+  }
+  .world-controls {
+    --tools-reveal-edge: 100%;
+    grid-template-areas: 'refresh mode add token';
+    isolation: isolate;
+    visibility: hidden;
+    /* Reveal the button row behind the bookmark without clipping usage below it. */
+    clip-path: polygon(
+      var(--tools-reveal-edge) 0,
+      100% 0,
+      100% calc(100% + 100vh),
+      -100vw calc(100% + 100vh),
+      -100vw 100%,
+      var(--tools-reveal-edge) 100%
+    );
+  }
+  .world-controls::before {
+    content: '';
+    position: absolute;
+    z-index: -1;
+    inset: 0 0 0 calc(-1 * var(--header-tool-gap));
+    background: #15212f;
+    pointer-events: none;
+  }
+  .refresh-usage .github-usage-tooltip {
+    /* Let the tooltip extend under the three tools to the right of refresh. */
+    right: calc(-3 * (var(--header-button-size) + var(--header-tool-gap)));
+  }
+  .header-bookmark {
+    position: relative;
+    z-index: 1;
+    left: calc(100% - var(--header-button-size));
+    visibility: visible;
+    pointer-events: auto;
+  }
+  .header-bookmark-face {
+    /* Keep the face at 75% in both states without shrinking the hit area. */
+    position: absolute;
+    inset: 0 0 0 25%;
+    pointer-events: none;
+  }
+  .header-bookmark-face > svg,
+  .world-controls > button:not(.mode-switch) > svg {
+    width: 20px;
+    height: 20px;
+  }
+  .header-bookmark:focus-visible {
+    outline: none;
+  }
+  .header-bookmark:focus-visible .header-bookmark-face {
+    outline: 2px solid #f0d18f;
+    outline-offset: -4px;
+  }
+  .world-controls > button:focus-visible {
+    outline-offset: -4px;
+  }
+  .header-tools[data-open='true'] .world-controls {
+    --tools-reveal-edge: calc(-1 * var(--header-tool-gap));
+    visibility: visible;
+    pointer-events: auto;
+  }
+  .header-tools[data-open='true'] .header-bookmark {
+    left: 0;
+  }
+  .header-tools[data-open='true'] .header-bookmark .refresh-fill {
+    visibility: hidden;
+  }
+}
+
+@media (max-width: 640px) and (prefers-reduced-motion: no-preference) {
+  .header-bookmark {
+    transition: left var(--header-tool-duration) ease-out;
+  }
+  .world-controls {
+    transition:
+      clip-path var(--header-tool-duration) ease-out,
+      visibility var(--header-tool-duration);
+  }
+}
+
+.branch-plaza .branch-bridge {
+  aspect-ratio: 96 / 34;
+}
+.branch-road-node[data-road-role='plaza'] img {
+  aspect-ratio: 96 / 72;
+}
+
+@media (pointer: coarse) {
+  .branch-road-node[data-road-role='road'],
+  .branch-road-more {
+    width: min(100%, var(--map-hit-size));
+    height: var(--map-hit-size);
+  }
+}
+
+@media (any-pointer: coarse) {
+  button {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /* Keep the press tint behind the icon and separate from selection outlines. */
+  button[data-touch-pressed]:not(:disabled, .header-bookmark),
+  .header-bookmark[data-touch-pressed]:enabled .header-bookmark-face {
+    --press-fill: var(
+      --tap-press-fill,
+      color-mix(in srgb, var(--gold) 14%, transparent)
+    );
+    background-image: linear-gradient(var(--press-fill), var(--press-fill));
+  }
+}
+
+.issue-history > summary {
+  padding: 6px 0;
+  color: var(--gold);
+  cursor: pointer;
+}
+.issue-history[open] > summary {
+  margin-bottom: 6px;
+}
+.issue-dialog .activity-entry {
+  overflow-wrap: anywhere;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  [data-display-mode='simple']
+    .map-viewport
+    :is(.adventurer-glyph.active .adventurer-avatar, .working-party-leader) {
+    animation: forge-test 1.6s ease-in-out infinite !important;
+  }
+}
