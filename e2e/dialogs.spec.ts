@@ -242,6 +242,7 @@ test.describe('상세 창', () => {
             .getByRole('dialog', { name: '이슈 #2' })
             .getByRole('button', { name: '닫기' })
             .click();
+          await plaza.getByRole('button', { name: '닫기' }).click();
           await page.getByTitle(/^왕궁 · /).click();
           const palace = page.getByRole('dialog', { name: repo, exact: true });
           await expect(palace).toBeVisible();
