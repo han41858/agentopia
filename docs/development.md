@@ -33,7 +33,7 @@ npm run test:ui
 
 화면에 새 동작을 추가하면 해당 흐름의 테스트를 함께 추가합니다. 요청이 없어야 함을 확인할 때는 뒤이은 요청이 도착한 다음에 요청 기록을 비교합니다.
 
-PR과 `dev` 푸시에서는 [CI](../.github/workflows/ci.yml)의 **UI test** 작업이 [변경 경로](../.github/scripts/ui_test_scope.py)를 보고, 화면에 영향을 주는 파일(`src/`, `server/`, `api/`, `assets/`, `e2e/`, 빌드 설정)이 바뀐 경우에만 브라우저 테스트를 실행합니다. 그 밖의 변경에서는 테스트 단계를 건너뛰고 성공으로 끝납니다. **Test and build**와 같은 워크플로이므로 AI completion은 두 작업이 모두 통과한 뒤에 머지합니다.
+`dev` 또는 `main` 대상 PR과 `dev` 푸시에서는 [CI](../.github/workflows/ci.yml)의 **UI test** 작업이 [변경 경로](../.github/scripts/ui_test_scope.py)를 보고, 화면에 영향을 주는 파일(`src/`, `server/`, `api/`, `assets/`, `e2e/`, 빌드 설정)이 바뀐 경우에만 브라우저 테스트를 실행합니다. 그 밖의 변경에서는 테스트 단계를 건너뛰고 성공으로 끝납니다. **Test and build**와 같은 워크플로이므로 AI completion은 두 작업이 모두 통과한 뒤에 머지합니다.
 
 ## Vercel 배포
 
