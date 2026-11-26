@@ -26,7 +26,7 @@ export const simpleSprites = {
     '<rect x="28" y="16" width="40" height="40" rx="3"/>',
     '0 0 96 72',
   ),
-  moatBridge: symbol('<path d="M48 0v34" fill="none"/>', '0 0 96 34'),
+  moatBridge: symbol('<path d="M48 0v28" fill="none"/>', '0 0 96 28'),
   monster: symbol(
     '<circle cx="24" cy="24" r="18" fill="#384353" stroke="#c1b4c8"/>',
   ),
