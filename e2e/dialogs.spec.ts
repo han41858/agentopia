@@ -337,14 +337,16 @@ test.describe('상세 창', () => {
 
   for (const mode of ['world', 'simple'] as const) {
     for (const length of ['짧은', '긴'] as const) {
-      test(`이슈 제목: ${mode} 모드에서 ${length} 제목을 팝업 중앙에 정렬한다`, async ({
+      test(`이슈 제목: ${mode} 모드에서 ${length} 제목을 본문 왼쪽에 정렬한다`, async ({
         page,
       }) => {
         const report = structuredClone(alphaReport);
         const quest = report.quests.find(({ number }) => number === 1)!;
-        if (length === '긴') {
-          quest.title = `Map layout regression: ${'WideIdentifier'.repeat(14)}`;
-        }
+        quest.reason = '지도 개편 작업을 진행하고 있습니다.';
+        quest.title =
+          length === '긴'
+            ? `✨ Map layout regression: ${'WideIdentifier'.repeat(14)}`
+            : `✨ ${quest.title}`;
         await mockGitHub(page);
         await seedSettings(page, [alpha], mode);
         await page.route('**/api/github?**', (route) => {
@@ -370,16 +372,17 @@ test.describe('상세 창', () => {
           { width: 320, height: 720 },
         ]) {
           await page.setViewportSize(viewport);
-          await expect(heading).toHaveCSS('text-align', 'center');
+          await expect(heading).toHaveCSS('text-align', 'left');
           const geometry = await heading.evaluate((node) => {
             const body = node.closest('.dialog-body')!;
             const popup = node.closest('dialog')!.getBoundingClientRect();
-            const title = node.getBoundingClientRect();
+            const reason = body.querySelector('.reason')!;
+            const content = reason.getBoundingClientRect();
             const range = document.createRange();
             range.selectNodeContents(node);
             return {
               popup: { left: popup.left, right: popup.right },
-              title: { left: title.left, right: title.right },
+              content: { left: content.left, right: content.right },
               bodyWidth: body.clientWidth,
               bodyScrollWidth: body.scrollWidth,
               lines: Array.from(range.getClientRects(), ({ left, right }) => ({
@@ -393,12 +396,13 @@ test.describe('상세 창', () => {
             contentType: 'application/json',
           });
 
-          const { popup, title, lines, bodyWidth, bodyScrollWidth } = geometry;
+          const { popup, content, lines, bodyWidth, bodyScrollWidth } =
+            geometry;
           expect(popup.left).toBeGreaterThanOrEqual(0);
           expect(popup.right).toBeLessThanOrEqual(viewport.width);
           expect(bodyScrollWidth).toBeLessThanOrEqual(bodyWidth);
-          const leftInset = title.left - popup.left;
-          const rightInset = popup.right - title.right;
+          const leftInset = content.left - popup.left;
+          const rightInset = popup.right - content.right;
           expect(leftInset).toBeGreaterThan(0);
           expect(rightInset).toBeGreaterThan(0);
           expect(Math.abs(leftInset - rightInset)).toBeLessThan(1);
@@ -407,13 +411,9 @@ test.describe('상세 창', () => {
           } else {
             expect(lines.length).toBeGreaterThan(1);
           }
-          const center = (popup.left + popup.right) / 2;
           for (const line of lines) {
-            expect(
-              Math.abs((line.left + line.right) / 2 - center),
-            ).toBeLessThan(1);
-            expect(line.left).toBeGreaterThanOrEqual(title.left - 1);
-            expect(line.right).toBeLessThanOrEqual(title.right + 1);
+            expect(Math.abs(line.left - content.left)).toBeLessThan(1);
+            expect(line.right).toBeLessThanOrEqual(content.right + 1);
           }
         }
 

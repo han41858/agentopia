@@ -77,7 +77,7 @@
   scrollbar-gutter: stable both-edges;
 }
 .issue-dialog .issue-title {
-  text-align: center;
+  text-align: left;
   overflow-wrap: anywhere;
   line-height: 1.4;
 }
