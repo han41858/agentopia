@@ -60,14 +60,14 @@ async function detailAlignment(dialog: Locator) {
 }
 
 test.describe('상세 창', () => {
-  for (const mode of ['world', 'simple']) {
+  for (const mode of ['world', 'simple'] as const) {
     for (const width of [1280, 320]) {
       test(`공통 머리글과 본문 기준선: ${mode}, ${width}px`, async ({
         page,
       }, testInfo) => {
         await page.setViewportSize({ width, height: 720 });
         await mockGitHub(page);
-        await seedSettings(page, [alpha]);
+        await seedSettings(page, [alpha], mode);
         const report = structuredClone(alphaReport);
         const pull = report.forges!.find(({ number }) => number === 12)!;
         const issue = report.quests.find(({ number }) => number === 2)!;
@@ -81,26 +81,29 @@ test.describe('상세 창', () => {
             number: 100 + index,
           })),
         );
-        await page.route('**/api/github?**', async (route) => {
+        await page.route('**/api/github?**', (route) => {
           const params = new URL(route.request().url()).searchParams;
-          if (params.get('repo') === alpha && params.has('branches'))
-            await route.fulfill({ json: report });
-          else await route.fallback();
+          if (
+            params.get('repo') !== alpha ||
+            ['summary', 'activity', 'heritage', 'repository', 'owner'].some(
+              (key) => params.has(key),
+            )
+          )
+            return route.fallback();
+          return route.fulfill({ json: report });
         });
         await page.goto('/');
         await settled(page);
-        const simple = page.getByRole('button', { name: '간단 모드' });
-        if (mode === 'simple') await simple.click();
-        await expect(simple).toHaveAttribute(
-          'aria-pressed',
-          String(mode === 'simple'),
+        await expect(page.locator('[data-display-mode]')).toHaveAttribute(
+          'data-display-mode',
+          mode,
         );
 
         await page.getByRole('button', { name: /^개발 광장/ }).click();
         const plaza = page.getByRole('dialog', { name: '개발 광장' });
         const plazaHeading = plaza.getByRole('heading', { level: 2 });
         const plazaSection = plaza.getByRole('heading', { name: '작업중' });
-        const plazaRow = plaza.getByRole('button', { name: /^PR #12 / });
+        const plazaRow = plaza.getByRole('button', { name: /\bPR #12\b/ });
         await expect(plazaRow).toBeVisible();
         const headerStyle = await detailTextStyle(plazaHeading);
         const sectionStyle = await detailTextStyle(plazaSection);
@@ -111,9 +114,9 @@ test.describe('상세 창', () => {
           .getByRole('region', { name: '작업 이력' })
           .getByRole('list');
         await historyList.getByRole('button').last().scrollIntoViewIfNeeded();
-        expect(
-          await historyList.evaluate((node) => node.scrollTop),
-        ).toBeGreaterThan(0);
+        await expect
+          .poll(() => historyList.evaluate((node) => node.scrollTop))
+          .toBeGreaterThan(0);
         await expect(plazaHeading).toBeInViewport();
         await expect(
           plaza.getByRole('button', { name: '닫기' }),

@@ -93,10 +93,13 @@
 .detail-dialog .dialog-heading,
 .detail-dialog .dialog-body {
   padding-inline: var(--detail-inset);
+  scrollbar-gutter: stable both-edges;
+}
+.detail-dialog .dialog-heading {
+  /* Match the scrollable body's gutters without showing a scrollbar. */
+  overflow: hidden;
 }
 .detail-dialog .dialog-body {
-  /* Only reserve space at the end; the header and body share the start edge. */
-  scrollbar-gutter: stable;
   font-size: 13px;
   line-height: 1.6;
 }
