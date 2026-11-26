@@ -1,0 +1,533 @@
+.map-viewport {
+  --map-scale: 1;
+  --map-hit-size: calc(44px / var(--map-scale));
+  zoom: var(--map-scale);
+  grid-template-columns: minmax(0, 1fr);
+  display: grid;
+  grid-auto-rows: max-content;
+  align-content: start;
+  padding: 14px clamp(12px, 4vw, 44px) 18px;
+}
+.kingdoms {
+  width: 100%;
+  margin-inline: auto;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: center;
+  gap: clamp(12px, 2vw, 24px) clamp(12px, 2vw, 18px);
+}
+.kingdom-area {
+  --courtyard: color-mix(in oklch, var(--land) 20%, transparent);
+  --mortar: color-mix(in srgb, var(--land) 32%, #16242a);
+  --stone: color-mix(in srgb, var(--land) 67%, #5f6a71);
+  position: relative;
+  isolation: isolate;
+  width: max-content;
+  min-width: min(100%, 162px);
+  max-width: min(100%, 720px);
+  padding: 25px clamp(22px, 5vw, 44px) 34px;
+}
+.kingdom-wall {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  transform-origin: center top;
+}
+.kingdom-wall-masonry {
+  fill: var(--courtyard);
+  stroke: var(--mortar);
+  stroke-width: 6px;
+}
+.kingdom-wall-crenels {
+  fill: none;
+  stroke: var(--stone);
+  stroke-width: 14px;
+  stroke-dasharray: 10 8;
+}
+.kingdom-wall-edge {
+  fill: none;
+  stroke: var(--stone);
+  stroke-width: 2px;
+}
+.kingdom {
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+  max-width: 100%;
+  margin-inline: auto;
+  padding: 3px 8px;
+  border: 0;
+  border-radius: 5px;
+  background: none;
+  color: var(--accent);
+  text-align: center;
+}
+.kingdom-label {
+  /* Use the palace sprite's transparent foot without shrinking the button. */
+  position: relative;
+  inset-block-start: -8px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.kingdom-label strong {
+  font: 800 clamp(14px, 2.4vw, 20px) var(--display);
+}
+.expeditions,
+.guild-parties {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  padding: 0;
+  margin: 7px 0 0;
+  list-style: none;
+}
+.expeditions > li,
+.guild-parties > li {
+  flex: 0 0 auto;
+  min-inline-size: 53px;
+  max-width: 100%;
+}
+.expeditions > .guild-branch,
+.guild-parties > .guild-branch {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+}
+.guild-branch > .expedition {
+  width: auto;
+}
+.guild-parties {
+  margin: 0;
+  justify-content: center;
+  max-width: 100%;
+}
+.expedition {
+  position: relative;
+  width: 100%;
+  display: grid;
+  justify-items: center;
+  align-content: start;
+  gap: 3px;
+  padding: 5px 2px;
+  border: 0;
+  border-radius: 6px;
+  color: var(--accent);
+  background: transparent;
+}
+.party-pulse {
+  position: absolute;
+  inset: 1px;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--accent) 27%, transparent);
+  opacity: 0;
+  pointer-events: none;
+  animation: party-pulse 750ms ease-out 2;
+}
+@keyframes party-pulse {
+  35% {
+    opacity: 1;
+  }
+}
+.expedition.blocked {
+  --accent: #ffb4aa;
+  box-shadow: inset 0 0 0 1px #bd6c60;
+}
+.expedition.closed-issue {
+  --accent: #bbc8d3;
+}
+.monster-glyph {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  min-width: 27px;
+  min-height: 27px;
+  color: var(--accent, #eec781);
+}
+.monster-glyph.boss {
+  min-width: 33px;
+  min-height: 34px;
+}
+.monster-glyph.defeated {
+  color: #b7c1ca;
+  opacity: 0.58;
+}
+.monster-marker.boss-marker {
+  width: max-content;
+  min-width: min(53px, 100%);
+  max-width: 100%;
+}
+.adventurer-party,
+.adventurer {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 3px;
+}
+.adventurer-glyph {
+  display: inline-grid;
+  position: relative;
+  place-items: center;
+}
+.adventurer-glyph:not(.active) .adventurer-avatar {
+  opacity: 0.67;
+}
+.adventurer-glyph.fallen .adventurer-avatar {
+  transform: rotate(-70deg) scale(0.8);
+  filter: grayscale(0.75);
+}
+.adventurer-glyph.develop .adventurer-avatar,
+.adventurer-glyph.develop .adventurer-role {
+  animation: attack 1.7s ease-in-out infinite;
+}
+.adventurer-glyph.review .adventurer-role {
+  animation: read-scroll 1.8s ease-in-out infinite;
+}
+.adventurer-glyph.review .adventurer-avatar {
+  animation: review-nod 1.8s ease-in-out infinite;
+}
+@keyframes review-nod {
+  45% {
+    transform: translateY(1px) rotate(6deg);
+  }
+}
+@keyframes attack {
+  35% {
+    transform: translate(-2px, 1px);
+  }
+  48% {
+    transform: translate(3px, -3px) rotate(-12deg);
+  }
+}
+@keyframes read-scroll {
+  45% {
+    transform: translateY(-3px) scale(1.2);
+  }
+}
+.adventurer-glyph.codex {
+  color: #9de6c3;
+}
+.adventurer-glyph.claude {
+  color: #ffb38e;
+}
+.adventurer-glyph.fallen {
+  color: #ffb4aa;
+}
+.adventurer-role {
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  background: #15212f;
+  border-radius: 2px;
+}
+.expedition .adventurer-party {
+  flex-wrap: nowrap;
+}
+.adventurer-party.detailed {
+  gap: 8px;
+  justify-content: flex-start;
+}
+.adventurer-party.detailed .adventurer {
+  gap: 7px;
+  padding: 6px;
+  border: 1px solid #4e3b5b;
+  border-radius: 6px;
+}
+.adventurer-party.detailed strong,
+.adventurer-party.detailed small {
+  display: block;
+  font-size: 11px;
+}
+.adventurer-party.detailed small {
+  color: #bdabd1;
+}
+.monster-statuses {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.expedition-number {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.monster-statuses:empty,
+.activity-counters:empty {
+  display: none;
+}
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.activity-counters {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 3px;
+  font-size: 10px;
+  color: #e3eacb;
+}
+.activity-counter {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 1px 3px;
+  border-radius: 3px;
+  background: #14251f;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.activity-browser {
+  margin-block: 6px;
+}
+.activity-browser .activity-counters {
+  justify-content: flex-start;
+}
+.activity-browser .activity-counter {
+  min-width: 32px;
+  min-height: 28px;
+  justify-content: center;
+}
+.activity-browser .activity-counter[aria-expanded='true'] {
+  outline: 1px solid currentColor;
+}
+.activity-entry {
+  padding-block: 5px;
+  border-bottom: 1px solid #526043;
+}
+.activity-entry p {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.expedition small {
+  font-size: 10px;
+}
+.expedition-legend {
+  display: grid;
+  gap: 7px;
+  padding: 0;
+  margin: 0;
+  font-size: 11px;
+}
+.expedition-legend li {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.expedition-legend .actions {
+  color: #9ad9ff;
+}
+.expedition-legend .codex {
+  color: #a5e1bc;
+}
+.expedition-legend .claude {
+  color: #ffbf9e;
+}
+.refresh-button,
+.header-bookmark-face {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+  border: 1px solid #405361;
+  border-radius: 7px;
+  background: #15212f;
+  color: #f2cd93;
+}
+@media (hover: hover) {
+  .refresh-button:hover,
+  .header-bookmark:hover .header-bookmark-face {
+    border-color: var(--gold);
+  }
+}
+.header-bookmark {
+  /* Keep the shared countdown running across breakpoint and disclosure changes. */
+  position: absolute;
+  visibility: hidden;
+  flex: none;
+  border: 0;
+  background: none;
+}
+.refresh-button[data-warning='true'] {
+  color: #ffb6ad;
+}
+.refresh-fill {
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  pointer-events: none;
+  background: #536044;
+  transform: scaleY(0);
+  transform-origin: bottom;
+  animation: refresh-fill linear forwards;
+}
+@keyframes refresh-fill {
+  to {
+    transform: scaleY(1);
+  }
+}
+
+.panel {
+  border: 1px solid var(--rim);
+  border-radius: 12px;
+  background: var(--panel);
+}
+.icon-button {
+  display: inline-grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 6px;
+  border: 1px solid #514060;
+  background: #281e38;
+  color: #e3cce9;
+}
+.icon-button:hover {
+  border-color: var(--gold);
+}
+.text-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  font-size: 12px;
+  background: none;
+  border: 0;
+  padding: 5px 0;
+  color: #f2cd93;
+}
+.text-button:hover {
+  color: #fff1ca;
+}
+.work-list-button {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  width: max-content;
+  margin: 0 auto 4px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--mortar);
+}
+.quest-tree,
+.quest-tree ul {
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 6px;
+}
+.quest-tree ul {
+  margin: 7px 0 0 18px;
+  padding-left: 11px;
+  border-left: 1px solid #6a5076;
+}
+.quest-row {
+  width: 100%;
+  text-align: left;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  background: #241b35;
+  border: 1px solid #423350;
+  border-radius: 7px;
+}
+.quest-row:hover {
+  border-color: #977045;
+}
+.quest-row-title {
+  display: grid;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+}
+.quest-row strong {
+  overflow-wrap: anywhere;
+}
+.quest-row small {
+  color: #bdadc9;
+}
+.release-history {
+  display: grid;
+  grid-template-columns: max-content max-content minmax(0, 1fr);
+  column-gap: 6px;
+}
+.release-row {
+  display: grid;
+  grid-template-columns: subgrid;
+  grid-column: 1 / -1;
+  align-items: center;
+  padding-block: 6px;
+  border-bottom: 1px solid #40324f;
+  color: inherit;
+  text-decoration: none;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.release-row .badge {
+  padding: 2px 5px;
+}
+.release-name {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  color: var(--gold);
+}
+.release-row:hover .release-name,
+.release-row:focus-visible .release-name {
+  text-decoration: underline;
+}
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  width: fit-content;
+  padding: 4px 8px;
+  border: 1px solid #5c4a66;
+  border-radius: 6px;
+  color: #d5c6e2;
+  background: #32253f;
+  font-size: 11px;
+  white-space: nowrap;
+}
+.badge.developing,
+.badge.revising,
+.badge.deploying,
+.badge.complete {
+  color: #abe2b4;
+  background: #233b37;
+  border-color: #42685d;
+}
+.badge.reviewing,
+.badge.merging {
+  color: #e7beff;
+  background: #3d2856;
+  border-color: #694c87;
+}
+.badge.ci {
+  color: #aad9fc;
+  background: #253752;
+  border-color: #4c678e;
+}
+.badge.failed,
+.badge.attention {
+  color: #ffb6ad;
+  background: #4b2736;
+  border-color: #93505b;
+}
+.badge.queued {
+  color: #fae0a5;
+  background: #443445;
+  border-color: #796047;
+}
