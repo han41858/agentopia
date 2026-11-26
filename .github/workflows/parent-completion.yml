@@ -34,14 +34,21 @@ jobs:
           ISSUE: ${{ inputs.issue || github.event.issue.number }}
           MODE: ${{ inputs.mode || 'child' }}
         run: |
+          child="—"
+          closed_at="—"
           if [[ "$MODE" == "child" ]]; then
-            ISSUE=$(gh api graphql -F number="$ISSUE" -f query='
+            child="$ISSUE"
+            snapshot=$(gh api graphql -F number="$ISSUE" -f query='
               query($number:Int!) {
                 repository(owner:"han41858",name:"agentopia") {
-                  issue(number:$number) { parent { number repository { nameWithOwner } } }
+                  issue(number:$number) { closedAt parent { number repository { nameWithOwner } } }
                 }
-              }' --jq '.data.repository.issue.parent | select(.repository.nameWithOwner == "han41858/agentopia") | .number')
+              }' --jq '.data.repository.issue')
+            ISSUE=$(jq -r '.parent | select(.repository.nameWithOwner == "han41858/agentopia") | .number' <<< "$snapshot")
+            closed_at=$(jq -r '.closedAt // "—"' <<< "$snapshot")
           fi
+          printf '이벤트 `%s` · 자식 `%s` · 부모 `%s` · 자식 종료 시각 `%s` (조회 시점)\n' \
+            "$GITHUB_EVENT_NAME" "$child" "${ISSUE:-—}" "$closed_at" >> "$GITHUB_STEP_SUMMARY"
           echo "issue=$ISSUE" >> "$GITHUB_OUTPUT"
       - if: steps.target.outputs.issue != ''
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
