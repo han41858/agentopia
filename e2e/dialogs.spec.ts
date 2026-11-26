@@ -41,16 +41,20 @@ async function detailTextStyle(locator: Locator) {
 
 async function detailAlignment(dialog: Locator) {
   return dialog.evaluate((node) => {
-    const header = node.querySelector('.dialog-heading h2')!;
+    const heading = node.querySelector('.dialog-heading h2')!;
+    const header = heading.querySelector('.dialog-title-link') ?? heading;
     const body = node.querySelector('.dialog-body')!;
     const first = body.querySelector('h3, h4')!;
+    const popupBox = node.getBoundingClientRect();
     const headerBox = header.getBoundingClientRect();
     const bodyBox = body.getBoundingClientRect();
     const firstBox = first.getBoundingClientRect();
     return {
+      popupWidth: popupBox.width,
       headerX: headerBox.left,
       headerY: headerBox.top,
       firstX: firstBox.left,
+      firstRight: firstBox.right,
       firstY: firstBox.top - bodyBox.top + body.scrollTop,
       firstHeight: firstBox.height,
       scrollHeight: body.scrollHeight,
@@ -150,7 +154,8 @@ test.describe('상세 창', () => {
             name: 'GitHub Actions 실행 목록',
           });
           await expect(section).toBeVisible();
-          expect(await detailTextStyle(heading)).toEqual(headerStyle);
+          const headerLink = heading.getByRole('link');
+          expect(await detailTextStyle(headerLink)).toEqual(headerStyle);
           expect(await detailTextStyle(title)).toEqual(titleStyle);
           expect(await detailTextStyle(section)).toEqual(sectionStyle);
           expect(
@@ -162,8 +167,10 @@ test.describe('상세 창', () => {
           await expect(title).toHaveCSS('text-align', 'left');
 
           const box = await detailAlignment(dialog);
+          expect(box.popupWidth).toBeCloseTo(plazaBox.popupWidth, 0);
           expect(box.headerX).toBeCloseTo(plazaBox.headerX, 0);
           expect(box.firstX).toBeCloseTo(box.headerX, 0);
+          expect(box.firstRight).toBeCloseTo(plazaBox.firstRight, 0);
           expect(box.firstY).toBeCloseTo(plazaBox.firstY, 0);
           expect(box.firstHeight).toBeGreaterThan(
             2 * parseFloat(titleStyle.lineHeight),

@@ -98,6 +98,21 @@
 .detail-dialog .dialog-heading {
   /* Match the scrollable body's gutters without showing a scrollbar. */
   overflow: hidden;
+  gap: 6px;
+}
+.detail-dialog .dialog-heading .dialog-title-link {
+  font: inherit;
+  color: inherit;
+}
+@media (max-width: 420px) {
+  .detail-dialog {
+    width: calc(100% - 12px);
+    max-width: calc(100% - 12px);
+  }
+  .detail-dialog .dialog-heading,
+  .detail-dialog .dialog-heading .dialog-title-link {
+    gap: 3px;
+  }
 }
 .detail-dialog .dialog-body {
   font-size: 13px;

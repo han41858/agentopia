@@ -505,7 +505,6 @@
 :is(.issue-dialog, .pull-dialog) .dialog-heading {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
-  gap: 6px;
 }
 :is(.issue-dialog, .pull-dialog) .activity-counters {
   justify-content: flex-start;
@@ -546,20 +545,8 @@
   outline: 1px solid currentColor;
 }
 @media (max-width: 420px) {
-  :is(.issue-dialog, .pull-dialog) {
-    width: calc(100% - 12px);
-    max-width: calc(100% - 12px);
-  }
-  :is(.issue-dialog, .pull-dialog) .dialog-heading {
-    gap: 3px;
-    padding-inline: 4px;
-  }
   :is(.issue-dialog, .pull-dialog) .activity-counters {
     gap: 0;
-  }
-  :is(.issue-dialog, .pull-dialog) .dialog-title-link {
-    gap: 3px;
-    font-size: 18px;
   }
 }
 
